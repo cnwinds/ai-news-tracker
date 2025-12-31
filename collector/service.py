@@ -6,6 +6,8 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any
 from pathlib import Path
 import logging
+from time import sleep
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
@@ -81,10 +83,10 @@ class CollectionService:
         if task_id:
             self._update_task_progress(db, task_id, stats)
 
-        # 3. AI分析
+        # 3. AI分析（按时间从新到旧，只分析最近3天的文章）
         if enable_ai_analysis and self.ai_analyzer:
-            logger.info("\n🤖 开始AI分析")
-            ai_stats = self._analyze_articles(db)
+            logger.info("\n🤖 开始AI分析（按时间从新到旧，只分析最近3天的文章）")
+            ai_stats = self._analyze_articles(db, batch_size=50, max_age_days=3, max_workers=3)
             stats.update(ai_stats)
             
             # 实时更新任务状态
@@ -101,6 +103,84 @@ class CollectionService:
         logger.info(f"   耗时: {stats['duration']:.2f}秒")
 
         return stats
+
+    def _fetch_articles_full_content(self, articles: List[Dict[str, Any]], source_name: str, max_workers: int = 3) -> List[Dict[str, Any]]:
+        """
+        并发获取文章的完整内容
+        
+        Args:
+            articles: 文章列表
+            source_name: 源名称
+            max_workers: 最大并发数，默认3（避免对单个网站压力过大）
+        
+        Returns:
+            更新后的文章列表
+        """
+        # 筛选需要获取完整内容的文章（blog文章）
+        articles_to_fetch = [
+            article for article in articles 
+            if article.get("category") == "rss" and article.get("url")
+        ]
+        
+        if not articles_to_fetch:
+            return articles
+        
+        logger.info(f"  📄 开始并发获取 {len(articles_to_fetch)} 篇文章的完整内容（最大并发数: {max_workers}）")
+        
+        # 并发获取完整内容
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # 提交所有任务
+            future_to_article = {
+                executor.submit(self.rss_collector.fetch_full_content, article["url"]): article
+                for article in articles_to_fetch
+            }
+            
+            # 收集结果
+            completed = 0
+            for future in as_completed(future_to_article):
+                article = future_to_article[future]
+                completed += 1
+                
+                try:
+                    full_content = future.result()
+                    if full_content:
+                        article["content"] = full_content
+                        logger.info(f"  ✅ [{completed}/{len(articles_to_fetch)}] 已获取完整内容: {article['title'][:50]}...")
+                    else:
+                        logger.warning(f"  ⚠️  [{completed}/{len(articles_to_fetch)}] 无法获取完整内容，使用RSS摘要: {article['title'][:50]}...")
+                except Exception as e:
+                    logger.warning(f"  ⚠️  [{completed}/{len(articles_to_fetch)}] 获取完整内容失败: {article['title'][:50]}... - {e}")
+        
+        logger.info(f"  ✅ 完整内容获取完成: {len(articles_to_fetch)} 篇文章")
+        return articles
+
+    def _fix_source_by_feed_title(self, db, session, feed_title: str, correct_source_name: str):
+        """
+        根据feed title修正数据库中文章的source字段
+        
+        Args:
+            db: 数据库管理器
+            session: 数据库会话
+            feed_title: RSS feed的title
+            correct_source_name: 正确的订阅源名称
+        """
+        try:
+            # 查找source字段等于feed_title的文章
+            articles_to_fix = session.query(Article).filter(
+                Article.source == feed_title
+            ).all()
+            
+            if articles_to_fix:
+                fixed_count = 0
+                for article in articles_to_fix:
+                    article.source = correct_source_name
+                    fixed_count += 1
+                
+                session.commit()
+                logger.info(f"  🔧 已修正 {fixed_count} 篇文章的source字段: '{feed_title}' -> '{correct_source_name}'")
+        except Exception as e:
+            logger.warning(f"  ⚠️  修正source字段失败: {e}")
+            session.rollback()
 
     def _update_task_progress(self, db, task_id: int, stats: Dict[str, Any]):
         """更新任务进度"""
@@ -158,10 +238,27 @@ class CollectionService:
 
         # 更新数据库中的统计信息
         with db.get_session() as session:
-            for source_name, articles in results.items():
+            for source_name, feed_result in results.items():
                 try:
-                    new_count = 0
+                    articles = feed_result.get("articles", [])
+                    feed_title = feed_result.get("feed_title")
+                    
+                    # 如果feed title与订阅源名称不一致，修正数据库中已有的文章
+                    if feed_title and feed_title != source_name:
+                        self._fix_source_by_feed_title(db, session, feed_title, source_name)
+                    
+                    # 确保使用正确的source名称
                     for article in articles:
+                        article["source"] = source_name
+                    
+                    # 并发获取完整内容（仅对blog文章）
+                    articles_with_full_content = self._fetch_articles_full_content(
+                        articles, source_name, max_workers=3
+                    )
+                    
+                    # 保存文章
+                    new_count = 0
+                    for article in articles_with_full_content:
                         if self._save_article(db, article):
                             new_count += 1
 
@@ -260,10 +357,12 @@ class CollectionService:
                     return False
 
                 # 创建新文章
+                # 对于完整内容，不限制长度（使用Text类型可以存储大量文本）
+                content = article.get("content", "")
                 new_article = Article(
                     title=article.get("title"),
                     url=article.get("url"),
-                    content=article.get("content", "")[:10000],  # 限制长度
+                    content=content,  # 不限制长度，使用Text类型
                     source=article.get("source"),
                     category=article.get("category"),
                     author=article.get("author"),
@@ -280,53 +379,136 @@ class CollectionService:
             logger.error(f"❌ 保存文章失败: {e}")
             return False
 
-    def _analyze_articles(self, db, batch_size: int = 50) -> Dict[str, Any]:
-        """AI分析未分析的文章"""
-        stats = {"analyzed_count": 0, "analysis_error": 0}
+    def _analyze_articles(self, db, batch_size: int = 50, max_age_days: int = 3, max_workers: int = 3) -> Dict[str, Any]:
+        """
+        AI分析未分析的文章（并发）
+        
+        Args:
+            batch_size: 批次大小
+            max_age_days: 最大文章年龄（天数），超过此天数的文章不分析，默认3天
+            max_workers: 最大并发数，默认3
+        """
+        stats = {"analyzed_count": 0, "analysis_error": 0, "skipped_old": 0}
 
         with db.get_session() as session:
-            # 获取未分析的文章
+            # 计算时间阈值（只分析最近max_age_days天的文章）
+            from datetime import timedelta
+            time_threshold = datetime.now() - timedelta(days=max_age_days)
+            
+            # 获取未分析的文章（只分析最近的文章）
             unanalyzed = (
-                session.query(Article).filter(Article.is_processed == False).order_by(Article.published_at.desc()).limit(batch_size).all()
+                session.query(Article)
+                .filter(
+                    Article.is_processed == False,
+                    Article.published_at.isnot(None),
+                    Article.published_at >= time_threshold
+                )
+                .order_by(Article.published_at.desc())
+                .limit(batch_size)
+                .all()
             )
+            
+            # 统计跳过的旧文章
+            skipped_count = (
+                session.query(Article)
+                .filter(
+                    Article.is_processed == False,
+                    Article.published_at.isnot(None),
+                    Article.published_at < time_threshold
+                )
+                .count()
+            )
+            stats["skipped_old"] = skipped_count
 
             if not unanalyzed:
-                logger.info("  ✅ 没有需要AI分析的文章")
+                if skipped_count > 0:
+                    logger.info(f"  ✅ 没有需要AI分析的文章（跳过了 {skipped_count} 篇超过 {max_age_days} 天的旧文章）")
+                else:
+                    logger.info("  ✅ 没有需要AI分析的文章")
                 return stats
 
-            logger.info(f"  🤖 开始分析 {len(unanalyzed)} 篇文章")
+            logger.info(f"  🤖 开始并发分析 {len(unanalyzed)} 篇文章（按时间从新到旧排序，最大并发数: {max_workers}，跳过了 {skipped_count} 篇超过 {max_age_days} 天的旧文章）")
+            
+            # 显示将要分析的文章时间范围
+            if unanalyzed:
+                latest_date = unanalyzed[0].published_at
+                oldest_date = unanalyzed[-1].published_at
+                if latest_date and oldest_date:
+                    logger.info(f"  📅 分析时间范围: {oldest_date.strftime('%Y-%m-%d')} 至 {latest_date.strftime('%Y-%m-%d')}")
 
+            # 预先加载所有属性，避免在并发时出现DetachedInstanceError
             for article in unanalyzed:
+                _ = article.id
+                _ = article.title
+                _ = article.content
+                _ = article.source
+                _ = article.published_at
+            
+            session.expunge_all()
+
+            # 并发分析文章
+            def analyze_single_article(article):
+                """分析单篇文章（用于并发执行）"""
                 try:
-                    # 准备文章数据
-                    article_dict = {
-                        "title": article.title,
-                        "content": article.content,
-                        "source": article.source,
-                        "published_at": article.published_at,
-                    }
+                    # 为每个线程创建独立的数据库会话
+                    with db.get_session() as article_session:
+                        # 重新查询文章（避免DetachedInstanceError）
+                        article_obj = article_session.query(Article).filter(Article.id == article.id).first()
+                        if not article_obj or article_obj.is_processed:
+                            return {"success": False, "reason": "already_processed"}
+                        
+                        # 准备文章数据
+                        article_dict = {
+                            "title": article_obj.title,
+                            "content": article_obj.content,
+                            "source": article_obj.source,
+                            "published_at": article_obj.published_at,
+                        }
 
-                    # AI分析
-                    result = self.ai_analyzer.analyze_article(article_dict)
+                        # AI分析
+                        result = self.ai_analyzer.analyze_article(article_dict)
 
-                    # 更新文章
-                    article.summary = result.get("summary")
-                    article.topics = result.get("topics")
-                    article.tags = result.get("tags")
-                    article.importance = result.get("importance")
-                    article.target_audience = result.get("target_audience")
-                    article.key_points = result.get("key_points")
-                    article.is_processed = True
+                        # 更新文章
+                        article_obj.summary = result.get("summary")
+                        article_obj.topics = result.get("topics")
+                        article_obj.tags = result.get("tags")
+                        article_obj.importance = result.get("importance")
+                        article_obj.target_audience = result.get("target_audience")
+                        article_obj.key_points = result.get("key_points")
+                        article_obj.is_processed = True
 
-                    stats["analyzed_count"] += 1
-
+                        article_session.commit()
+                        return {"success": True, "article_id": article_obj.id}
+                        
                 except Exception as e:
                     logger.error(f"  ❌ 分析文章失败 (ID={article.id}): {e}")
-                    stats["analysis_error"] += 1
+                    return {"success": False, "error": str(e)}
 
-            session.commit()
+            # 使用线程池并发分析
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                future_to_article = {
+                    executor.submit(analyze_single_article, article): article
+                    for article in unanalyzed
+                }
+                
+                completed = 0
+                for future in as_completed(future_to_article):
+                    article = future_to_article[future]
+                    completed += 1
+                    
+                    try:
+                        result = future.result()
+                        if result.get("success"):
+                            stats["analyzed_count"] += 1
+                            if completed % 5 == 0 or completed == len(unanalyzed):
+                                logger.info(f"  ✅ [{completed}/{len(unanalyzed)}] AI分析进度")
+                        else:
+                            stats["analysis_error"] += 1
+                    except Exception as e:
+                        logger.error(f"  ❌ 分析文章异常 (ID={article.id}): {e}")
+                        stats["analysis_error"] += 1
 
-        logger.info(f"  ✅ AI分析完成: {stats['analyzed_count']} 篇")
+        logger.info(f"  ✅ AI分析完成: {stats['analyzed_count']} 篇成功, {stats['analysis_error']} 篇失败")
         return stats
 
     def _log_collection(self, db, source_name: str, source_type: str, status: str, count: int, error: str = None):

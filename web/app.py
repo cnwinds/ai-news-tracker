@@ -13,6 +13,7 @@ import sys
 import os
 import threading
 import time
+import logging
 from dotenv import load_dotenv
 
 # 加载环境变量
@@ -27,6 +28,9 @@ from database.models import Article, RSSSource, CollectionTask, CollectionLog
 from collector import CollectionService
 from analyzer.ai_analyzer import AIAnalyzer
 from sqlalchemy import or_
+
+# 配置日志
+logger = logging.getLogger(__name__)
 
 # 页面配置
 st.set_page_config(
@@ -68,6 +72,9 @@ def init_session_state():
     """初始化session state"""
     if "db" not in st.session_state:
         st.session_state.db = get_db()
+        
+        # 检查并修复中断的采集任务（只在首次初始化时执行一次）
+        _check_and_fix_interrupted_tasks(st.session_state.db)
 
     if "collector" not in st.session_state:
         # 如果配置了AI，初始化采集服务
@@ -91,6 +98,40 @@ def init_session_state():
         st.session_state.collection_stats = None
     if "collection_thread" not in st.session_state:
         st.session_state.collection_thread = None
+
+
+def _check_and_fix_interrupted_tasks(db):
+    """检查并修复中断的采集任务"""
+    try:
+        with db.get_session() as session:
+            # 查找所有状态为"running"的任务
+            running_tasks = session.query(CollectionTask).filter(
+                CollectionTask.status == "running"
+            ).all()
+            
+            if running_tasks:
+                logger.info(f"🔍 发现 {len(running_tasks)} 个中断的采集任务，正在修复...")
+                
+                for task in running_tasks:
+                    # 计算任务运行时长
+                    if task.started_at:
+                        elapsed = (datetime.now() - task.started_at).total_seconds()
+                        elapsed_hours = elapsed / 3600
+                        
+                        # 将状态改为error，并记录中断信息
+                        task.status = "error"
+                        task.error_message = f"程序启动时发现任务中断（已运行 {elapsed_hours:.1f} 小时）"
+                        task.completed_at = datetime.now()
+                        if not task.duration:
+                            task.duration = elapsed
+                        
+                        logger.info(f"  ✅ 已修复任务 ID={task.id}，开始时间: {task.started_at}")
+                
+                session.commit()
+                logger.info(f"✅ 已修复 {len(running_tasks)} 个中断的采集任务")
+    except Exception as e:
+        logger.error(f"❌ 检查中断任务失败: {e}")
+        # 不抛出异常，避免影响应用启动
 
 
 def render_header():
@@ -402,19 +443,10 @@ def render_collection_history():
     # 检查采集状态
     is_running = check_collection_status()
 
-    # 采集状态指示器和控制按钮
-    col1, col2, col3 = st.columns([2, 1, 1])
+    # 控制按钮
+    col1, col2 = st.columns([1, 1])
 
     with col1:
-        # 显示采集状态
-        if is_running:
-            st.info("🔄 " + st.session_state.collection_message)
-        elif st.session_state.collection_status == "completed":
-            st.success(st.session_state.collection_message)
-        elif st.session_state.collection_status == "error":
-            st.error(st.session_state.collection_message)
-
-    with col2:
         # 开始采集按钮
         if st.button(
             "🚀 开始采集" if not is_running else "⏸️ 采集中...",
@@ -442,14 +474,10 @@ def render_collection_history():
                 time.sleep(0.5)
                 st.rerun()
 
-    with col3:
+    with col2:
         # 手动刷新按钮
         if st.button("🔄 刷新", use_container_width=True, key="refresh_history"):
             st.rerun()
-
-    # 如果正在采集，显示刷新提示
-    if is_running:
-        st.caption("💡 采集进行中，点击「刷新」按钮查看最新进度")
 
     st.markdown("---")
 
@@ -796,6 +824,17 @@ def render_source_management():
         
         # 预先加载属性并查询最新文章日期
         source_latest_articles = {}
+        
+        # 先获取所有文章，按source分组，提高查询效率
+        all_articles_in_db = session.query(Article).all()
+        articles_by_source = {}
+        for article in all_articles_in_db:
+            if article.source:
+                source_key = article.source.strip()
+                if source_key not in articles_by_source:
+                    articles_by_source[source_key] = []
+                articles_by_source[source_key].append(article)
+        
         for source in sources:
             _ = source.id
             _ = source.name
@@ -809,12 +848,38 @@ def render_source_management():
             _ = source.articles_count
             
             # 查询该源最新文章的发布日期
-            latest_article = session.query(Article).filter(
-                Article.source == source.name
-            ).order_by(Article.published_at.desc()).first()
+            # 先尝试精确匹配
+            source_name_clean = source.name.strip()
+            all_articles = articles_by_source.get(source_name_clean, [])
             
-            if latest_article:
-                source_latest_articles[source.id] = latest_article.published_at
+            # 如果精确匹配没找到，尝试查找包含该名称的source
+            if not all_articles:
+                # 查找source名称包含订阅源名称的文章，或订阅源名称包含source的文章
+                for source_key, articles in articles_by_source.items():
+                    if source_name_clean.lower() in source_key.lower() or source_key.lower() in source_name_clean.lower():
+                        all_articles = articles
+                        break
+            
+            if all_articles:
+                # 找到有published_at的最新文章
+                articles_with_date = [a for a in all_articles if a.published_at]
+                if articles_with_date:
+                    # 按published_at排序，取最新的
+                    latest_article = max(articles_with_date, key=lambda x: x.published_at)
+                    source_latest_articles[source.id] = latest_article.published_at
+                    logger.debug(f"✅ 找到源 '{source.name}' 的最新文章，日期: {latest_article.published_at}")
+                else:
+                    # 如果没有published_at，使用collected_at
+                    latest_article = max(all_articles, key=lambda x: x.collected_at)
+                    source_latest_articles[source.id] = latest_article.collected_at
+                    logger.debug(f"✅ 找到源 '{source.name}' 的最新文章（使用collected_at），日期: {latest_article.collected_at}")
+            else:
+                # 调试：检查是否有相似名称的文章
+                similar_sources = [k for k in articles_by_source.keys() if source_name_clean.lower() in k.lower() or k.lower() in source_name_clean.lower()]
+                if similar_sources:
+                    logger.warning(f"⚠️  源 '{source.name}' 未找到文章，但发现相似名称: {similar_sources[:3]}")
+                else:
+                    logger.debug(f"ℹ️  源 '{source.name}' 暂无文章")
         
         session.expunge_all()
     
@@ -842,7 +907,12 @@ def render_source_management():
             else:
                 latest_date_only = latest_date_local
             
+            # 计算天数差（注意：如果文章日期在未来，days_ago会是负数）
             days_ago = (now_date - latest_date_only).days
+            
+            # 如果日期在未来（可能是时区问题或系统时间问题），显示为今天
+            if days_ago < 0:
+                days_ago = 0
             
             # 格式化日期显示
             if days_ago == 0:
@@ -866,6 +936,8 @@ def render_source_management():
                 date_str = latest_date_local.strftime('%Y-%m-%d')
             else:
                 date_str = str(latest_date_only)
+            
+            # 显示日期信息
             date_display = f"{date_status} {date_str} ({date_display})"
         else:
             date_display = "⚠️ 暂无文章"

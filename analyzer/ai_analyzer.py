@@ -85,10 +85,19 @@ class AIAnalyzer:
         content = article.get("content", "")
         source = article.get("source", "")
 
-        # 限制内容长度
-        max_content_length = 4000
+        # 对于完整内容，使用更大的长度限制（8000字符）
+        # 如果内容太长，截取前8000字符，但保留完整句子
+        max_content_length = 8000
         if len(content) > max_content_length:
-            content = content[:max_content_length] + "..."
+            # 尝试在句子边界截断
+            truncated = content[:max_content_length]
+            last_period = truncated.rfind('.')
+            last_newline = truncated.rfind('\n')
+            cut_point = max(last_period, last_newline)
+            if cut_point > max_content_length * 0.8:  # 如果截断点不太靠前
+                content = truncated[:cut_point + 1] + "..."
+            else:
+                content = truncated + "..."
 
         return f"""标题: {title}
 来源: {source}
@@ -99,16 +108,18 @@ class AIAnalyzer:
         """获取系统提示词"""
         return """你是一位AI研究领域的专家分析师。你的任务是分析AI相关的文章、论文和新闻，提供高质量的结构化分析。
 
+**重要要求：所有输出内容必须使用中文（简体中文）。**
+
 请按照JSON格式返回分析结果，包含以下字段：
 {
-  "summary": "3-5句话的核心总结，突出最重要的信息",
-  "key_points": ["关键点1", "关键点2", "关键点3", ...],
-  "topics": ["主题1", "主题2", ...],
+  "summary": "3-5句话的核心总结，突出最重要的信息（必须用中文）",
+  "key_points": ["关键点1", "关键点2", "关键点3", ...]（必须用中文）,
+  "topics": ["主题1", "主题2", ...]（可以用英文技术术语，但尽量用中文）,
   "importance": "high/medium/low",
   "target_audience": "researcher/engineer/general/entrepreneur/investor",
-  "tags": ["标签1", "标签2", ...],
+  "tags": ["标签1", "标签2", ...]（可以用英文技术术语，但尽量用中文）,
   "technical_depth": "introductory/intermediate/advanced",
-  "related_fields": ["相关领域1", "相关领域2", ...]
+  "related_fields": ["相关领域1", "相关领域2", ...]（必须用中文）
 }
 
 评估标准：
@@ -123,17 +134,19 @@ class AIAnalyzer:
   - entrepreneur: 面向创业者，包含商业应用
   - investor: 面向投资者，包含市场前景
 
-- topics: 大主题，如 ["NLP", "Computer Vision", "Reinforcement Learning", "AI Safety"]
+- topics: 大主题，如 ["自然语言处理", "计算机视觉", "强化学习", "AI安全"]
 
-- tags: 具体标签，如 ["GPT-4", "Transformer", "Fine-tuning", "LLM"]
+- tags: 具体标签，如 ["GPT-4", "Transformer", "微调", "大语言模型"]
 
-确保分析准确、简洁、有价值。"""
+**请确保所有文本内容（summary、key_points、related_fields等）都使用中文输出。技术术语可以保留英文，但描述性文字必须用中文。**"""
 
     def _get_user_prompt(self, content: str) -> str:
         """获取用户提示词"""
         return f"""请分析以下AI相关内容，返回结构化的JSON格式分析：
 
 {content}
+
+**重要：请使用中文（简体中文）输出所有文本内容，包括summary、key_points、related_fields等字段。技术术语可以保留英文，但描述性文字必须用中文。**
 
 请按照要求的JSON格式返回分析结果。"""
 
