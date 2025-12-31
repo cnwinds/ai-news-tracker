@@ -1,0 +1,169 @@
+{
+  "rss_sources": [
+    {
+      "name": "OpenAI Blog",
+      "url": "https://openai.com/blog/rss",
+      "category": "official_blog",
+      "enabled": true,
+      "language": "en",
+      "priority": 1
+    },
+    {
+      "name": "Google DeepMind",
+      "url": "https://deepmind.google/blog/rss/feed/",
+      "category": "official_blog",
+      "enabled": true,
+      "language": "en",
+      "priority": 1
+    },
+    {
+      "name": "Meta AI Blog",
+      "url": "https://ai.meta.com/blog/rss/",
+      "category": "official_blog",
+      "enabled": true,
+      "language": "en",
+      "priority": 1
+    },
+    {
+      "name": "Google AI Blog",
+      "url": "https://blog.google/technology/ai/rss/",
+      "category": "official_blog",
+      "enabled": true,
+      "language": "en",
+      "priority": 2
+    },
+    {
+      "name": "Microsoft Research Blog",
+      "url": "https://www.microsoft.com/en-us/research/blog/feed/",
+      "category": "official_blog",
+      "enabled": true,
+      "language": "en",
+      "priority": 2
+    },
+    {
+      "name": "MIT AI News",
+      "url": "https://news.mit.edu/topic/artificial-intelligence2/feed",
+      "category": "academic",
+      "enabled": true,
+      "language": "en",
+      "priority": 2
+    },
+    {
+      "name": "The Batch (DeepLearning.AI)",
+      "url": "https://www.deeplearning.ai/the-batch/feed/",
+      "category": "newsletter",
+      "enabled": true,
+      "language": "en",
+      "priority": 3
+    }
+  ],
+  "api_sources": [
+    {
+      "name": "arXiv CS.AI",
+      "url": "http://export.arxiv.org/api/query",
+      "category": "paper",
+      "enabled": true,
+      "query": "cat:cs.AI",
+      "max_results": 20,
+      "priority": 1
+    },
+    {
+      "name": "arXiv CS.LG",
+      "url": "http://export.arxiv.org/api/query",
+      "category": "paper",
+      "enabled": true,
+      "query": "cat:cs.LG",
+      "max_results": 20,
+      "priority": 1
+    },
+    {
+      "name": "arXiv CS.CL",
+      "url": "http://export.arxiv.org/api/query",
+      "category": "paper",
+      "enabled": true,
+      "query": "cat:cs.CL",
+      "max_results": 15,
+      "priority": 2
+    },
+    {
+      "name": "arXiv CS.CV",
+      "url": "http://export.arxiv.org/api/query",
+      "category": "paper",
+      "enabled": true,
+      "query": "cat:cs.CV",
+      "max_results": 15,
+      "priority": 2
+    },
+    {
+      "name": "Hugging Face Trending Papers",
+      "url": "https://huggingface.co/api/papers",
+      "category": "paper",
+      "enabled": true,
+      "endpoint": "/trending",
+      "max_results": 20,
+      "priority": 1
+    }
+  ],
+  "web_sources": [
+    {
+      "name": "Anthropic Research",
+      "url": "https://www.anthropic.com/research",
+      "category": "official_blog",
+      "enabled": true,
+      "language": "en",
+      "priority": 1,
+      "selector": "article"
+    },
+    {
+      "name": "Papers with Code Trending",
+      "url": "https://paperswithcode.com",
+      "category": "paper",
+      "enabled": true,
+      "endpoint": "/trending",
+      "priority": 2
+    }
+  ],
+  "social_sources": [
+    {
+      "name": "Yann LeCun Twitter",
+      "url": "https://twitter.com/ylecun",
+      "category": "social",
+      "enabled": false,
+      "platform": "twitter",
+      "priority": 3
+    },
+    {
+      "name": "Andrew Ng Twitter",
+      "url": "https://twitter.com/AndrewYNg",
+      "category": "social",
+      "enabled": false,
+      "platform": "twitter",
+      "priority": 3
+    },
+    {
+      "name": "Andrej Karpathy Twitter",
+      "url": "https://twitter.com/karpathy",
+      "category": "social",
+      "enabled": false,
+      "platform": "twitter",
+      "priority": 3
+    },
+    {
+      "name": "Reddit Machine Learning",
+      "url": "https://www.reddit.com/r/MachineLearning",
+      "category": "community",
+      "enabled": true,
+      "platform": "reddit",
+      "priority": 3
+    },
+    {
+      "name": "Hacker News AI",
+      "url": "https://news.ycombinator.com/",
+      "category": "community",
+      "enabled": true,
+      "platform": "hackernews",
+      "search_query": "AI",
+      "priority": 3
+    }
+  ]
+}
