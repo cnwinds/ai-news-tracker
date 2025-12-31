@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from collector.rss_collector import RSSCollector
 from collector.api_collector import ArXivCollector, HuggingFaceCollector, PapersWithCodeCollector
 from database import get_db
-from database.models import Article, CollectionLog
+from database.models import Article, CollectionLog, RSSSource
 from analyzer.ai_analyzer import AIAnalyzer
 
 logger = logging.getLogger(__name__)
@@ -41,12 +41,13 @@ class CollectionService:
             logger.error(f"❌ 加载配置文件失败: {e}")
             return {"rss_sources": [], "api_sources": [], "web_sources": [], "social_sources": []}
 
-    def collect_all(self, enable_ai_analysis: bool = True) -> Dict[str, Any]:
+    def collect_all(self, enable_ai_analysis: bool = True, task_id: int = None) -> Dict[str, Any]:
         """
         采集所有配置的数据源
 
         Args:
             enable_ai_analysis: 是否启用AI分析
+            task_id: 任务ID，用于实时更新任务状态
 
         Returns:
             采集统计信息
@@ -64,19 +65,31 @@ class CollectionService:
 
         # 1. 采集RSS源
         logger.info("\n📡 采集RSS源")
-        rss_stats = self._collect_rss_sources(db)
+        rss_stats = self._collect_rss_sources(db, task_id=task_id)
         stats.update(rss_stats)
+        
+        # 实时更新任务状态
+        if task_id:
+            self._update_task_progress(db, task_id, stats)
 
         # 2. 采集API源（arXiv, Hugging Face等）
         logger.info("\n📚 采集论文API源")
-        api_stats = self._collect_api_sources(db)
+        api_stats = self._collect_api_sources(db, task_id=task_id)
         stats.update(api_stats)
+        
+        # 实时更新任务状态
+        if task_id:
+            self._update_task_progress(db, task_id, stats)
 
         # 3. AI分析
         if enable_ai_analysis and self.ai_analyzer:
             logger.info("\n🤖 开始AI分析")
             ai_stats = self._analyze_articles(db)
             stats.update(ai_stats)
+            
+            # 实时更新任务状态
+            if task_id:
+                self._update_task_progress(db, task_id, stats)
 
         stats["end_time"] = datetime.now()
         stats["duration"] = (stats["end_time"] - stats["start_time"]).total_seconds()
@@ -89,36 +102,102 @@ class CollectionService:
 
         return stats
 
-    def _collect_rss_sources(self, db) -> Dict[str, Any]:
-        """采集RSS源"""
-        stats = {"sources_success": 0, "sources_error": 0}
+    def _update_task_progress(self, db, task_id: int, stats: Dict[str, Any]):
+        """更新任务进度"""
+        try:
+            from database.models import CollectionTask
+            with db.get_session() as session:
+                task = session.query(CollectionTask).filter(CollectionTask.id == task_id).first()
+                if task:
+                    task.new_articles_count = stats.get('new_articles', 0)
+                    task.total_sources = stats.get('sources_success', 0) + stats.get('sources_error', 0)
+                    task.success_sources = stats.get('sources_success', 0)
+                    task.failed_sources = stats.get('sources_error', 0)
+                    task.ai_analyzed_count = stats.get('analyzed_count', 0)
+                    session.commit()
+        except Exception as e:
+            logger.error(f"❌ 更新任务进度失败: {e}")
 
-        rss_configs = self.config.get("rss_sources", [])
+    def _collect_rss_sources(self, db, task_id: int = None) -> Dict[str, Any]:
+        """采集RSS源（优先从数据库读取，兼容配置文件）"""
+        stats = {"sources_success": 0, "sources_error": 0, "new_articles": 0, "total_articles": 0}
+
+        # 优先从数据库读取RSS源
+        rss_configs = []
+        with db.get_session() as session:
+            db_sources = session.query(RSSSource).filter(RSSSource.enabled == True).order_by(RSSSource.priority.asc()).all()
+            
+            for source in db_sources:
+                rss_configs.append({
+                    "name": source.name,
+                    "url": source.url,
+                    "enabled": source.enabled,
+                    "max_articles": 20,  # 默认值
+                    "category": source.category,
+                    "tier": source.tier,
+                })
+                # 预先加载属性
+                _ = source.id
+                _ = source.name
+                _ = source.url
+                _ = source.enabled
+                _ = source.last_collected_at
+                _ = source.articles_count
+            session.expunge_all()
+        
+        # 如果数据库中没有源，则从配置文件读取（向后兼容）
+        if not rss_configs:
+            logger.info("  ℹ️  数据库中没有RSS源，从配置文件读取")
+            rss_configs = self.config.get("rss_sources", [])
+        
+        if not rss_configs:
+            logger.warning("  ⚠️  没有配置RSS源")
+            return stats
+
         results = self.rss_collector.fetch_multiple_feeds(rss_configs)
 
-        for source_name, articles in results.items():
-            try:
-                new_count = 0
-                for article in articles:
-                    if self._save_article(db, article):
-                        new_count += 1
+        # 更新数据库中的统计信息
+        with db.get_session() as session:
+            for source_name, articles in results.items():
+                try:
+                    new_count = 0
+                    for article in articles:
+                        if self._save_article(db, article):
+                            new_count += 1
 
-                # 记录日志
-                self._log_collection(db, source_name, "rss", "success", len(articles))
-                stats["sources_success"] += 1
+                    # 更新RSS源的统计信息
+                    source_obj = session.query(RSSSource).filter(RSSSource.name == source_name).first()
+                    if source_obj:
+                        source_obj.last_collected_at = datetime.now()
+                        source_obj.articles_count += len(articles)
+                        source_obj.last_error = None
+                        session.commit()
 
-                logger.info(f"  ✅ {source_name}: {len(articles)} 篇, 新增 {new_count} 篇")
+                    # 记录日志
+                    self._log_collection(db, source_name, "rss", "success", len(articles))
+                    stats["sources_success"] += 1
+                    stats["new_articles"] += new_count
+                    stats["total_articles"] += len(articles)
 
-            except Exception as e:
-                logger.error(f"  ❌ {source_name}: {e}")
-                self._log_collection(db, source_name, "rss", "error", 0, str(e))
-                stats["sources_error"] += 1
+                    logger.info(f"  ✅ {source_name}: {len(articles)} 篇, 新增 {new_count} 篇")
+
+                except Exception as e:
+                    logger.error(f"  ❌ {source_name}: {e}")
+                    
+                    # 更新错误信息
+                    source_obj = session.query(RSSSource).filter(RSSSource.name == source_name).first()
+                    if source_obj:
+                        source_obj.last_error = str(e)
+                        session.commit()
+                    
+                    self._log_collection(db, source_name, "rss", "error", 0, str(e))
+                    stats["sources_error"] += 1
 
         return stats
 
-    def _collect_api_sources(self, db) -> Dict[str, Any]:
+    def _collect_api_sources(self, db, task_id: int = None) -> Dict[str, Any]:
         """采集API源"""
-        stats = {"sources_success": 0, "sources_error": 0}
+        stats = {"sources_success": 0, "sources_error": 0, "new_articles": 0, "total_articles": 0}
 
         api_configs = self.config.get("api_sources", [])
 
@@ -153,6 +232,8 @@ class CollectionService:
                 # 记录日志
                 self._log_collection(db, name, "api", "success", len(articles))
                 stats["sources_success"] += 1
+                stats["new_articles"] += new_count
+                stats["total_articles"] += len(articles)
 
                 logger.info(f"  ✅ {name}: {len(articles)} 篇, 新增 {new_count} 篇")
 

@@ -2,7 +2,7 @@
   "rss_sources": [
     {
       "name": "OpenAI Blog",
-      "url": "https://openai.com/blog/rss",
+      "url": "https://openai.com/news/rss.xml",
       "category": "official_blog",
       "enabled": true,
       "language": "en",
@@ -10,7 +10,7 @@
     },
     {
       "name": "Google DeepMind",
-      "url": "https://deepmind.google/blog/rss/feed/",
+      "url": "https://deepmind.google/blog/rss.xml",
       "category": "official_blog",
       "enabled": true,
       "language": "en",
@@ -18,11 +18,12 @@
     },
     {
       "name": "Meta AI Blog",
-      "url": "https://ai.meta.com/blog/rss/",
+      "url": "https://engineering.fb.com/category/artificial-intelligence/feed/",
       "category": "official_blog",
       "enabled": true,
       "language": "en",
-      "priority": 1
+      "priority": 1,
+      "note": "使用 Meta Engineering Blog 的 AI 分类作为替代源"
     },
     {
       "name": "Google AI Blog",
@@ -42,7 +43,7 @@
     },
     {
       "name": "MIT AI News",
-      "url": "https://news.mit.edu/topic/artificial-intelligence2/feed",
+      "url": "https://news.mit.edu/rss/topic/artificial-intelligence2",
       "category": "academic",
       "enabled": true,
       "language": "en",
@@ -52,9 +53,10 @@
       "name": "The Batch (DeepLearning.AI)",
       "url": "https://www.deeplearning.ai/the-batch/feed/",
       "category": "newsletter",
-      "enabled": true,
+      "enabled": false,
       "language": "en",
-      "priority": 3
+      "priority": 3,
+      "note": "官方未提供 RSS，主要通过邮件推送，已禁用"
     }
   ],
   "api_sources": [

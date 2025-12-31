@@ -75,3 +75,56 @@ class NotificationLog(Base):
 
     def __repr__(self):
         return f"<NotificationLog(type='{self.notification_type}', platform='{self.platform}', status='{self.status}')>"
+
+
+class RSSSource(Base):
+    """RSS订阅源表"""
+    __tablename__ = "rss_sources"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(200), nullable=False, unique=True, index=True)  # 源名称
+    url = Column(String(1000), nullable=False, unique=True)  # RSS URL
+    description = Column(Text, nullable=True)  # 简介/说明
+    category = Column(String(100), nullable=True, index=True)  # 分类：corporate_lab/academic/individual/newsletter
+    tier = Column(String(50), nullable=True, index=True)  # 梯队/级别：tier1/tier2/tier3
+    language = Column(String(20), default="en")  # 语言
+    enabled = Column(Boolean, default=True, index=True)  # 是否启用
+    priority = Column(Integer, default=1)  # 优先级（1-5，数字越小优先级越高）
+    note = Column(Text, nullable=True)  # 备注信息
+
+    # 统计信息
+    last_collected_at = Column(DateTime, nullable=True)  # 最后采集时间
+    articles_count = Column(Integer, default=0)  # 采集到的文章总数
+    last_error = Column(Text, nullable=True)  # 最后错误信息
+
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    def __repr__(self):
+        return f"<RSSSource(id={self.id}, name='{self.name}', enabled={self.enabled})>"
+
+
+class CollectionTask(Base):
+    """采集任务表 - 记录每次整体采集任务"""
+    __tablename__ = "collection_tasks"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    status = Column(String(20), nullable=False, default="running")  # running/completed/error
+    new_articles_count = Column(Integer, default=0)  # 本次采集新增的文章数
+    total_sources = Column(Integer, default=0)  # 采集的源总数
+    success_sources = Column(Integer, default=0)  # 成功的源数量
+    failed_sources = Column(Integer, default=0)  # 失败的源数量
+    error_message = Column(Text, nullable=True)  # 错误信息
+    duration = Column(Float, nullable=True)  # 采集耗时（秒）
+
+    started_at = Column(DateTime, default=datetime.now, nullable=False)
+    completed_at = Column(DateTime, nullable=True)
+
+    # AI分析相关
+    ai_enabled = Column(Boolean, default=False)  # 是否启用AI分析
+    ai_analyzed_count = Column(Integer, default=0)  # AI分析的文章数
+
+    created_at = Column(DateTime, default=datetime.now)
+
+    def __repr__(self):
+        return f"<CollectionTask(id={self.id}, status='{self.status}', new_articles={self.new_articles_count})>"

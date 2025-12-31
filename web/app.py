@@ -1,12 +1,18 @@
 """
 AI News Tracker - Streamlit Web Dashboard
 """
+import warnings
+# 必须在最开始就抑制警告，在任何import之前
+warnings.filterwarnings("ignore", message=".*ScriptRunContext.*")
+
 import streamlit as st
 from datetime import datetime, timedelta
 import pandas as pd
 from pathlib import Path
 import sys
 import os
+import threading
+import time
 from dotenv import load_dotenv
 
 # 加载环境变量
@@ -17,9 +23,10 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from database import get_db
-from database.models import Article
+from database.models import Article, RSSSource, CollectionTask, CollectionLog
 from collector import CollectionService
 from analyzer.ai_analyzer import AIAnalyzer
+from sqlalchemy import or_
 
 # 页面配置
 st.set_page_config(
@@ -34,36 +41,22 @@ st.markdown(
     """
 <style>
     .main-header {
-        font-size: 3rem;
+        font-size: 2.5rem;
         font-weight: bold;
         text-align: center;
         color: #1f77b4;
-        margin-bottom: 2rem;
+        margin-bottom: 1.5rem;
     }
-    .article-card {
-        padding: 1.5rem;
-        border-radius: 10px;
-        background-color: #f8f9fa;
-        margin-bottom: 1rem;
-        border-left: 5px solid #1f77b4;
-    }
-    .importance-high {
-        border-left-color: #dc3545;
-    }
-    .importance-medium {
-        border-left-color: #ffc107;
-    }
-    .importance-low {
-        border-left-color: #28a745;
-    }
-    .tag {
+    .source-badge {
         display: inline-block;
-        padding: 0.25rem 0.5rem;
-        background-color: #e9ecef;
+        padding: 0.15rem 0.5rem;
+        background-color: #e3f2fd;
+        color: #1565c0;
         border-radius: 4px;
-        margin-right: 0.5rem;
-        margin-bottom: 0.5rem;
-        font-size: 0.875rem;
+        font-size: 0.75rem;
+        font-weight: 500;
+        margin-left: 0.5rem;
+        border: 1px solid #90caf9;
     }
 </style>
 """,
@@ -88,6 +81,16 @@ def init_session_state():
             st.session_state.collector = CollectionService(ai_analyzer=ai_analyzer)
         else:
             st.session_state.collector = CollectionService()
+    
+    # 采集状态
+    if "collection_status" not in st.session_state:
+        st.session_state.collection_status = "idle"  # idle, running, completed, error
+    if "collection_message" not in st.session_state:
+        st.session_state.collection_message = ""
+    if "collection_stats" not in st.session_state:
+        st.session_state.collection_stats = None
+    if "collection_thread" not in st.session_state:
+        st.session_state.collection_thread = None
 
 
 def render_header():
@@ -96,20 +99,136 @@ def render_header():
     st.markdown("---")
 
 
+def run_collection_background(enable_ai_analysis=True):
+    """在后台运行采集任务 - 不访问st.session_state"""
+    from datetime import datetime
+    import logging
+    import os
+
+    # 在后台线程中创建独立的数据库连接和服务实例
+    # 不能使用st.session_state，因为Streamlit session state不是线程安全的
+    from database import get_db
+    from database.models import CollectionTask
+    from collector import CollectionService
+    from analyzer.ai_analyzer import AIAnalyzer
+
+    # 配置日志
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger(__name__)
+    logger.info("=" * 50)
+    logger.info("采集线程已启动！")
+    logger.info("=" * 50)
+
+    # 创建新的数据库连接（线程安全）
+    db = get_db()
+
+    # 创建AI分析器（如果需要）
+    ai_analyzer = None
+    if enable_ai_analysis:
+        api_key = os.getenv("OPENAI_API_KEY")
+        if api_key:
+            ai_analyzer = AIAnalyzer(
+                api_key=api_key,
+                base_url=os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1"),
+                model=os.getenv("OPENAI_MODEL", "gpt-4-turbo-preview"),
+            )
+
+    # 创建采集服务实例
+    collector = CollectionService(ai_analyzer=ai_analyzer)
+
+    # 创建任务记录
+    task_id = None
+    try:
+        logger.info("步骤1: 创建数据库任务记录")
+        with db.get_session() as session:
+            task = CollectionTask(
+                status="running",
+                ai_enabled=enable_ai_analysis,
+                started_at=datetime.now()
+            )
+            session.add(task)
+            session.commit()
+            task_id = task.id
+            logger.info(f"✅ 任务已创建，ID={task_id}")
+
+        # 注意：不能在后台线程中更新st.session_state
+        # 主线程会通过轮询数据库来获取最新状态
+        logger.info("步骤2: 开始采集数据（不更新UI状态）")
+
+        # 执行采集
+        stats = collector.collect_all(enable_ai_analysis=enable_ai_analysis, task_id=task_id)
+        logger.info(f"✅ 采集完成，stats={stats}")
+
+        # 更新任务记录为完成状态
+        logger.info("步骤3: 更新任务记录为完成状态")
+        with db.get_session() as session:
+            task = session.query(CollectionTask).filter(CollectionTask.id == task_id).first()
+            if task:
+                task.status = "completed"
+                task.new_articles_count = stats.get('new_articles', 0)
+                task.total_sources = stats.get('sources_success', 0) + stats.get('sources_error', 0)
+                task.success_sources = stats.get('sources_success', 0)
+                task.failed_sources = stats.get('sources_error', 0)
+                task.duration = stats.get('duration', 0)
+                task.completed_at = datetime.now()
+                task.ai_analyzed_count = stats.get('analyzed_count', 0)
+                session.commit()
+                logger.info("✅ 任务记录已更新为完成状态")
+        logger.info("🎉 采集流程全部完成")
+
+    except Exception as e:
+        logger.error(f"❌ 采集过程出错: {e}", exc_info=True)
+        # 更新任务状态为错误
+        if task_id:
+            try:
+                with db.get_session() as session:
+                    task = session.query(CollectionTask).filter(CollectionTask.id == task_id).first()
+                    if task:
+                        task.status = "error"
+                        task.error_message = str(e)
+                        task.completed_at = datetime.now()
+                        session.commit()
+                        logger.info("✅ 错误状态已保存到数据库")
+            except Exception as db_error:
+                logger.error(f"❌ 保存错误状态失败: {db_error}")
+        logger.error("❌ 采集任务失败")
+
+
+def check_collection_status():
+    """检查采集状态 - 通过查询数据库判断是否有正在运行的任务"""
+    # 首先检查线程是否还在运行
+    is_running = (st.session_state.collection_status == "running" and
+                  st.session_state.collection_thread and
+                  st.session_state.collection_thread.is_alive())
+
+    # 如果线程已结束，检查数据库中的任务状态
+    if not is_running and st.session_state.collection_status == "running":
+        # 查询最近的任务状态
+        with st.session_state.db.get_session() as session:
+            latest_task = session.query(CollectionTask).order_by(
+                CollectionTask.started_at.desc()
+            ).first()
+
+            if latest_task:
+                if latest_task.status == "completed":
+                    st.session_state.collection_status = "completed"
+                    st.session_state.collection_message = (
+                        f"✅ 采集完成！新增 {latest_task.new_articles_count} 篇文章，"
+                        f"耗时 {latest_task.duration or 0:.1f}秒"
+                    )
+                elif latest_task.status == "error":
+                    st.session_state.collection_status = "error"
+                    st.session_state.collection_message = f"❌ 采集失败: {latest_task.error_message}"
+                elif latest_task.status == "running":
+                    # 任务还在运行中
+                    is_running = True
+
+    return is_running
+
+
 def render_sidebar():
     """渲染侧边栏"""
     st.sidebar.title("⚙️ 控制面板")
-
-    # 手动触发采集
-    if st.sidebar.button("🚀 开始采集", type="primary", use_container_width=True):
-        with st.sidebar:
-            with st.spinner("正在采集数据..."):
-                try:
-                    stats = st.session_state.collector.collect_all(enable_ai_analysis=True)
-                    st.success(f"✅ 采集完成！新增 {stats['new_articles']} 篇文章")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"❌ 采集失败: {e}")
 
     st.sidebar.markdown("---")
 
@@ -134,19 +253,25 @@ def render_sidebar():
     time_range = st.sidebar.radio(
         "时间范围",
         ["今天", "最近3天", "最近7天", "最近30天", "全部"],
+        index=4,  # 默认选择"全部"
     )
 
     # 来源筛选
     with st.session_state.db.get_session() as session:
-        sources = [s[0] for s in session.query(Article.source).distinct().all()]
+        sources = [s[0] for s in session.query(Article.source).distinct().all() if s[0]]
 
-    selected_sources = st.sidebar.multiselect("来源", sources, default=sources[:5])
+    # 默认选择所有来源
+    selected_sources = st.sidebar.multiselect("来源", sources, default=sources)
 
     # 重要性筛选
-    importance_filter = st.sidebar.multiselect("重要性", ["high", "medium", "low"], default=["high", "medium"])
+    importance_filter = st.sidebar.multiselect("重要性", ["high", "medium", "low", "未分析"], default=["high", "medium", "low", "未分析"])
 
     # 分类筛选
-    category_filter = st.sidebar.multiselect("分类", ["rss", "paper", "official_blog", "social", "community"], default=["rss", "paper"])
+    with st.session_state.db.get_session() as session:
+        categories = [c[0] for c in session.query(Article.category).distinct().all() if c[0]]
+    
+    # 默认选择所有分类
+    category_filter = st.sidebar.multiselect("分类", categories if categories else ["rss", "paper", "official_blog", "social", "community"], default=categories if categories else ["rss", "paper", "official_blog", "social", "community"])
 
     return {
         "time_range": time_range,
@@ -179,7 +304,18 @@ def get_articles_by_filters(filters: dict):
 
         # 重要性
         if filters["importance"]:
-            query = query.filter(Article.importance.in_(filters["importance"]))
+            # 处理"未分析"选项（importance为None）
+            if "未分析" in filters["importance"]:
+                # 移除"未分析"字符串，添加None值
+                importance_values = [v for v in filters["importance"] if v != "未分析"]
+                if importance_values:
+                    query = query.filter(
+                        (Article.importance.in_(importance_values)) | (Article.importance == None)
+                    )
+                else:
+                    query = query.filter(Article.importance == None)
+            else:
+                query = query.filter(Article.importance.in_(filters["importance"]))
 
         # 分类
         if filters["category"]:
@@ -187,48 +323,664 @@ def get_articles_by_filters(filters: dict):
 
         # 排序和限制
         articles = query.order_by(Article.published_at.desc()).limit(200).all()
+        
+        # 在 session 关闭前，预先访问所有需要的属性，避免 DetachedInstanceError
+        # 这样可以确保所有属性都被加载到内存中
+        for article in articles:
+            # 访问所有可能在渲染时用到的属性
+            _ = article.id
+            _ = article.title
+            _ = article.url
+            _ = article.content
+            _ = article.summary
+            _ = article.source
+            _ = article.category
+            _ = article.author
+            _ = article.published_at
+            _ = article.importance
+            _ = article.topics
+            _ = article.tags
+            _ = article.key_points
+            _ = article.created_at
+        
+        # 将对象从 session 中分离，使其可以在 session 关闭后使用
+        session.expunge_all()
 
         return articles
 
 
 def render_article_card(article: Article):
     """渲染文章卡片"""
-    importance_class = f"importance-{article.importance}" if article.importance else ""
+    # 格式化发布时间
+    published_time = ""
+    if article.published_at:
+        published_time = article.published_at.strftime('%Y-%m-%d %H:%M')
+    else:
+        published_time = "Unknown"
 
-    st.markdown(
-        f"""
-    <div class="article-card {importance_class}">
-        <h3>{article.title}</h3>
-        <p style="color: #666; font-size: 0.9rem;">
-            📰 {article.source} | 📅 {article.published_at.strftime('%Y-%m-%d %H:%M') if article.published_at else 'Unknown'}
-        </p>
-    """,
-        unsafe_allow_html=True,
-    )
+    # 准备详情内容
+    author_text = article.author if article.author else 'Unknown'
+    url_display = article.url[:60] + "..." if len(article.url) > 60 else article.url
 
-    # AI总结
-    if article.summary:
-        st.markdown(f"**📝 AI总结:** {article.summary}")
+    # 构建重要性标识
+    importance_badge = {
+        'high': '🔴',
+        'medium': '🟡',
+        'low': '🟢'
+    }.get(article.importance, '⚪')
 
-    # 关键点
-    if article.key_points:
-        st.markdown("**🔑 关键点:**")
-        for point in article.key_points:
-            st.markdown(f"  - {point}")
+    # 使用st.expander，标题行包含所有信息
+    with st.expander(
+        f"{importance_badge} **{article.title}** · `{article.source}` · *{published_time}*",
+        expanded=False
+    ):
+        # 作者和链接放在一行
+        st.markdown(f"**作者:** {author_text}  ·  **链接:** [{url_display}]({article.url})")
 
-    # 标签
-    if article.tags:
-        tags_html = " ".join([f'<span class="tag">{tag}</span>' for tag in article.tags[:10]])
-        st.markdown(f"**🏷️ 标签:** {tags_html}", unsafe_allow_html=True)
+        # AI总结
+        if article.summary:
+            st.markdown("#### 📝 AI总结")
+            st.info(article.summary)
 
-    # 展开完整内容
-    with st.expander("查看完整内容"):
-        st.markdown(f"**作者:** {article.author if article.author else 'Unknown'}")
-        st.markdown(f"**链接:** [{article.url}]({article.url})")
-        st.markdown("---")
-        st.markdown(article.content[:2000] + "..." if len(article.content) > 2000 else article.content)
+        # 关键点
+        if article.key_points and isinstance(article.key_points, list) and len(article.key_points) > 0:
+            st.markdown("#### 🔑 关键点")
+            for point in article.key_points:
+                st.markdown(f"• {point}")
 
-    st.markdown("</div>", unsafe_allow_html=True)
+        # 标签
+        if article.tags and isinstance(article.tags, list) and len(article.tags) > 0:
+            st.markdown("#### 🏷️ 标签")
+            tags_text = " ".join([f"`{tag}`" for tag in article.tags[:10]])
+            st.markdown(tags_text)
+
+
+def render_collection_history():
+    """渲染采集历史页面"""
+    st.subheader("🚀 采集历史记录")
+
+    # 检查采集状态
+    is_running = check_collection_status()
+
+    # 采集状态指示器和控制按钮
+    col1, col2, col3 = st.columns([2, 1, 1])
+
+    with col1:
+        # 显示采集状态
+        if is_running:
+            st.info("🔄 " + st.session_state.collection_message)
+        elif st.session_state.collection_status == "completed":
+            st.success(st.session_state.collection_message)
+        elif st.session_state.collection_status == "error":
+            st.error(st.session_state.collection_message)
+
+    with col2:
+        # 开始采集按钮
+        if st.button(
+            "🚀 开始采集" if not is_running else "⏸️ 采集中...",
+            type="primary" if not is_running else "secondary",
+            use_container_width=True,
+            disabled=is_running,
+            key="start_collection_main"
+        ):
+            if not is_running:
+                # 启动后台采集线程
+                thread = threading.Thread(
+                    target=run_collection_background,
+                    args=(True,),
+                    daemon=True
+                )
+                thread.start()
+
+                # 更新session state
+                st.session_state.collection_thread = thread
+                st.session_state.collection_status = "running"
+                st.session_state.collection_message = "🔄 正在启动采集任务..."
+                st.session_state.last_thread_start = time.time()
+
+                # 短暂等待后刷新页面，显示任务已启动
+                time.sleep(0.5)
+                st.rerun()
+
+    with col3:
+        # 手动刷新按钮
+        if st.button("🔄 刷新", use_container_width=True, key="refresh_history"):
+            st.rerun()
+
+    # 如果正在采集，显示刷新提示
+    if is_running:
+        st.caption("💡 采集进行中，点击「刷新」按钮查看最新进度")
+
+    st.markdown("---")
+
+    # 获取采集历史
+    with st.session_state.db.get_session() as session:
+        tasks = session.query(CollectionTask).order_by(CollectionTask.started_at.desc()).limit(50).all()
+
+        # 预先加载属性
+        for task in tasks:
+            _ = task.id
+            _ = task.status
+            _ = task.new_articles_count
+            _ = task.total_sources
+            _ = task.success_sources
+            _ = task.failed_sources
+            _ = task.duration
+            _ = task.started_at
+            _ = task.completed_at
+            _ = task.ai_enabled
+            _ = task.ai_analyzed_count
+            _ = task.error_message
+        session.expunge_all()
+
+    if not tasks:
+        st.info("🤷 暂无采集记录")
+        return
+
+    # 统计信息
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        total_tasks = len(tasks)
+        st.metric("总采集次数", total_tasks)
+    with col2:
+        completed = len([t for t in tasks if t.status == "completed"])
+        st.metric("成功次数", completed)
+    with col3:
+        total_articles = sum([t.new_articles_count for t in tasks if t.new_articles_count])
+        st.metric("总新增文章", total_articles)
+    with col4:
+        # 计算平均耗时，避免除零错误
+        tasks_with_duration = [t for t in tasks if t.duration]
+        avg_duration = sum([t.duration for t in tasks_with_duration]) / len(tasks_with_duration) if tasks_with_duration else 0
+        st.metric("平均耗时", f"{avg_duration:.1f}秒")
+
+    st.markdown("---")
+
+    # 筛选选项
+    status_filter = st.selectbox("状态筛选", ["全部", "completed", "running", "error"], index=0)
+
+    # 显示采集历史列表
+    for task in tasks:
+        if status_filter != "全部" and task.status != status_filter:
+            continue
+
+        # 状态标识
+        status_emoji = {
+            'completed': '✅',
+            'running': '🔄',
+            'error': '❌'
+        }.get(task.status, '⚪')
+
+        # 开始时间
+        start_time = task.started_at.strftime('%Y-%m-%d %H:%M:%S') if task.started_at else 'N/A'
+        # 结束时间
+        end_time = task.completed_at.strftime('%H:%M:%S') if task.completed_at else '进行中...'
+
+        # 计算已运行时间（如果正在运行）
+        if task.status == "running":
+            elapsed = (datetime.now() - task.started_at).total_seconds()
+            duration_text = f"{elapsed:.1f}秒 (进行中...)"
+        else:
+            duration_text = f"{task.duration:.1f}秒" if task.duration else "N/A"
+        
+        # 正在运行的任务默认展开
+        is_expanded = (task.status == "running")
+        
+        with st.expander(
+            f"{status_emoji} {start_time} - {end_time} | 新增: {task.new_articles_count}篇 | 耗时: {duration_text}",
+            expanded=is_expanded
+        ):
+            col1, col2, col3 = st.columns(3)
+
+            with col1:
+                st.markdown(f"**状态:** {task.status}")
+                st.markdown(f"**AI分析:** {'✅ 已启用' if task.ai_enabled else '❌ 未启用'}")
+
+            with col2:
+                st.markdown(f"**总源数:** {task.total_sources}")
+                st.markdown(f"**成功:** {task.success_sources} | **失败:** {task.failed_sources}")
+
+            with col3:
+                st.markdown(f"**新增文章:** {task.new_articles_count}")
+                if task.ai_enabled:
+                    st.markdown(f"**AI分析:** {task.ai_analyzed_count}篇")
+
+            # 显示详细的采集进度（特别是正在运行的任务）
+            if task.status == "running" or task.status == "completed":
+                st.markdown("---")
+                st.markdown("#### 📋 采集详情")
+                
+                # 查询该任务相关的采集日志
+                with st.session_state.db.get_session() as session:
+                    # 查询任务开始时间之后的日志
+                    logs = session.query(CollectionLog).filter(
+                        CollectionLog.started_at >= task.started_at
+                    ).order_by(CollectionLog.started_at.desc()).all()
+                    
+                    # 如果任务已完成，只显示任务结束时间之前的日志
+                    if task.completed_at:
+                        logs = [log for log in logs if log.started_at <= task.completed_at]
+                    
+                    # 预先加载属性
+                    for log in logs:
+                        _ = log.id
+                        _ = log.source_name
+                        _ = log.source_type
+                        _ = log.status
+                        _ = log.articles_count
+                        _ = log.error_message
+                        _ = log.started_at
+                        _ = log.completed_at
+                    session.expunge_all()
+                
+                if logs:
+                    # 按状态分组显示
+                    success_logs = [log for log in logs if log.status == "success"]
+                    error_logs = [log for log in logs if log.status == "error"]
+                    
+                    if success_logs:
+                        st.markdown(f"**✅ 成功采集 ({len(success_logs)} 个源):**")
+                        for log in success_logs[:20]:  # 最多显示20个
+                            log_time = log.started_at.strftime('%H:%M:%S') if log.started_at else ''
+                            st.markdown(f"  • {log.source_name} ({log.source_type}): {log.articles_count} 篇文章 {log_time}")
+                        if len(success_logs) > 20:
+                            st.caption(f"... 还有 {len(success_logs) - 20} 个源")
+                    
+                    if error_logs:
+                        st.markdown(f"**❌ 采集失败 ({len(error_logs)} 个源):**")
+                        for log in error_logs[:10]:  # 最多显示10个错误
+                            log_time = log.started_at.strftime('%H:%M:%S') if log.started_at else ''
+                            error_msg = log.error_message[:100] + "..." if log.error_message and len(log.error_message) > 100 else (log.error_message or "未知错误")
+                            st.markdown(f"  • {log.source_name} ({log.source_type}): {error_msg} {log_time}")
+                        if len(error_logs) > 10:
+                            st.caption(f"... 还有 {len(error_logs) - 10} 个失败源")
+                    
+                    if not success_logs and not error_logs:
+                        st.info("⏳ 等待采集开始...")
+                else:
+                    st.info("⏳ 暂无采集日志，等待采集开始...")
+
+            # 错误信息
+            if task.error_message:
+                st.error(f"**错误信息:** {task.error_message}")
+
+            # 时间详情
+            st.caption(f"开始时间: {start_time}")
+            if task.completed_at:
+                st.caption(f"结束时间: {task.completed_at.strftime('%Y-%m-%d %H:%M:%S')}")
+
+
+def render_source_management():
+    """渲染订阅源管理页面"""
+    st.subheader("⚙️ RSS订阅源管理")
+    
+    # 操作选项
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        if st.button("➕ 添加新源", use_container_width=True):
+            st.session_state.show_add_source = True
+    
+    with col2:
+        if st.button("📥 批量导入", use_container_width=True):
+            st.session_state.show_batch_import = True
+    
+    with col3:
+        if st.button("🔄 刷新列表", use_container_width=True):
+            st.rerun()
+    
+    st.markdown("---")
+    
+    # 添加新源表单
+    if st.session_state.get("show_add_source", False):
+        with st.expander("➕ 添加新订阅源", expanded=True):
+            with st.form("add_source_form"):
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    name = st.text_input("源名称 *", placeholder="例如：OpenAI Blog")
+                    url = st.text_input("RSS URL *", placeholder="https://example.com/rss.xml")
+                    description = st.text_area("简介/说明", placeholder="简要描述这个源的特点")
+                    category = st.selectbox("分类", ["corporate_lab", "academic", "individual", "newsletter", "other"])
+                
+                with col2:
+                    tier = st.selectbox("梯队/级别", ["tier1", "tier2", "tier3", "other"], index=0)
+                    language = st.selectbox("语言", ["en", "zh", "ja", "other"], index=0)
+                    priority = st.slider("优先级", 1, 5, 1, help="数字越小优先级越高")
+                    enabled = st.checkbox("启用", value=True)
+                    note = st.text_area("备注", placeholder="可选备注信息")
+                
+                col_submit, col_cancel = st.columns(2)
+                with col_submit:
+                    submitted = st.form_submit_button("✅ 保存", use_container_width=True)
+                with col_cancel:
+                    if st.form_submit_button("❌ 取消", use_container_width=True):
+                        st.session_state.show_add_source = False
+                        st.rerun()
+                
+                if submitted:
+                    if name and url:
+                        try:
+                            with st.session_state.db.get_session() as session:
+                                # 检查是否已存在
+                                existing = session.query(RSSSource).filter(
+                                    or_(RSSSource.name == name, RSSSource.url == url)
+                                ).first()
+                                
+                                if existing:
+                                    st.error(f"❌ 源已存在：{existing.name}")
+                                else:
+                                    new_source = RSSSource(
+                                        name=name,
+                                        url=url,
+                                        description=description if description else None,
+                                        category=category,
+                                        tier=tier,
+                                        language=language,
+                                        priority=priority,
+                                        enabled=enabled,
+                                        note=note if note else None
+                                    )
+                                    session.add(new_source)
+                                    session.commit()
+                                    st.success(f"✅ 成功添加订阅源：{name}")
+                                    st.session_state.show_add_source = False
+                                    st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ 添加失败：{e}")
+                    else:
+                        st.error("❌ 请填写必填项（名称和URL）")
+    
+    # 批量导入
+    if st.session_state.get("show_batch_import", False):
+        with st.expander("📥 批量导入订阅源", expanded=True):
+            st.info("💡 提示：可以粘贴JSON格式的源列表，或使用预设模板")
+            
+            import_json = st.text_area(
+                "JSON格式数据",
+                height=200,
+                placeholder='[{"name": "OpenAI Blog", "url": "https://openai.com/news/rss.xml", "description": "...", "category": "corporate_lab", "tier": "tier1"}]'
+            )
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("📋 使用预设模板", use_container_width=True):
+                    st.session_state.show_preset_template = True
+            
+            with col2:
+                if st.button("✅ 导入", use_container_width=True) and import_json:
+                    try:
+                        import json
+                        sources_data = json.loads(import_json)
+                        added_count = 0
+                        error_count = 0
+                        
+                        with st.session_state.db.get_session() as session:
+                            for source_data in sources_data:
+                                try:
+                                    # 检查是否已存在
+                                    existing = session.query(RSSSource).filter(
+                                        or_(RSSSource.name == source_data.get("name"), 
+                                            RSSSource.url == source_data.get("url"))
+                                    ).first()
+                                    
+                                    if not existing:
+                                        new_source = RSSSource(
+                                            name=source_data.get("name", ""),
+                                            url=source_data.get("url", ""),
+                                            description=source_data.get("description"),
+                                            category=source_data.get("category", "other"),
+                                            tier=source_data.get("tier", "tier3"),
+                                            language=source_data.get("language", "en"),
+                                            priority=source_data.get("priority", 3),
+                                            enabled=source_data.get("enabled", True),
+                                            note=source_data.get("note")
+                                        )
+                                        session.add(new_source)
+                                        added_count += 1
+                                except Exception as e:
+                                    error_count += 1
+                                    st.warning(f"导入失败：{source_data.get('name', 'Unknown')} - {e}")
+                            
+                            session.commit()
+                            st.success(f"✅ 成功导入 {added_count} 个订阅源")
+                            if error_count > 0:
+                                st.warning(f"⚠️ {error_count} 个源导入失败")
+                            st.session_state.show_batch_import = False
+                            st.rerun()
+                    except json.JSONDecodeError:
+                        st.error("❌ JSON格式错误，请检查输入")
+                    except Exception as e:
+                        st.error(f"❌ 导入失败：{e}")
+            
+            if st.session_state.get("show_preset_template", False):
+                st.code("""[
+  {
+    "name": "OpenAI Blog",
+    "url": "https://openai.com/news/rss.xml",
+    "description": "ChatGPT 缔造者",
+    "category": "corporate_lab",
+    "tier": "tier1",
+    "language": "en",
+    "priority": 1,
+    "enabled": true
+  }
+]""", language="json")
+    
+    # 显示订阅源列表
+    st.subheader("📋 订阅源列表")
+    
+    # 筛选选项
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        filter_category = st.selectbox("筛选分类", ["全部"] + ["corporate_lab", "academic", "individual", "newsletter", "other"], index=0)
+    with col2:
+        filter_tier = st.selectbox("筛选梯队", ["全部"] + ["tier1", "tier2", "tier3", "other"], index=0)
+    with col3:
+        filter_enabled = st.selectbox("状态", ["全部", "启用", "禁用"], index=0)
+    
+    # 获取订阅源列表
+    with st.session_state.db.get_session() as session:
+        query = session.query(RSSSource)
+        
+        if filter_category != "全部":
+            query = query.filter(RSSSource.category == filter_category)
+        if filter_tier != "全部":
+            query = query.filter(RSSSource.tier == filter_tier)
+        if filter_enabled == "启用":
+            query = query.filter(RSSSource.enabled == True)
+        elif filter_enabled == "禁用":
+            query = query.filter(RSSSource.enabled == False)
+        
+        sources = query.order_by(RSSSource.priority.asc(), RSSSource.name.asc()).all()
+        
+        # 预先加载属性并查询最新文章日期
+        source_latest_articles = {}
+        for source in sources:
+            _ = source.id
+            _ = source.name
+            _ = source.url
+            _ = source.description
+            _ = source.category
+            _ = source.tier
+            _ = source.enabled
+            _ = source.priority
+            _ = source.last_collected_at
+            _ = source.articles_count
+            
+            # 查询该源最新文章的发布日期
+            latest_article = session.query(Article).filter(
+                Article.source == source.name
+            ).order_by(Article.published_at.desc()).first()
+            
+            if latest_article:
+                source_latest_articles[source.id] = latest_article.published_at
+        
+        session.expunge_all()
+    
+    st.info(f"📊 共找到 {len(sources)} 个订阅源")
+    
+    # 显示列表
+    for source in sources:
+        # 获取最新文章日期
+        latest_date = source_latest_articles.get(source.id)
+        date_display = ""
+        date_status = ""
+        
+        if latest_date:
+            # 处理时区问题：如果日期有时区信息，转换为本地时间
+            if hasattr(latest_date, 'tzinfo') and latest_date.tzinfo:
+                # 转换为本地时间（移除时区信息）
+                latest_date_local = latest_date.replace(tzinfo=None)
+            else:
+                latest_date_local = latest_date
+            
+            # 计算距离现在的天数（只比较日期部分，忽略时间）
+            now_date = datetime.now().date()
+            if isinstance(latest_date_local, datetime):
+                latest_date_only = latest_date_local.date()
+            else:
+                latest_date_only = latest_date_local
+            
+            days_ago = (now_date - latest_date_only).days
+            
+            # 格式化日期显示
+            if days_ago == 0:
+                date_display = "今天"
+                date_status = "🟢"
+            elif days_ago == 1:
+                date_display = "昨天"
+                date_status = "🟢"
+            elif days_ago < 7:
+                date_display = f"{days_ago}天前"
+                date_status = "🟡"
+            elif days_ago < 30:
+                date_display = f"{days_ago}天前"
+                date_status = "🟠"
+            else:
+                date_display = f"{days_ago}天前"
+                date_status = "🔴"
+            
+            # 格式化日期字符串
+            if isinstance(latest_date_local, datetime):
+                date_str = latest_date_local.strftime('%Y-%m-%d')
+            else:
+                date_str = str(latest_date_only)
+            date_display = f"{date_status} {date_str} ({date_display})"
+        else:
+            date_display = "⚠️ 暂无文章"
+            date_status = "⚪"
+        
+        # 构建标题栏
+        title = f"{'✅' if source.enabled else '❌'} {source.name} ({source.category} - {source.tier}) | 最新: {date_display}"
+        
+        with st.expander(title, expanded=False):
+            col1, col2 = st.columns([3, 1])
+            
+            with col1:
+                st.markdown(f"**URL:** [{source.url}]({source.url})")
+                if source.description:
+                    st.markdown(f"**简介:** {source.description}")
+                st.markdown(f"**分类:** {source.category} | **梯队:** {source.tier} | **优先级:** {source.priority} | **语言:** {source.language}")
+                if source.note:
+                    st.markdown(f"**备注:** {source.note}")
+                if source.last_collected_at:
+                    st.markdown(f"**最后采集:** {source.last_collected_at.strftime('%Y-%m-%d %H:%M')} | **文章数:** {source.articles_count}")
+            
+            with col2:
+                if st.button("✏️ 编辑", key=f"edit_{source.id}", use_container_width=True):
+                    st.session_state[f"edit_source_{source.id}"] = True
+                
+                if st.button("🗑️ 删除", key=f"delete_{source.id}", use_container_width=True):
+                    st.session_state[f"delete_source_{source.id}"] = True
+                
+                if st.button("🔄 切换状态", key=f"toggle_{source.id}", use_container_width=True):
+                    try:
+                        with st.session_state.db.get_session() as session:
+                            source_obj = session.query(RSSSource).filter(RSSSource.id == source.id).first()
+                            if source_obj:
+                                source_obj.enabled = not source_obj.enabled
+                                session.commit()
+                                st.success(f"✅ 已{'启用' if source_obj.enabled else '禁用'}：{source.name}")
+                                st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ 操作失败：{e}")
+            
+            # 编辑表单
+            if st.session_state.get(f"edit_source_{source.id}", False):
+                st.markdown("---")
+                with st.form(f"edit_form_{source.id}"):
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        edit_name = st.text_input("源名称", value=source.name, key=f"name_{source.id}")
+                        edit_url = st.text_input("RSS URL", value=source.url, key=f"url_{source.id}")
+                        edit_description = st.text_area("简介", value=source.description or "", key=f"desc_{source.id}")
+                        edit_category = st.selectbox("分类", ["corporate_lab", "academic", "individual", "newsletter", "other"], 
+                                                     index=["corporate_lab", "academic", "individual", "newsletter", "other"].index(source.category) if source.category in ["corporate_lab", "academic", "individual", "newsletter", "other"] else 0,
+                                                     key=f"cat_{source.id}")
+                    
+                    with col2:
+                        edit_tier = st.selectbox("梯队", ["tier1", "tier2", "tier3", "other"],
+                                                 index=["tier1", "tier2", "tier3", "other"].index(source.tier) if source.tier in ["tier1", "tier2", "tier3", "other"] else 0,
+                                                 key=f"tier_{source.id}")
+                        edit_language = st.selectbox("语言", ["en", "zh", "ja", "other"],
+                                                     index=["en", "zh", "ja", "other"].index(source.language) if source.language in ["en", "zh", "ja", "other"] else 0,
+                                                     key=f"lang_{source.id}")
+                        edit_priority = st.slider("优先级", 1, 5, source.priority, key=f"pri_{source.id}")
+                        edit_enabled = st.checkbox("启用", value=source.enabled, key=f"enabled_{source.id}")
+                        edit_note = st.text_area("备注", value=source.note or "", key=f"note_{source.id}")
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if st.form_submit_button("✅ 保存", use_container_width=True):
+                            try:
+                                with st.session_state.db.get_session() as session:
+                                    source_obj = session.query(RSSSource).filter(RSSSource.id == source.id).first()
+                                    if source_obj:
+                                        source_obj.name = edit_name
+                                        source_obj.url = edit_url
+                                        source_obj.description = edit_description if edit_description else None
+                                        source_obj.category = edit_category
+                                        source_obj.tier = edit_tier
+                                        source_obj.language = edit_language
+                                        source_obj.priority = edit_priority
+                                        source_obj.enabled = edit_enabled
+                                        source_obj.note = edit_note if edit_note else None
+                                        session.commit()
+                                        st.success("✅ 更新成功")
+                                        st.session_state[f"edit_source_{source.id}"] = False
+                                        st.rerun()
+                            except Exception as e:
+                                st.error(f"❌ 更新失败：{e}")
+                    
+                    with col2:
+                        if st.form_submit_button("❌ 取消", use_container_width=True):
+                            st.session_state[f"edit_source_{source.id}"] = False
+                            st.rerun()
+            
+            # 删除确认
+            if st.session_state.get(f"delete_source_{source.id}", False):
+                st.warning(f"⚠️ 确定要删除订阅源「{source.name}」吗？此操作不可恢复！")
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("✅ 确认删除", key=f"confirm_delete_{source.id}", use_container_width=True):
+                        try:
+                            with st.session_state.db.get_session() as session:
+                                source_obj = session.query(RSSSource).filter(RSSSource.id == source.id).first()
+                                if source_obj:
+                                    session.delete(source_obj)
+                                    session.commit()
+                                    st.success("✅ 删除成功")
+                                    st.session_state[f"delete_source_{source.id}"] = False
+                                    st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ 删除失败：{e}")
+                
+                with col2:
+                    if st.button("❌ 取消", key=f"cancel_delete_{source.id}", use_container_width=True):
+                        st.session_state[f"delete_source_{source.id}"] = False
+                        st.rerun()
 
 
 def render_statistics_tab(articles):
@@ -269,8 +1021,14 @@ def main():
     # 侧边栏
     filters = render_sidebar()
 
+    # 在主内容区顶部显示采集状态（如果正在采集）
+    if (st.session_state.collection_status == "running" and 
+        st.session_state.collection_thread and 
+        st.session_state.collection_thread.is_alive()):
+        st.info("🔄 " + st.session_state.collection_message + " (采集进行中，您可以继续浏览文章...)")
+
     # 标签页
-    tab1, tab2 = st.tabs(["📰 文章列表", "📈 数据统计"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📰 文章列表", "📈 数据统计", "🚀 采集历史", "⚙️ 订阅源管理"])
 
     with tab1:
         st.subheader(f"📰 最新AI资讯 ({filters['time_range']})")
@@ -279,7 +1037,7 @@ def main():
         articles = get_articles_by_filters(filters)
 
         if not articles:
-            st.info("🤷 暂无文章，请点击左侧「开始采集」按钮")
+            st.info("🤷 暂无文章，请前往「采集历史」页面点击「开始采集」按钮")
         else:
             # 显示文章数量
             st.info(f"📊 找到 {len(articles)} 篇文章")
@@ -290,6 +1048,12 @@ def main():
 
     with tab2:
         render_statistics_tab(articles)
+
+    with tab3:
+        render_collection_history()
+
+    with tab4:
+        render_source_management()
 
 
 if __name__ == "__main__":
