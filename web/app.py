@@ -285,42 +285,6 @@ def render_sidebar():
     st.sidebar.metric("今日新增", stats["today"])
     st.sidebar.metric("待分析", stats["unanalyzed"])
 
-    st.sidebar.markdown("---")
-
-    # 筛选选项
-    st.sidebar.subheader("🔍 筛选选项")
-
-    # 时间范围
-    time_range = st.sidebar.radio(
-        "时间范围",
-        ["今天", "最近3天", "最近7天", "最近30天", "全部"],
-        index=4,  # 默认选择"全部"
-    )
-
-    # 来源筛选
-    with st.session_state.db.get_session() as session:
-        sources = [s[0] for s in session.query(Article.source).distinct().all() if s[0]]
-
-    # 默认选择所有来源
-    selected_sources = st.sidebar.multiselect("来源", sources, default=sources)
-
-    # 重要性筛选
-    importance_filter = st.sidebar.multiselect("重要性", ["high", "medium", "low", "未分析"], default=["high", "medium", "low", "未分析"])
-
-    # 分类筛选
-    with st.session_state.db.get_session() as session:
-        categories = [c[0] for c in session.query(Article.category).distinct().all() if c[0]]
-
-    # 默认选择所有分类
-    category_filter = st.sidebar.multiselect("分类", categories if categories else ["rss", "paper", "official_blog", "social", "community"], default=categories if categories else ["rss", "paper", "official_blog", "social", "community"])
-
-    return {
-        "time_range": time_range,
-        "sources": selected_sources,
-        "importance": importance_filter,
-        "category": category_filter,
-    }
-
 
 def get_articles_by_filters(filters: dict) -> list[Article]:
     """根据筛选条件获取文章"""
@@ -2070,7 +2034,7 @@ def main():
     render_header()
 
     # 侧边栏
-    filters = render_sidebar()
+    render_sidebar()
 
     # 在主内容区顶部显示采集状态（如果正在采集）
     if (st.session_state.collection_status == "running" and 
@@ -2082,9 +2046,63 @@ def main():
     tab1, tab2, tab3, tab4, tab5 = st.tabs(["📰 文章列表", "📈 数据统计", "🚀 采集历史", "⚙️ 订阅源管理", "🗑️ 数据清理"])
 
     with tab1:
-        st.subheader(f"📰 最新AI资讯 ({filters['time_range']})")
-
+        # 初始化默认筛选条件
+        default_time_range = "全部"
+        with st.session_state.db.get_session() as session:
+            all_sources = [s[0] for s in session.query(Article.source).distinct().all() if s[0]]
+            all_categories = [c[0] for c in session.query(Article.category).distinct().all() if c[0]]
+        
+        default_sources = all_sources
+        default_importance = ["high", "medium", "low", "未分析"]
+        default_categories = all_categories if all_categories else ["rss", "paper", "official_blog", "social", "community"]
+        
+        # 初始化session state中的筛选条件
+        if "filters" not in st.session_state:
+            st.session_state.filters = {
+                "time_range": default_time_range,
+                "sources": default_sources,
+                "importance": default_importance,
+                "category": default_categories,
+            }
+        
+        # 显示标题
+        st.subheader(f"📰 最新AI资讯 ({st.session_state.filters.get('time_range', default_time_range)})")
+        
+        # 在标题下方显示筛选选项
+        with st.expander("🔍 筛选选项", expanded=False):
+            # 时间范围
+            current_time_range = st.session_state.filters.get('time_range', default_time_range)
+            time_range = st.radio(
+                "时间范围",
+                ["今天", "最近3天", "最近7天", "最近30天", "全部"],
+                index=["今天", "最近3天", "最近7天", "最近30天", "全部"].index(current_time_range) if current_time_range in ["今天", "最近3天", "最近7天", "最近30天", "全部"] else 4,
+                horizontal=True
+            )
+            
+            # 使用两列布局放置其他筛选选项
+            col_filter1, col_filter2 = st.columns(2)
+            
+            with col_filter1:
+                # 来源筛选
+                selected_sources = st.multiselect("来源", all_sources, default=st.session_state.filters.get('sources', default_sources))
+                
+                # 重要性筛选
+                importance_filter = st.multiselect("重要性", ["high", "medium", "low", "未分析"], default=st.session_state.filters.get('importance', default_importance))
+            
+            with col_filter2:
+                # 分类筛选
+                category_filter = st.multiselect("分类", all_categories if all_categories else ["rss", "paper", "official_blog", "social", "community"], default=st.session_state.filters.get('category', default_categories))
+            
+            # 更新筛选条件到session state
+            st.session_state.filters = {
+                "time_range": time_range,
+                "sources": selected_sources,
+                "importance": importance_filter,
+                "category": category_filter,
+            }
+        
         # 获取文章
+        filters = st.session_state.filters
         articles = get_articles_by_filters(filters)
 
         if not articles:
