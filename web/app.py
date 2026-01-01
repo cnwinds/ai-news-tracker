@@ -64,6 +64,20 @@ st.markdown(
         margin-left: 0.5rem;
         border: 1px solid #90caf9;
     }
+    /* 紧凑排版样式 */
+    .stExpander {
+        margin-top: 0.5rem;
+        margin-bottom: 0.5rem;
+    }
+    .element-container {
+        margin-bottom: 0.5rem;
+    }
+    [data-testid="stExpander"] {
+        margin-bottom: 0.5rem;
+    }
+    [data-testid="stVerticalBlock"] > [data-testid="stVerticalBlock"] {
+        gap: 0.5rem;
+    }
 </style>
 """,
     unsafe_allow_html=True,
@@ -2052,7 +2066,8 @@ def main():
             all_sources = [s[0] for s in session.query(Article.source).distinct().all() if s[0]]
             all_categories = [c[0] for c in session.query(Article.category).distinct().all() if c[0]]
         
-        default_sources = all_sources
+        # 默认不选择 arxiv，但保留在列表中
+        default_sources = [s for s in all_sources if s and 'arxiv' not in s.lower()]
         default_importance = ["high", "medium", "low", "未分析"]
         default_categories = all_categories if all_categories else ["rss", "paper", "official_blog", "social", "community"]
         
@@ -2068,30 +2083,31 @@ def main():
         # 显示标题
         st.subheader(f"📰 最新AI资讯 ({st.session_state.filters.get('time_range', default_time_range)})")
         
-        # 在标题下方显示筛选选项
-        with st.expander("🔍 筛选选项", expanded=False):
-            # 时间范围
-            current_time_range = st.session_state.filters.get('time_range', default_time_range)
-            time_range = st.radio(
-                "时间范围",
-                ["今天", "最近3天", "最近7天", "最近30天", "全部"],
-                index=["今天", "最近3天", "最近7天", "最近30天", "全部"].index(current_time_range) if current_time_range in ["今天", "最近3天", "最近7天", "最近30天", "全部"] else 4,
-                horizontal=True
-            )
+        # 在标题下方显示筛选选项（默认展开）
+        with st.expander("🔍 筛选选项", expanded=True):
+            # 第一行：时间范围、重要性、分类
+            col_time, col_importance, col_category = st.columns(3)
             
-            # 使用两列布局放置其他筛选选项
-            col_filter1, col_filter2 = st.columns(2)
+            with col_time:
+                # 时间范围
+                current_time_range = st.session_state.filters.get('time_range', default_time_range)
+                time_range = st.radio(
+                    "时间范围",
+                    ["今天", "最近3天", "最近7天", "最近30天", "全部"],
+                    index=["今天", "最近3天", "最近7天", "最近30天", "全部"].index(current_time_range) if current_time_range in ["今天", "最近3天", "最近7天", "最近30天", "全部"] else 4,
+                    horizontal=True
+                )
             
-            with col_filter1:
-                # 来源筛选
-                selected_sources = st.multiselect("来源", all_sources, default=st.session_state.filters.get('sources', default_sources))
-                
+            with col_importance:
                 # 重要性筛选
                 importance_filter = st.multiselect("重要性", ["high", "medium", "low", "未分析"], default=st.session_state.filters.get('importance', default_importance))
             
-            with col_filter2:
+            with col_category:
                 # 分类筛选
                 category_filter = st.multiselect("分类", all_categories if all_categories else ["rss", "paper", "official_blog", "social", "community"], default=st.session_state.filters.get('category', default_categories))
+            
+            # 第二行：来源筛选（单独一行，因为选项可能较多）
+            selected_sources = st.multiselect("来源", all_sources, default=st.session_state.filters.get('sources', default_sources))
             
             # 更新筛选条件到session state
             st.session_state.filters = {
