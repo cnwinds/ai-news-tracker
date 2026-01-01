@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from collector.rss_collector import RSSCollector
 from collector.api_collector import ArXivCollector, HuggingFaceCollector, PapersWithCodeCollector
+from collector.web_collector import WebCollector
 from database import get_db
 from database.models import Article, CollectionLog, RSSSource
 from analyzer.ai_analyzer import AIAnalyzer
@@ -33,6 +34,7 @@ class CollectionService:
         self.arxiv_collector = ArXivCollector()
         self.hf_collector = HuggingFaceCollector()
         self.pwc_collector = PapersWithCodeCollector()
+        self.web_collector = WebCollector()
 
         # 初始化总结生成器
         if ai_analyzer:
@@ -85,6 +87,15 @@ class CollectionService:
         logger.info("\n📚 采集论文API源")
         api_stats = self._collect_api_sources(db, task_id=task_id)
         stats.update(api_stats)
+
+        # 实时更新任务状态
+        if task_id:
+            self._update_task_progress(db, task_id, stats)
+
+        # 3. 采集网站源（通过网页爬取）
+        logger.info("\n🌐 采集网站源")
+        web_stats = self._collect_web_sources(db, task_id=task_id, enable_ai_analysis=enable_ai_analysis)
+        stats.update(web_stats)
 
         # 实时更新任务状态
         if task_id:
@@ -518,9 +529,52 @@ class CollectionService:
 
         return stats
 
-    def _collect_api_sources(self, db, task_id: int = None) -> Dict[str, Any]:
+    def _process_articles_from_source(self, db, articles: List[Dict[str, Any]], source_name: str, source_type: str, enable_ai_analysis: bool = False) -> Dict[str, Any]:
+        """
+        统一处理文章：保存 + AI分析
+
+        Args:
+            db: 数据库管理器
+            articles: 文章列表
+            source_name: 源名称
+            source_type: 源类型 (rss/api/web/social)
+            enable_ai_analysis: 是否启用AI分析
+
+        Returns:
+            {"total": int, "new": int, "ai_analyzed": int}
+        """
+        if not articles:
+            return {"total": 0, "new": 0, "ai_analyzed": 0}
+
+        new_count = 0
+        saved_article_ids = []
+
+        for article in articles:
+            result = self._save_or_update_article_and_get_id(db, article)
+            if result:
+                saved_article_ids.append(result["id"])
+                if result["is_new"]:
+                    new_count += 1
+
+        result = {"total": len(articles), "new": new_count, "ai_analyzed": 0}
+
+        if enable_ai_analysis and self.ai_analyzer and saved_article_ids:
+            unanalyzed_ids = self._filter_unanalyzed_articles(db, saved_article_ids)
+            ai_skipped = len(saved_article_ids) - len(unanalyzed_ids)
+
+            if ai_skipped > 0:
+                logger.info(f"  ⏭️  {source_name}: 跳过 {ai_skipped} 篇已分析的文章")
+
+            if unanalyzed_ids:
+                logger.info(f"  🤖 {source_name}: 开始AI分析 {len(unanalyzed_ids)} 篇文章...")
+                analyzed_count = self._analyze_articles_by_ids(db, unanalyzed_ids, max_workers=3)
+                result["ai_analyzed"] = analyzed_count
+
+        return result
+
+    def _collect_api_sources(self, db, task_id: int = None, enable_ai_analysis: bool = False) -> Dict[str, Any]:
         """采集API源"""
-        stats = {"sources_success": 0, "sources_error": 0, "new_articles": 0, "total_articles": 0}
+        stats = {"sources_success": 0, "sources_error": 0, "new_articles": 0, "total_articles": 0, "ai_analyzed_count": 0}
 
         api_configs = self.config.get("api_sources", [])
 
@@ -529,7 +583,6 @@ class CollectionService:
                 continue
 
             name = config.get("name")
-            source_type = config.get("category")
 
             try:
                 articles = []
@@ -546,24 +599,88 @@ class CollectionService:
                     limit = config.get("max_results", 20)
                     articles = self.pwc_collector.fetch_trending_papers(limit)
 
-                # 保存文章
-                new_count = 0
-                for article in articles:
-                    if self._save_article(db, article):
-                        new_count += 1
+                if not articles:
+                    logger.info(f"  ⚠️  {name}: 未获取到文章")
+                    stats["sources_error"] += 1
+                    self._log_collection(db, name, "api", "error", 0, "未获取到文章")
+                    continue
 
-                # 记录日志
-                self._log_collection(db, name, "api", "success", len(articles))
+                process_result = self._process_articles_from_source(db, articles, name, "api", enable_ai_analysis)
+
+                self._log_collection(db, name, "api", "success", process_result["total"])
                 stats["sources_success"] += 1
-                stats["new_articles"] += new_count
-                stats["total_articles"] += len(articles)
+                stats["new_articles"] += process_result["new"]
+                stats["total_articles"] += process_result["total"]
+                stats["ai_analyzed_count"] += process_result["ai_analyzed"]
 
-                logger.info(f"  ✅ {name}: {len(articles)} 篇, 新增 {new_count} 篇")
+                logger.info(f"  ✅ {name}: {process_result['total']} 篇, 新增 {process_result['new']} 篇, AI分析 {process_result['ai_analyzed']} 篇")
 
             except Exception as e:
                 logger.error(f"  ❌ {name}: {e}")
                 self._log_collection(db, name, "api", "error", 0, str(e))
                 stats["sources_error"] += 1
+
+        logger.info(f"  ✅ API采集完成: 成功 {stats['sources_success']} 个源, 失败 {stats['sources_error']} 个源")
+        logger.info(f"     总文章: {stats['total_articles']} 篇, 新增: {stats['new_articles']} 篇, AI分析: {stats['ai_analyzed_count']} 篇")
+
+        return stats
+
+    def _collect_web_sources(self, db, task_id: int = None, enable_ai_analysis: bool = False) -> Dict[str, Any]:
+        """
+        采集网站源（通过网页爬取）
+
+        Args:
+            db: 数据库管理器
+            task_id: 任务ID
+            enable_ai_analysis: 是否启用AI分析
+
+        Returns:
+            采集统计信息
+        """
+        stats = {"sources_success": 0, "sources_error": 0, "new_articles": 0, "total_articles": 0, "ai_analyzed_count": 0}
+
+        web_configs = self.config.get("web_sources", [])
+
+        if not web_configs:
+            logger.warning("  ⚠️  没有配置网站源")
+            return stats
+
+        logger.info(f"  🚀 开始采集 {len(web_configs)} 个网站源（第一层并发）")
+
+        for config in web_configs:
+            if not config.get("enabled", True):
+                continue
+
+            source_name = config.get("name", "Unknown")
+
+            try:
+                logger.info(f"  🌐 开始采集网站: {source_name}")
+
+                articles = self.web_collector.fetch_articles(config)
+
+                if not articles:
+                    logger.info(f"  ⚠️  {source_name}: 未获取到文章")
+                    stats["sources_error"] += 1
+                    self._log_collection(db, source_name, "web", "error", 0, "未获取到文章")
+                    continue
+
+                process_result = self._process_articles_from_source(db, articles, source_name, "web", enable_ai_analysis)
+
+                self._log_collection(db, source_name, "web", "success", process_result["total"])
+                stats["sources_success"] += 1
+                stats["new_articles"] += process_result["new"]
+                stats["total_articles"] += process_result["total"]
+                stats["ai_analyzed_count"] += process_result["ai_analyzed"]
+
+                logger.info(f"  ✅ {source_name}: {process_result['total']} 篇, 新增 {process_result['new']} 篇, AI分析 {process_result['ai_analyzed']} 篇")
+
+            except Exception as e:
+                logger.error(f"  ❌ {source_name}: {e}")
+                stats["sources_error"] += 1
+                self._log_collection(db, source_name, "web", "error", 0, str(e))
+
+        logger.info(f"  ✅ 网站源采集完成: 成功 {stats['sources_success']} 个源, 失败 {stats['sources_error']} 个源")
+        logger.info(f"     总文章: {stats['total_articles']} 篇, 新增: {stats['new_articles']} 篇, AI分析: {stats['ai_analyzed_count']} 篇")
 
         return stats
 

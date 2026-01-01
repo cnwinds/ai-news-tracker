@@ -129,6 +129,29 @@ class ArticleRepository:
             "high_importance": high_importance,
         }
 
+    @staticmethod
+    def delete_article(session: Session, article_id: int) -> bool:
+        """
+        删除指定的文章
+
+        Args:
+            session: 数据库会话
+            article_id: 文章ID
+
+        Returns:
+            是否删除成功
+        """
+        try:
+            article = session.query(Article).filter(Article.id == article_id).first()
+            if article:
+                session.delete(article)
+                session.commit()
+                return True
+            return False
+        except Exception as e:
+            session.rollback()
+            raise e
+
 
 class RSSSourceRepository:
     """RSS订阅源数据访问类"""
@@ -138,6 +161,7 @@ class RSSSourceRepository:
         session: Session,
         category: str = None,
         tier: str = None,
+        source_type: str = None,
         enabled_only: bool = None
     ) -> list[RSSSource]:
         """
@@ -147,6 +171,7 @@ class RSSSourceRepository:
             session: 数据库会话
             category: 分类筛选
             tier: 梯队筛选
+            source_type: 源类型筛选 (rss/api/web/social)
             enabled_only: 是否只返回启用的源
 
         Returns:
@@ -159,6 +184,9 @@ class RSSSourceRepository:
 
         if tier and tier != "全部":
             query = query.filter(RSSSource.tier == tier)
+
+        if source_type and source_type != "全部":
+            query = query.filter(RSSSource.source_type == source_type)
 
         if enabled_only is not None:
             if enabled_only:

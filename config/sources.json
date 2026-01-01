@@ -6,7 +6,8 @@
       "category": "official_blog",
       "enabled": true,
       "language": "en",
-      "priority": 1
+      "priority": 1,
+      "source_type": "rss"
     },
     {
       "name": "Google DeepMind",
@@ -14,7 +15,8 @@
       "category": "official_blog",
       "enabled": true,
       "language": "en",
-      "priority": 1
+      "priority": 1,
+      "source_type": "rss"
     },
     {
       "name": "Meta AI Blog",
@@ -23,7 +25,8 @@
       "enabled": true,
       "language": "en",
       "priority": 1,
-      "note": "使用 Meta Engineering Blog 的 AI 分类作为替代源"
+      "note": "使用 Meta Engineering Blog 的 AI 分类作为替代源",
+      "source_type": "rss"
     },
     {
       "name": "Google AI Blog",
@@ -31,7 +34,8 @@
       "category": "official_blog",
       "enabled": true,
       "language": "en",
-      "priority": 2
+      "priority": 2,
+      "source_type": "rss"
     },
     {
       "name": "Microsoft Research Blog",
@@ -39,7 +43,8 @@
       "category": "official_blog",
       "enabled": true,
       "language": "en",
-      "priority": 2
+      "priority": 2,
+      "source_type": "rss"
     },
     {
       "name": "MIT AI News",
@@ -47,7 +52,8 @@
       "category": "academic",
       "enabled": true,
       "language": "en",
-      "priority": 2
+      "priority": 2,
+      "source_type": "rss"
     },
     {
       "name": "The Batch (DeepLearning.AI)",
@@ -56,7 +62,17 @@
       "enabled": false,
       "language": "en",
       "priority": 3,
-      "note": "官方未提供 RSS，主要通过邮件推送，已禁用"
+      "note": "官方未提供 RSS，主要通过邮件推送，已禁用",
+      "source_type": "rss"
+    },
+    {
+      "name": "量子位",
+      "url": "https://www.qbitai.com/feed",
+      "category": "news",
+      "enabled": true,
+      "language": "zh",
+      "priority": 1,
+      "source_type": "rss"
     }
   ],
   "api_sources": [
@@ -67,7 +83,8 @@
       "enabled": true,
       "query": "cat:cs.AI",
       "max_results": 20,
-      "priority": 1
+      "priority": 1,
+      "source_type": "api"
     },
     {
       "name": "arXiv CS.LG",
@@ -76,7 +93,8 @@
       "enabled": true,
       "query": "cat:cs.LG",
       "max_results": 20,
-      "priority": 1
+      "priority": 1,
+      "source_type": "api"
     },
     {
       "name": "arXiv CS.CL",
@@ -85,7 +103,8 @@
       "enabled": true,
       "query": "cat:cs.CL",
       "max_results": 15,
-      "priority": 2
+      "priority": 2,
+      "source_type": "api"
     },
     {
       "name": "arXiv CS.CV",
@@ -94,7 +113,8 @@
       "enabled": true,
       "query": "cat:cs.CV",
       "max_results": 15,
-      "priority": 2
+      "priority": 2,
+      "source_type": "api"
     },
     {
       "name": "Hugging Face Trending Papers",
@@ -103,18 +123,8 @@
       "enabled": true,
       "endpoint": "/trending",
       "max_results": 20,
-      "priority": 1
-    }
-  ],
-  "web_sources": [
-    {
-      "name": "Anthropic Research",
-      "url": "https://www.anthropic.com/research",
-      "category": "official_blog",
-      "enabled": true,
-      "language": "en",
       "priority": 1,
-      "selector": "article"
+      "source_type": "api"
     },
     {
       "name": "Papers with Code Trending",
@@ -122,7 +132,40 @@
       "category": "paper",
       "enabled": true,
       "endpoint": "/trending",
-      "priority": 2
+      "max_results": 20,
+      "priority": 2,
+      "source_type": "api"
+    }
+  ],
+  "web_sources": [
+    {
+      "name": "AIEra (新智元)",
+      "url": "https://aiera.com.cn",
+      "category": "news",
+      "enabled": true,
+      "language": "zh",
+      "priority": 1,
+      "max_articles": 20,
+      "article_selector": "article.entry-card",
+      "title_selector": "h2.entry-title a",
+      "link_selector": "a",
+      "date_selector": ".entry-meta",
+      "source_type": "web"
+    },
+    {
+      "name": "Anthropic Research",
+      "url": "https://www.anthropic.com/research",
+      "category": "official_blog",
+      "enabled": true,
+      "language": "en",
+      "priority": 1,
+      "article_selector": "a.PublicationList-module-scss-module__KxYrHG__listItem",
+      "title_selector": ".PublicationList-module-scss-module__KxYrHG__title",
+      "link_selector": "self",
+      "date_selector": ".PublicationList-module-scss-module__KxYrHG__date",
+      "description_selector": ".PublicationList-module-scss-module__KxYrHG__subject",
+      "max_articles": 20,
+      "source_type": "web"
     }
   ],
   "social_sources": [
@@ -132,7 +175,8 @@
       "category": "social",
       "enabled": false,
       "platform": "twitter",
-      "priority": 3
+      "priority": 3,
+      "source_type": "social"
     },
     {
       "name": "Andrew Ng Twitter",
@@ -140,7 +184,8 @@
       "category": "social",
       "enabled": false,
       "platform": "twitter",
-      "priority": 3
+      "priority": 3,
+      "source_type": "social"
     },
     {
       "name": "Andrej Karpathy Twitter",
@@ -148,7 +193,8 @@
       "category": "social",
       "enabled": false,
       "platform": "twitter",
-      "priority": 3
+      "priority": 3,
+      "source_type": "social"
     },
     {
       "name": "Reddit Machine Learning",
@@ -156,7 +202,8 @@
       "category": "community",
       "enabled": true,
       "platform": "reddit",
-      "priority": 3
+      "priority": 3,
+      "source_type": "social"
     },
     {
       "name": "Hacker News AI",
@@ -165,7 +212,8 @@
       "enabled": true,
       "platform": "hackernews",
       "search_query": "AI",
-      "priority": 3
+      "priority": 3,
+      "source_type": "social"
     }
   ]
 }

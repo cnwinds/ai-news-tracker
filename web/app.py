@@ -27,9 +27,11 @@ from database import get_db
 from database.models import Article, RSSSource, CollectionTask, CollectionLog, DailySummary
 from database.repositories import ArticleRepository, RSSSourceRepository, CollectionTaskRepository, CollectionLogRepository
 from collector import CollectionService
+from collector.web_collector import WebCollector
 from sqlalchemy import or_
 from config import import_rss_sources
 from utils import create_ai_analyzer, setup_logger
+from database import DatabaseManager
 
 # 配置日志
 logger = setup_logger(__name__)
@@ -326,6 +328,102 @@ def get_articles_by_filters(filters: dict) -> list[Article]:
     )
 
 
+def generate_article_summary(article_id: int, db: DatabaseManager) -> bool:
+    """
+    为单篇文章生成AI总结
+
+    流程：
+    1. 从数据库获取文章URL
+    2. 通过URL获取完整文章内容
+    3. 使用AI分析器生成总结
+    4. 将分析结果保存回数据库
+
+    Args:
+        article_id: 文章ID
+        db: 数据库管理器
+
+    Returns:
+        是否成功
+    """
+    try:
+        # 步骤1: 从数据库获取文章URL
+        with db.get_session() as session:
+            article = session.query(Article).filter(Article.id == article_id).first()
+            
+            if not article:
+                logger.error(f"❌ 文章不存在: ID={article_id}")
+                return False
+            
+            article_url = article.url
+            article_title = article.title
+            article_source = article.source
+            article_author = article.author
+            article_published_at = article.published_at
+        
+        # 步骤2: 通过URL获取完整内容
+        logger.info(f"📄 正在获取文章完整内容: {article_url}")
+        web_collector = WebCollector()
+        full_content = web_collector.fetch_full_content(article_url)
+        
+        # 如果获取失败，尝试使用数据库中的内容
+        if not full_content or len(full_content) < 100:
+            logger.warning(f"⚠️  通过URL获取内容失败或内容过短，尝试使用数据库内容")
+            with db.get_session() as session:
+                article = session.query(Article).filter(Article.id == article_id).first()
+                if article:
+                    full_content = article.content or ""
+        
+        if not full_content or len(full_content) < 50:
+            logger.error(f"❌ 文章内容为空或过短，无法生成总结")
+            return False
+        
+        logger.info(f"✅ 成功获取文章内容，长度: {len(full_content)} 字符")
+        
+        # 步骤3: 准备文章数据用于AI分析
+        article_data = {
+            "id": article_id,
+            "title": article_title,
+            "content": full_content,
+            "source": article_source,
+            "author": article_author,
+            "published_at": article_published_at.strftime('%Y-%m-%d %H:%M') if article_published_at else None,
+        }
+        
+        # 步骤4: 使用AI分析器生成总结
+        logger.info(f"🤖 正在AI分析文章: {article_title[:50]}...")
+        ai_analyzer = create_ai_analyzer()
+        analysis_result = ai_analyzer.analyze_article(article_data)
+        
+        # 步骤5: 更新数据库
+        with db.get_session() as session:
+            article = session.query(Article).filter(Article.id == article_id).first()
+            if article:
+                # 更新AI分析结果
+                article.summary = analysis_result.get("summary", "")
+                article.key_points = analysis_result.get("key_points", [])
+                article.topics = analysis_result.get("topics", [])
+                article.importance = analysis_result.get("importance")
+                article.tags = analysis_result.get("tags", [])
+                article.target_audience = analysis_result.get("target_audience")
+                article.is_processed = True
+                
+                # 如果从URL获取的内容比数据库中的更长，也更新content字段
+                if full_content and len(full_content) > (len(article.content or "")):
+                    article.content = full_content
+                    logger.info(f"📝 已更新文章完整内容到数据库")
+                
+                session.commit()
+                logger.info(f"✅ 文章总结生成成功: ID={article_id}")
+                return True
+            else:
+                logger.error(f"❌ 更新文章时文章不存在: ID={article_id}")
+                return False
+                
+    except Exception as e:
+        logger.error(f"❌ 生成文章总结失败: ID={article_id}, 错误: {e}", exc_info=True)
+        return False
+
+
 def render_article_card(article: Article):
     """渲染文章卡片"""
     # 格式化发布时间 - 优先使用 published_at，如果没有则使用 collected_at
@@ -363,10 +461,25 @@ def render_article_card(article: Article):
         # 作者和链接放在一行
         st.markdown(f"**作者:** {author_text}  ·  **链接:** [{url_display}]({article.url})")
 
-        # AI总结
+        # AI总结或智能总结按钮
         if article.summary:
             st.markdown("#### 📝 AI总结")
             st.info(article.summary)
+        else:
+            # 显示智能总结按钮
+            if st.button(f"🤖 智能总结", key=f"summarize_{article.id}", type="primary", use_container_width=False):
+                with st.spinner(f"⏳ 正在为文章生成总结..."):
+                    try:
+                        # 调用智能总结函数
+                        success = generate_article_summary(article.id, st.session_state.db)
+                        if success:
+                            st.success("✅ 总结生成成功！")
+                            time.sleep(1)
+                            st.rerun()
+                        else:
+                            st.error("❌ 总结生成失败，请查看日志")
+                    except Exception as e:
+                        st.error(f"❌ 生成总结时出错: {e}")
 
         # 关键点
         if article.key_points and isinstance(article.key_points, list) and len(article.key_points) > 0:
@@ -379,6 +492,26 @@ def render_article_card(article: Article):
             st.markdown("#### 🏷️ 标签")
             tags_text = " ".join([f"`{tag}`" for tag in article.tags[:10]])
             st.markdown(tags_text)
+
+        st.markdown("---")
+        col1, col2, col3 = st.columns([1, 1, 1])
+        with col1:
+            pass
+        with col2:
+            pass
+        with col3:
+            if st.button("🗑️ 删除", key=f"delete_{article.id}", type="secondary"):
+                try:
+                    with st.session_state.db.get_session() as session:
+                        success = ArticleRepository.delete_article(session, article.id)
+                        if success:
+                            st.success("✅ 文章已删除！")
+                            time.sleep(1)
+                            st.rerun()
+                        else:
+                            st.error("❌ 文章不存在")
+                except Exception as e:
+                    st.error(f"❌ 删除失败: {e}")
 
 
 def render_collection_history():
@@ -748,18 +881,18 @@ def render_import_default_sources() -> int:
     Returns:
         导入的数量
     """
-    default_sources = import_rss_sources.RSS_SOURCES
+    all_sources = import_rss_sources.load_all_sources()
 
-    st.info(f"📋 系统默认包含 {len(default_sources)} 个精选 RSS 订阅源")
+    st.info(f"📋 系统默认包含 {len(all_sources)} 个订阅源（RSS/API/Web/Social）")
 
-    categories = list({s.get('category', 'other') for s in default_sources})
-    selected_categories = st.multiselect(
-        "选择要导入的分类",
-        categories,
-        default=categories
+    source_types = list({s.get('source_type', 'rss') for s in all_sources})
+    selected_types = st.multiselect(
+        "选择要导入的类型",
+        source_types,
+        default=source_types
     )
 
-    sources_to_import = [s for s in default_sources if s.get('category', 'other') in selected_categories]
+    sources_to_import = [s for s in all_sources if s.get('source_type', 'rss') in selected_types]
 
     if st.button("🚀 开始导入", use_container_width=True):
         added_count = 0
@@ -789,6 +922,7 @@ def render_import_default_sources() -> int:
                             description=source_data.get('description'),
                             category=source_data.get('category', 'other'),
                             tier=source_data.get('tier', 'tier3'),
+                            source_type=source_data.get('source_type', 'rss'),
                             language=source_data.get('language', 'en'),
                             priority=source_data.get('priority', 3),
                             enabled=source_data.get('enabled', True),
@@ -865,6 +999,7 @@ def render_import_json_manual():
                                     description=source_data.get("description"),
                                     category=source_data.get("category", "other"),
                                     tier=source_data.get("tier", "tier3"),
+                                    source_type=source_data.get("source_type", "rss"),
                                     language=source_data.get("language", "en"),
                                     priority=source_data.get("priority", 3),
                                     enabled=source_data.get("enabled", True),
@@ -907,7 +1042,7 @@ def render_batch_import():
     with st.expander("📥 批量导入订阅源", expanded=True):
         import_method = st.radio(
             "选择导入方式",
-            ["导入系统默认RSS源", "手动输入JSON格式"],
+            ["导入系统默认源（RSS/API/Web/Social）", "手动输入JSON格式"],
             index=0,
             horizontal=True
         )
@@ -953,7 +1088,14 @@ def render_source_item(source: RSSSource, source_latest_articles: dict[int, date
 
     date_display, date_status, health_status, _ = get_source_health_info(latest_date)
 
-    title = f"{'✅' if source.enabled else '❌'} {source.name} ({source.category} - {source.tier}) | 最新: {date_display} | 状态: {health_status}"
+    type_emoji = {
+        "rss": "📡",
+        "api": "🔌",
+        "web": "🌐",
+        "social": "👥"
+    }.get(source.source_type, "❓")
+
+    title = f"{'✅' if source.enabled else '❌'} {type_emoji} {source.name} ({source.category} - {source.tier}) | 类型: {source.source_type} | 最新: {date_display} | 状态: {health_status}"
 
     with st.expander(title, expanded=False):
         col1, col2 = st.columns([3, 1])
@@ -1040,6 +1182,9 @@ def render_source_edit_form(source: RSSSource):
                                          key=f"cat_{source.id}")
 
         with col2:
+            edit_source_type = st.selectbox("源类型", ["rss", "api", "web", "social"],
+                                         index=["rss", "api", "web", "social"].index(source.source_type) if source.source_type in ["rss", "api", "web", "social"] else 0,
+                                         key=f"type_{source.id}")
             edit_tier = st.selectbox("梯队/级别", ["tier1", "tier2", "tier3", "other"],
                                     index=["tier1", "tier2", "tier3", "other"].index(source.tier) if source.tier in ["tier1", "tier2", "tier3", "other"] else 0,
                                     key=f"tier_{source.id}")
@@ -1062,6 +1207,7 @@ def render_source_edit_form(source: RSSSource):
                             source_obj.description = edit_description if edit_description else None
                             source_obj.category = edit_category
                             source_obj.tier = edit_tier
+                            source_obj.source_type = edit_source_type
                             source_obj.language = edit_language
                             source_obj.priority = edit_priority
                             source_obj.enabled = edit_enabled
@@ -1577,12 +1723,14 @@ def render_source_management():
     st.subheader("📋 订阅源列表")
 
     # 筛选选项
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
         filter_category = st.selectbox("筛选分类", ["全部"] + ["corporate_lab", "academic", "individual", "newsletter", "other"], index=0)
     with col2:
         filter_tier = st.selectbox("筛选梯队", ["全部"] + ["tier1", "tier2", "tier3", "other"], index=0)
     with col3:
+        filter_source_type = st.selectbox("筛选类型", ["全部", "rss", "api", "web", "social"], index=0)
+    with col4:
         filter_enabled = st.selectbox("状态", ["全部", "启用", "禁用"], index=0)
 
     # 获取订阅源列表
@@ -1591,6 +1739,7 @@ def render_source_management():
             session=session,
             category=filter_category,
             tier=filter_tier,
+            source_type=filter_source_type,
             enabled_only=True if filter_enabled == "启用" else False if filter_enabled == "禁用" else None
         )
 

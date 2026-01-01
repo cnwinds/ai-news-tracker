@@ -101,6 +101,7 @@ class RSSSource(Base):
     description = Column(Text, nullable=True)  # 简介/说明
     category = Column(String(100), nullable=True, index=True)  # 分类：corporate_lab/academic/individual/newsletter
     tier = Column(String(50), nullable=True, index=True)  # 梯队/级别：tier1/tier2/tier3
+    source_type = Column(String(20), default="rss", nullable=False, index=True)  # 源类型：rss/api/web/social
     language = Column(String(20), default="en")  # 语言
     enabled = Column(Boolean, default=True, index=True)  # 是否启用
     priority = Column(Integer, default=1)  # 优先级（1-5，数字越小优先级越高）

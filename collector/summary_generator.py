@@ -169,11 +169,27 @@ class SummaryGenerator:
                 generation_time=generation_time
             )
             session.add(summary)
-            session.commit()
-            session.refresh(summary)
-
-            logger.info(f"✅ 总结已保存 (ID: {summary.id})")
-            return summary
+            session.flush()
+            
+            summary_id = summary.id
+            logger.info(f"✅ 总结已保存 (ID: {summary_id})")
+            
+        # 在session外创建一个新的对象返回，避免detached instance问题
+        return DailySummary(
+            id=summary_id,
+            summary_type=summary_type,
+            summary_date=date,
+            start_date=start_date,
+            end_date=end_date,
+            total_articles=len(articles_data),
+            high_importance_count=high_count,
+            medium_importance_count=medium_count,
+            summary_content=summary_text,
+            key_topics=key_topics,
+            recommended_articles=recommended_articles,
+            model_used=self.ai_analyzer.model,
+            generation_time=generation_time
+        )
 
     def _build_summary_prompt(self, articles_data: List[Dict[str, Any]], summary_type: str) -> str:
         """
