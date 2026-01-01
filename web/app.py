@@ -24,7 +24,7 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from database import get_db
-from database.models import Article, RSSSource, CollectionTask, CollectionLog
+from database.models import Article, RSSSource, CollectionTask, CollectionLog, DailySummary
 from database.repositories import ArticleRepository, RSSSourceRepository, CollectionTaskRepository, CollectionLogRepository
 from collector import CollectionService
 from sqlalchemy import or_
@@ -2012,6 +2012,133 @@ def render_data_cleanup():
                     st.rerun()
 
 
+def render_daily_summary():
+    """渲染每日总结页面"""
+    st.subheader("📊 每日/每周总结")
+
+    # 选项：生成新总结 或 查看历史总结
+    option = st.radio(
+        "选择操作",
+        ["查看历史总结", "生成新总结"],
+        horizontal=True
+    )
+
+    if option == "查看历史总结":
+        st.markdown("---")
+
+        # 查询所有总结
+        with st.session_state.db.get_session() as session:
+            summaries = session.query(DailySummary).order_by(
+                DailySummary.summary_date.desc()
+            ).all()
+
+            # 预加载所有需要的属性，避免DetachedInstanceError
+            summaries_data = []
+            for summary in summaries:
+                summaries_data.append({
+                    "id": summary.id,
+                    "summary_type": summary.summary_type,
+                    "summary_date": summary.summary_date,
+                    "start_date": summary.start_date,
+                    "end_date": summary.end_date,
+                    "total_articles": summary.total_articles,
+                    "high_importance_count": summary.high_importance_count,
+                    "medium_importance_count": summary.medium_importance_count,
+                    "summary_content": summary.summary_content,
+                    "key_topics": summary.key_topics,
+                    "recommended_articles": summary.recommended_articles,
+                    "generation_time": summary.generation_time
+                })
+
+        if not summaries_data:
+            st.info("📭 暂无总结记录")
+            return
+
+        # 显示总结列表
+        for summary in summaries_data:
+            type_emoji = "📅" if summary["summary_type"] == "daily" else "📆"
+            type_label = "每日总结" if summary["summary_type"] == "daily" else "每周总结"
+
+            with st.expander(
+                f"{type_emoji} **{type_label}** · {summary['summary_date'].strftime('%Y-%m-%d')} · "
+                f"📰 {summary['total_articles']}篇文章 (🔴{summary['high_importance_count']} 🟡{summary['medium_importance_count']})"
+            ):
+                # 显示时间范围
+                st.caption(f"时间范围：{summary['start_date'].strftime('%Y-%m-%d %H:%M')} ~ {summary['end_date'].strftime('%Y-%m-%d %H:%M')}")
+
+                # 显示统计信息
+                col1, col2, col3 = st.columns(3)
+                col1.metric("文章总数", summary["total_articles"])
+                col2.metric("高重要性", summary["high_importance_count"])
+                col3.metric("中重要性", summary["medium_importance_count"])
+
+                st.markdown("---")
+
+                # 显示总结内容
+                st.markdown(summary["summary_content"])
+
+                # 显示关键主题
+                if summary["key_topics"]:
+                    st.markdown("### 📌 关键主题")
+                    topics_str = " · ".join([f"`{topic}`" for topic in summary["key_topics"]])
+                    st.markdown(topics_str)
+
+                # 显示推荐文章
+                if summary["recommended_articles"]:
+                    st.markdown("### 🎯 推荐阅读")
+
+                    for rec in summary["recommended_articles"]:
+                        importance_emoji = "🔴" if rec.get("importance") == "high" else "🟡" if rec.get("importance") == "medium" else "⚪"
+
+                        st.markdown(
+                            f"- {importance_emoji} [{rec.get('source', 'Unknown')}] **{rec.get('title', 'N/A')}**\n"
+                            f"  - 原因：{rec.get('reason', 'N/A')}\n"
+                        )
+
+    else:
+        st.markdown("---")
+
+        # 生成新总结
+        summary_type = st.radio(
+            "总结类型",
+            ["每日总结（过去24小时）", "每周总结（过去7天）"],
+            horizontal=True
+        )
+
+        col_date, col_generate = st.columns([2, 1])
+
+        with col_date:
+            selected_date = st.date_input(
+                "总结日期",
+                value=datetime.now().date(),
+                max_value=datetime.now().date()
+            )
+
+        with col_generate:
+            if st.button("🚀 生成总结", use_container_width=True):
+                with st.spinner("⏳ 正在生成总结，请稍候..."):
+                    # 创建采集服务
+                    from utils.factories import create_ai_analyzer
+                    ai_analyzer = create_ai_analyzer()
+                    collector = CollectionService(ai_analyzer=ai_analyzer)
+
+                    # 生成总结
+                    try:
+                        date_obj = datetime.combine(selected_date, datetime.min.time())
+
+                        if "每日总结" in summary_type:
+                            summary = collector.generate_daily_summary(st.session_state.db, date_obj)
+                        else:
+                            summary = collector.generate_weekly_summary(st.session_state.db, date_obj)
+
+                        if summary:
+                            st.success(f"✅ 总结生成成功！生成时间：{summary.generation_time:.2f}秒")
+                            st.rerun()
+                        else:
+                            st.warning("⚠️  没有找到符合条件的文章")
+                    except Exception as e:
+                        st.error(f"❌ 生成总结失败：{e}")
+
 def render_statistics_tab(articles):
     """渲染统计标签页"""
     st.subheader("📈 数据统计")
@@ -2057,7 +2184,7 @@ def main():
         st.info("🔄 " + st.session_state.collection_message + " (采集进行中，您可以继续浏览文章...)")
 
     # 标签页
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["📰 文章列表", "📈 数据统计", "🚀 采集历史", "⚙️ 订阅源管理", "🗑️ 数据清理"])
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📰 文章列表", "📊 每日总结", "📈 数据统计", "🚀 采集历史", "⚙️ 订阅源管理", "🗑️ 数据清理"])
 
     with tab1:
         # 初始化默认筛选条件
@@ -2132,15 +2259,18 @@ def main():
                 render_article_card(article)
 
     with tab2:
-        render_statistics_tab(articles)
+        render_daily_summary()
 
     with tab3:
-        render_collection_history()
+        render_statistics_tab(articles)
 
     with tab4:
-        render_source_management()
-    
+        render_collection_history()
+
     with tab5:
+        render_source_management()
+
+    with tab6:
         render_data_cleanup()
 
 

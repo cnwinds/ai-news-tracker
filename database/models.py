@@ -143,3 +143,34 @@ class CollectionTask(Base):
 
     def __repr__(self):
         return f"<CollectionTask(id={self.id}, status='{self.status}', new_articles={self.new_articles_count})>"
+
+
+class DailySummary(Base):
+    """每日/每周总结表"""
+    __tablename__ = "daily_summaries"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    summary_type = Column(String(20), nullable=False, index=True)  # daily/weekly
+    summary_date = Column(DateTime, nullable=False, index=True)  # 总结日期
+    start_date = Column(DateTime, nullable=False)  # 时间范围开始
+    end_date = Column(DateTime, nullable=False)  # 时间范围结束
+
+    # 统计信息
+    total_articles = Column(Integer, default=0)  # 文章总数
+    high_importance_count = Column(Integer, default=0)  # 高重要性文章数
+    medium_importance_count = Column(Integer, default=0)  # 中重要性文章数
+
+    # 总结内容
+    summary_content = Column(Text, nullable=False)  # LLM生成的总结
+    key_topics = Column(JSON, nullable=True)  # ["topic1", "topic2"]
+    recommended_articles = Column(JSON, nullable=True)  # [{"id": 1, "title": "xxx", "reason": "xxx"}]
+
+    # 元数据
+    model_used = Column(String(100), nullable=True)  # 使用的LLM模型
+    generation_time = Column(Float, nullable=True)  # 生成耗时（秒）
+
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    def __repr__(self):
+        return f"<DailySummary(id={self.id}, type='{self.summary_type}', date={self.summary_date})>"

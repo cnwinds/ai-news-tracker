@@ -34,6 +34,13 @@ class CollectionService:
         self.hf_collector = HuggingFaceCollector()
         self.pwc_collector = PapersWithCodeCollector()
 
+        # 初始化总结生成器
+        if ai_analyzer:
+            from collector.summary_generator import SummaryGenerator
+            self.summary_generator = SummaryGenerator(ai_analyzer)
+        else:
+            self.summary_generator = None
+
     def _load_config(self, config_path: str) -> Dict[str, Any]:
         """加载配置文件"""
         try:
@@ -1072,3 +1079,31 @@ class CollectionService:
             )
 
             return articles
+
+    def generate_daily_summary(self, db, date: datetime = None):
+        """
+        生成每日总结
+
+        Args:
+            db: 数据库管理器
+            date: 总结日期（默认今天）
+        """
+        if not self.summary_generator:
+            logger.warning("⚠️  未初始化AI分析器，无法生成总结")
+            return None
+
+        return self.summary_generator.generate_daily_summary(db, date)
+
+    def generate_weekly_summary(self, db, date: datetime = None):
+        """
+        生成每周总结
+
+        Args:
+            db: 数据库管理器
+            date: 总结日期（默认今天）
+        """
+        if not self.summary_generator:
+            logger.warning("⚠️  未初始化AI分析器，无法生成总结")
+            return None
+
+        return self.summary_generator.generate_weekly_summary(db, date)
