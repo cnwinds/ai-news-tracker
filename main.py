@@ -19,18 +19,12 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from collector import CollectionService
-from analyzer.ai_analyzer import AIAnalyzer
 from notification import NotificationService
 from database import get_db
+from utils import create_ai_analyzer, setup_logger
 
 # 配置日志
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler()],
-)
-
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__)
 
 
 @click.group()
@@ -56,14 +50,10 @@ def collect(enable_ai, no_ai):
     # 初始化AI分析器
     ai_analyzer = None
     if use_ai:
-        if not os.getenv("OPENAI_API_KEY"):
+        ai_analyzer = create_ai_analyzer()
+        if not ai_analyzer:
             click.echo("⚠️  未配置OPENAI_API_KEY，将跳过AI分析", err=True)
         else:
-            ai_analyzer = AIAnalyzer(
-                api_key=os.getenv("OPENAI_API_KEY"),
-                base_url=os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1"),
-                model=os.getenv("OPENAI_MODEL", "gpt-4-turbo-preview"),
-            )
             click.echo("✅ AI分析器已启用")
 
     # 初始化采集服务
@@ -104,11 +94,11 @@ def summary(limit, hours):
         sys.exit(1)
 
     # 初始化
-    ai_analyzer = AIAnalyzer(
-        api_key=os.getenv("OPENAI_API_KEY"),
-        base_url=os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1"),
-        model=os.getenv("OPENAI_MODEL", "gpt-4-turbo-preview"),
-    )
+    ai_analyzer = create_ai_analyzer()
+    if not ai_analyzer:
+        click.echo("❌ 未配置OPENAI_API_KEY", err=True)
+        sys.exit(1)
+
     collector = CollectionService(ai_analyzer=ai_analyzer)
     db = get_db()
 
@@ -211,11 +201,11 @@ def send(webhook):
         sys.exit(1)
 
     # 初始化服务
-    ai_analyzer = AIAnalyzer(
-        api_key=os.getenv("OPENAI_API_KEY"),
-        base_url=os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1"),
-        model=os.getenv("OPENAI_MODEL", "gpt-4-turbo-preview"),
-    )
+    ai_analyzer = create_ai_analyzer()
+    if not ai_analyzer:
+        click.echo("❌ 未配置OPENAI_API_KEY", err=True)
+        sys.exit(1)
+
     collector = CollectionService(ai_analyzer=ai_analyzer)
     notifier = NotificationService(feishu_webhook=feishu_webhook)
     db = get_db()

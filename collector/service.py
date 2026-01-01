@@ -125,18 +125,23 @@ class CollectionService:
                 executor.submit(self.rss_collector.fetch_full_content, article["url"]): article
                 for article in articles_to_fetch
             }
-            
+
             # 收集结果
             completed = 0
             for future in as_completed(future_to_article):
                 article = future_to_article[future]
                 completed += 1
-                
+
                 try:
-                    full_content = future.result()
+                    full_content, published_at = future.result()
                     if full_content:
                         article["content"] = full_content
-                        logger.info(f"  ✅ [{completed}/{len(articles_to_fetch)}] 已获取完整内容: {article['title'][:50]}...")
+                        # 如果从页面提取到了日期，更新文章的published_at字段
+                        if published_at:
+                            article["published_at"] = published_at
+                            logger.info(f"  ✅ [{completed}/{len(articles_to_fetch)}] 已获取完整内容和日期: {article['title'][:50]}...")
+                        else:
+                            logger.info(f"  ✅ [{completed}/{len(articles_to_fetch)}] 已获取完整内容: {article['title'][:50]}...")
                     else:
                         logger.warning(f"  ⚠️  [{completed}/{len(articles_to_fetch)}] 无法获取完整内容，使用RSS摘要: {article['title'][:50]}...")
                 except Exception as e:
@@ -144,34 +149,6 @@ class CollectionService:
         
         logger.info(f"  ✅ 完整内容获取完成: {len(articles_to_fetch)} 篇文章")
         return articles
-
-    def _fix_source_by_feed_title(self, db, session, feed_title: str, correct_source_name: str):
-        """
-        根据feed title修正数据库中文章的source字段
-        
-        Args:
-            db: 数据库管理器
-            session: 数据库会话
-            feed_title: RSS feed的title
-            correct_source_name: 正确的订阅源名称
-        """
-        try:
-            # 查找source字段等于feed_title的文章
-            articles_to_fix = session.query(Article).filter(
-                Article.source == feed_title
-            ).all()
-            
-            if articles_to_fix:
-                fixed_count = 0
-                for article in articles_to_fix:
-                    article.source = correct_source_name
-                    fixed_count += 1
-                
-                session.commit()
-                logger.info(f"  🔧 已修正 {fixed_count} 篇文章的source字段: '{feed_title}' -> '{correct_source_name}'")
-        except Exception as e:
-            logger.warning(f"  ⚠️  修正source字段失败: {e}")
-            session.rollback()
 
     def _update_task_progress(self, db, task_id: int, stats: Dict[str, Any]):
         """更新任务进度"""
@@ -221,16 +198,48 @@ class CollectionService:
                 result_stats["success"] = True
                 return result_stats
 
-            # 如果feed title与订阅源名称不一致，修正数据库中已有的文章
-            if feed_title and feed_title != source_name:
-                with db.get_session() as session:
-                    self._fix_source_by_feed_title(db, session, feed_title, source_name)
-
-            # 确保使用正确的source名称
+            # 确保所有文章的source字段都是订阅源名称，并设置正确的author
+            # 这是关键的防御性检查：强制覆盖所有文章的source字段，防止并发冲突
+            from collector.rss_collector import _get_author_from_source
+            from config.settings import settings
+            
+            # 应用文章年龄过滤（如果配置了）
+            filtered_articles = []
+            skipped_old_count = 0
+            max_article_age_days = settings.MAX_ARTICLE_AGE_DAYS
+            
+            if max_article_age_days > 0:
+                age_threshold = datetime.now() - timedelta(days=max_article_age_days)
+                for article in articles:
+                    published_at = article.get("published_at")
+                    if published_at and published_at < age_threshold:
+                        skipped_old_count += 1
+                        continue
+                    filtered_articles.append(article)
+                articles = filtered_articles
+                if skipped_old_count > 0:
+                    logger.info(f"  ⏭️  {source_name}: 跳过了 {skipped_old_count} 篇超过 {max_article_age_days} 天的旧文章")
+            
             for article in articles:
+                # 强制设置source字段，确保使用正确的订阅源名称
+                # 这可以防止并发时feed title被错误使用
                 article["source"] = source_name
+                
+                # 根据源名称或URL确定正确的作者（覆盖RSS feed中可能不准确的author）
+                correct_author = _get_author_from_source(source_name, article.get("url", ""))
+                if correct_author:
+                    article["author"] = correct_author
+                
+                # 防御性检查：如果文章的source与传入的source_name不一致，记录警告
+                if article.get("source") != source_name:
+                    logger.warning(f"  ⚠️  文章source不匹配: 期望={source_name}, 实际={article.get('source')}, URL={article.get('url', '')[:50]}")
+                    article["source"] = source_name  # 强制修正
 
             logger.info(f"  📥 {source_name}: 开始处理 {len(articles)} 篇文章...")
+
+            # 注意：不再需要修正source字段，因为添加了source_id外键关联
+            # 保存文章时会自动根据source_name查询RSSSource获取source_id
+            # 如果RSSSource.name被修改，可以通过article.rss_source.name获取最新名称
 
             # 第一步：批量检查哪些文章已存在且有内容、已分析
             existing_articles_data = {}
@@ -310,7 +319,8 @@ class CollectionService:
             for article in articles_with_full_content:
                 result = self._save_or_update_article_and_get_id(db, article)
                 if result:
-                    saved_article_ids.append(result)
+                    # 只保存文章ID（整数），而不是整个字典
+                    saved_article_ids.append(result["id"])
                     if result["is_new"]:
                         new_count += 1
                     else:
@@ -325,6 +335,16 @@ class CollectionService:
                     source_obj.last_collected_at = datetime.now()
                     source_obj.articles_count += len(articles)
                     source_obj.last_error = None
+
+                    # 从数据库中查询该源最新的真实published_at（而不是RSS feed的更新时间）
+                    latest_article = session.query(Article).filter(
+                        Article.source == source_name,
+                        Article.published_at.isnot(None)
+                    ).order_by(Article.published_at.desc()).first()
+
+                    if latest_article:
+                        source_obj.latest_article_published_at = latest_article.published_at
+
                     session.commit()
 
             # 记录采集日志
@@ -332,7 +352,7 @@ class CollectionService:
 
             # 第五步：如果启用AI分析，处理需要分析的文章（包括新文章和旧文章）
             if enable_ai_analysis and self.ai_analyzer and (saved_article_ids or articles_to_analyze):
-                # 收集所有需要分析的文章ID
+                # 收集所有需要分析的文章ID（已经是整数列表）
                 all_article_ids = saved_article_ids.copy()
 
                 # 对于已有URL但未分析的文章，查询它们的ID
@@ -431,21 +451,28 @@ class CollectionService:
             for rss_config in rss_configs:
                 source_name = rss_config["name"]
 
-                # 定义采集单个源的函数
-                def collect_single_source():
+                # 深拷贝配置对象，避免多线程共享引用导致的并发问题
+                # 虽然默认参数捕获了引用，但如果在调用过程中修改了字典，仍有风险
+                import copy
+                config_copy = copy.deepcopy(rss_config)
+
+                # 使用默认参数捕获变量的值，避免闭包陷阱
+                # 这是关键的修复：通过默认参数在定义时捕获值，而不是在运行时引用变量
+                def collect_single_source(config=config_copy, name=source_name):
                     try:
-                        # 获取RSS feed
-                        feed_data = self.rss_collector.fetch_single_feed(rss_config)
+                        # 获取RSS feed（使用传入的config，确保每个线程使用正确的配置）
+                        feed_data = self.rss_collector.fetch_single_feed(config)
 
                         # 处理这个源（包含获取完整内容、保存、AI分析）
+                        # 使用传入的name，确保每个线程使用正确的源名称
                         result = self._process_single_rss_source(
-                            db, source_name, feed_data, enable_ai_analysis
+                            db, name, feed_data, enable_ai_analysis
                         )
                         return result
                     except Exception as e:
-                        logger.error(f"  ❌ {source_name} 采集失败: {e}")
+                        logger.error(f"  ❌ {name} 采集失败: {e}")
                         return {
-                            "source_name": source_name,
+                            "source_name": name,
                             "success": False,
                             "error": str(e),
                             "total_articles": 0,
@@ -617,84 +644,145 @@ class CollectionService:
             {"id": int, "is_new": bool} - 文章ID和是否为新文章
             如果保存失败返回None
         """
-        try:
-            with db.get_session() as session:
-                # 检查是否已存在
-                existing = session.query(Article).filter(Article.url == article["url"]).first()
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                with db.get_session() as session:
+                    # 检查是否已存在
+                    existing = session.query(Article).filter(Article.url == article["url"]).first()
 
-                if existing:
-                    # 文章已存在，更新内容（如果新内容更完整）
+                    if existing:
+                        # 文章已存在，更新内容（如果新内容更完整）
+                        content = article.get("content", "")
+                        if content and content.strip():  # 如果有新内容
+                            # 只在内容为空或明显更短时才更新
+                            if not existing.content or (existing.content and len(content) > len(existing.content)):
+                                existing.content = content
+                                # 更新source字段，确保使用正确的订阅源名称
+                                existing.source = article.get("source", existing.source)
+
+                                # 如果没有中文标题，尝试翻译
+                                if not existing.title_zh and self.ai_analyzer:
+                                    self._translate_article_title_if_needed(existing)
+
+                                session.commit()
+                                return {"id": existing.id, "is_new": False}
+                        return {"id": existing.id, "is_new": False}
+
+                    # 创建新文章
                     content = article.get("content", "")
-                    if content and content.strip():  # 如果有新内容
-                        # 只在内容为空或明显更短时才更新
-                        if not existing.content or (existing.content and len(content) > len(existing.content)):
-                            existing.content = content
-                            session.commit()
-                            return {"id": existing.id, "is_new": False}
-                    return {"id": existing.id, "is_new": False}
+                    new_article = Article(
+                        title=article.get("title"),
+                        url=article.get("url"),
+                        content=content,
+                        source=article.get("source"),
+                        category=article.get("category"),
+                        author=article.get("author"),
+                        published_at=article.get("published_at"),
+                        extra_data=article.get("metadata"),
+                    )
 
-                # 创建新文章
-                content = article.get("content", "")
-                new_article = Article(
-                    title=article.get("title"),
-                    url=article.get("url"),
-                    content=content,
-                    source=article.get("source"),
-                    category=article.get("category"),
-                    author=article.get("author"),
-                    published_at=article.get("published_at"),
-                    extra_data=article.get("metadata"),
-                )
+                    session.add(new_article)
+                    session.commit()
 
-                session.add(new_article)
-                session.commit()
+                    # 如果没有中文标题，尝试翻译
+                    if not new_article.title_zh and self.ai_analyzer:
+                        self._translate_article_title_if_needed(new_article)
+                        session.commit()
 
-                # 返回新插入的文章ID
-                return {"id": new_article.id, "is_new": True}
+                    # 返回新插入的文章ID
+                    return {"id": new_article.id, "is_new": True}
 
-        except Exception as e:
-            logger.error(f"❌ 保存或更新文章失败: {e}")
-            return None
+            except Exception as e:
+                # 如果是唯一性约束错误，可能是由并发引起的，重试
+                if "UNIQUE constraint failed" in str(e) and attempt < max_retries - 1:
+                    logger.warning(f"⚠️  并发冲突，第 {attempt + 1} 次重试: {article.get('url', 'Unknown')}")
+                    import time
+                    time.sleep(0.1 * (attempt + 1))  # 递增延迟
+                    continue
+                else:
+                    logger.error(f"❌ 保存或更新文章失败: {e}")
+                    return None
 
-    def _analyze_articles(self, db, batch_size: int = 50, max_age_days: int = 3, max_workers: int = 3) -> Dict[str, Any]:
+        return None
+
+    def _translate_article_title_if_needed(self, article: Article):
+        """
+        如果文章标题是英文且没有中文翻译，则翻译为中文
+
+        Args:
+            article: 文章对象
+        """
+        import re
+
+        # 如果已有中文标题，跳过
+        if article.title_zh:
+            return
+
+        # 检查是否为英文：检查是否包含中文字符
+        def is_english(text: str) -> bool:
+            if not text:
+                return False
+            chinese_chars = len(re.findall(r'[\u4e00-\u9fff]', text))
+            return chinese_chars / len(text) < 0.3
+
+        if is_english(article.title):
+            try:
+                article.title_zh = self.ai_analyzer.translate_title(article.title)
+                logger.info(f"  🌐 翻译标题: {article.title[:50]}... → {article.title_zh[:50]}...")
+            except Exception as e:
+                logger.warning(f"  ⚠️  标题翻译失败: {e}")
+
+    def _analyze_articles(self, db, batch_size: int = 50, max_age_days: int = None, max_workers: int = 3) -> Dict[str, Any]:
         """
         AI分析未分析的文章（并发）
         
         Args:
             batch_size: 批次大小
-            max_age_days: 最大文章年龄（天数），超过此天数的文章不分析，默认3天
+            max_age_days: 最大文章年龄（天数），超过此天数的文章不分析。如果为None，则使用配置中的值
             max_workers: 最大并发数，默认3
         """
+        from config.settings import settings
+        
+        # 如果未指定max_age_days，使用配置中的值
+        if max_age_days is None:
+            max_age_days = settings.MAX_ANALYSIS_AGE_DAYS
+        
         stats = {"analyzed_count": 0, "analysis_error": 0, "skipped_old": 0}
 
         with db.get_session() as session:
             # 计算时间阈值（只分析最近max_age_days天的文章）
-            from datetime import timedelta
-            time_threshold = datetime.now() - timedelta(days=max_age_days)
+            # 如果max_age_days为0，表示不限制，分析所有文章
+            if max_age_days > 0:
+                time_threshold = datetime.now() - timedelta(days=max_age_days)
+            else:
+                time_threshold = None
             
             # 获取未分析的文章（只分析最近的文章）
-            unanalyzed = (
-                session.query(Article)
-                .filter(
-                    Article.is_processed == False,
-                    Article.published_at.isnot(None),
-                    Article.published_at >= time_threshold
-                )
-                .order_by(Article.published_at.desc())
-                .limit(batch_size)
-                .all()
+            query = session.query(Article).filter(
+                Article.is_processed == False,
+                Article.published_at.isnot(None)
             )
             
-            # 统计跳过的旧文章
-            skipped_count = (
-                session.query(Article)
-                .filter(
-                    Article.is_processed == False,
-                    Article.published_at.isnot(None),
-                    Article.published_at < time_threshold
+            # 如果配置了时间限制，添加时间过滤
+            if time_threshold:
+                query = query.filter(Article.published_at >= time_threshold)
+            
+            unanalyzed = query.order_by(Article.published_at.desc()).limit(batch_size).all()
+            
+            # 统计跳过的旧文章（仅在配置了时间限制时）
+            if time_threshold:
+                skipped_count = (
+                    session.query(Article)
+                    .filter(
+                        Article.is_processed == False,
+                        Article.published_at.isnot(None),
+                        Article.published_at < time_threshold
+                    )
+                    .count()
                 )
-                .count()
-            )
+            else:
+                skipped_count = 0
             stats["skipped_old"] = skipped_count
 
             if not unanalyzed:
@@ -723,17 +811,54 @@ class CollectionService:
             
             session.expunge_all()
 
+            # 为每个线程创建独立的AIAnalyzer实例，避免并发冲突
+            # OpenAI客户端内部有连接池，多线程共享不安全
+            from utils.factories import create_ai_analyzer
+
             # 并发分析文章
-            def analyze_single_article(article):
+            # 使用默认参数捕获 article.id，避免闭包陷阱和 DetachedInstanceError
+            def analyze_single_article(article_obj, article_id=None):
                 """分析单篇文章（用于并发执行）"""
+                # 为每个线程创建独立的AI分析器实例
+                thread_ai_analyzer = create_ai_analyzer()
+
+                # 如果传入的是 article 对象，提取 ID；否则使用传入的 article_id
+                if article_id is None:
+                    article_id = article_obj.id if hasattr(article_obj, 'id') else None
+
                 try:
                     # 为每个线程创建独立的数据库会话
                     with db.get_session() as article_session:
                         # 重新查询文章（避免DetachedInstanceError）
-                        article_obj = article_session.query(Article).filter(Article.id == article.id).first()
-                        if not article_obj or article_obj.is_processed:
+                        article_obj = article_session.query(Article).filter(Article.id == article_id).first()
+                        if not article_obj:
+                            return {"success": False, "reason": "article_not_found"}
+
+                        # 检查是否需要翻译标题（英文标题翻译成中文）
+                        # 放在is_processed检查之前，确保即使是已分析的文章也能翻译
+                        if not article_obj.title_zh:
+                            import re
+
+                            # 简单判断是否为英文：检查是否包含中文字符
+                            def is_english(text: str) -> bool:
+                                if not text:
+                                    return False
+                                chinese_chars = len(re.findall(r'[\u4e00-\u9fff]', text))
+                                return chinese_chars / len(text) < 0.3
+
+                            if is_english(article_obj.title):
+                                logger.info(f"  🌐 翻译标题: {article_obj.title[:50]}...")
+                                try:
+                                    article_obj.title_zh = thread_ai_analyzer.translate_title(article_obj.title)
+                                    article_session.commit()
+                                except Exception as e:
+                                    logger.warning(f"  ⚠️  标题翻译失败: {e}")
+                                    article_session.rollback()
+
+                        # 如果已经分析过，跳过AI分析
+                        if article_obj.is_processed:
                             return {"success": False, "reason": "already_processed"}
-                        
+
                         # 准备文章数据
                         article_dict = {
                             "title": article_obj.title,
@@ -742,8 +867,8 @@ class CollectionService:
                             "published_at": article_obj.published_at,
                         }
 
-                        # AI分析
-                        result = self.ai_analyzer.analyze_article(article_dict)
+                        # AI分析（使用线程独立的AI分析器）
+                        result = thread_ai_analyzer.analyze_article(article_dict)
 
                         # 更新文章
                         article_obj.summary = result.get("summary")
@@ -758,19 +883,21 @@ class CollectionService:
                         return {"success": True, "article_id": article_obj.id}
                         
                 except Exception as e:
-                    logger.error(f"  ❌ 分析文章失败 (ID={article.id}): {e}")
+                    logger.error(f"  ❌ 分析文章失败 (ID={article_id}): {e}")
                     return {"success": False, "error": str(e)}
 
             # 使用线程池并发分析
+            # 使用默认参数捕获 article.id，避免闭包陷阱
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 future_to_article = {
-                    executor.submit(analyze_single_article, article): article
+                    executor.submit(analyze_single_article, article, article.id): article
                     for article in unanalyzed
                 }
                 
                 completed = 0
                 for future in as_completed(future_to_article):
                     article = future_to_article[future]
+                    article_id = article.id  # 提前保存 ID，避免 DetachedInstanceError
                     completed += 1
                     
                     try:
@@ -782,7 +909,7 @@ class CollectionService:
                         else:
                             stats["analysis_error"] += 1
                     except Exception as e:
-                        logger.error(f"  ❌ 分析文章异常 (ID={article.id}): {e}")
+                        logger.error(f"  ❌ 分析文章异常 (ID={article_id}): {e}")
                         stats["analysis_error"] += 1
 
         logger.info(f"  ✅ AI分析完成: {stats['analyzed_count']} 篇成功, {stats['analysis_error']} 篇失败")
@@ -805,10 +932,16 @@ class CollectionService:
 
         analyzed_count = 0
 
-        # 并发分析文章
+        # 为每个线程创建独立的AIAnalyzer实例，避免并发冲突
+        # OpenAI客户端内部有连接池，多线程共享不安全
+        from utils.factories import create_ai_analyzer
+
         def analyze_single_article_id(article_id):
             """根据ID分析单篇文章"""
             try:
+                # 为每个线程创建独立的AI分析器实例
+                thread_ai_analyzer = create_ai_analyzer()
+
                 # 为每个线程创建独立的数据库会话
                 with db.get_session() as session:
                     # 重新查询文章
@@ -824,8 +957,8 @@ class CollectionService:
                         "published_at": article_obj.published_at,
                     }
 
-                    # AI分析
-                    result = self.ai_analyzer.analyze_article(article_dict)
+                    # AI分析（使用线程独立的AI分析器）
+                    result = thread_ai_analyzer.analyze_article(article_dict)
 
                     # 更新文章
                     article_obj.summary = result.get("summary")

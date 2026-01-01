@@ -149,6 +149,7 @@ ai-news-tracker/
 │   └── ai_analyzer.py        # AI内容分析器
 ├── database/            # 数据库模块
 │   ├── models.py             # 数据模型
+│   ├── repositories.py        # 数据访问层（新增）
 │   └── __init__.py           # 数据库管理
 ├── notification/         # 推送模块
 │   ├── feishu_notifier.py    # 飞书通知器
@@ -156,12 +157,17 @@ ai-news-tracker/
 ├── web/                 # Web界面
 │   └── app.py                # Streamlit应用
 ├── config/              # 配置文件
+│   ├── settings.py           # 统一配置管理（新增）
 │   └── sources.json          # 数据源配置
+├── utils/               # 工具模块（新增）
+│   ├── logger.py            # 日志管理
+│   └── factories.py         # 工厂函数
 ├── main.py              # CLI入口
 ├── scheduler.py         # 定时任务调度器
 ├── requirements.txt     # 依赖包
 ├── .env.example         # 环境变量示例
-└── README.md            # 项目文档
+├── README.md            # 项目文档
+└── REFACTORING.md      # 重构文档（新增）
 ```
 
 ## 🎯 使用场景
@@ -281,6 +287,31 @@ docker run -d --env-file .env ai-news-tracker
 ### 问题3：飞书推送失败
 - 确认Webhook URL正确
 - 检查飞书机器人权限
+
+## 🔧 最近更新
+
+### v2.0 - 代码重构与优化
+
+**新增功能**：
+- ✨ 统一配置管理模块（`config/settings.py`）
+- ✨ 统一日志管理模块（`utils/logger.py`）
+- ✨ 数据访问层（`database/repositories.py`）
+- ✨ 工厂函数模块（`utils/factories.py`）
+
+**性能优化**：
+- 🚀 添加数据库复合索引，优化查询性能
+- 🚀 优化Web界面数据库查询，减少内存使用
+- 🚀 使用聚合查询替代加载全部数据
+
+**代码改进**：
+- 📝 移除未使用的导入和代码
+- 📝 统一AI分析器初始化逻辑
+- 📝 改进类型提示和文档
+- 📝 清理重复代码
+
+**文档更新**：
+- 📖 添加详细的重构文档（`REFACTORING.md`）
+- 📖 更新项目结构说明
 
 ## 📝 开发计划
 

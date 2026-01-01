@@ -9,6 +9,12 @@ from typing import Generator
 import logging
 
 from database.models import Base
+from database.repositories import (
+    ArticleRepository,
+    RSSSourceRepository,
+    CollectionTaskRepository,
+    CollectionLogRepository,
+)
 
 logger = logging.getLogger(__name__)
 

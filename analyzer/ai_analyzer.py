@@ -269,3 +269,48 @@ class AIAnalyzer:
         except Exception as e:
             logger.error(f"❌ 获取向量失败: {e}")
             return []
+
+    def translate_title(self, title: str) -> str:
+        """
+        翻译英文标题为中文
+
+        Args:
+            title: 原始标题
+
+        Returns:
+            翻译后的中文标题（如果无法翻译则返回原标题）
+        """
+        try:
+            logger.info(f"🌐 正在翻译标题: {title[:50]}...")
+
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": """你是一位专业的翻译专家。请将英文标题翻译成简体中文。
+
+翻译要求：
+1. 保持原意准确
+2. 符合中文表达习惯
+3. 保留专业术语（如AI、Transformer、GPT等）
+4. 标题简洁明了
+
+只返回翻译后的中文标题，不要添加任何解释或额外内容。""",
+                    },
+                    {
+                        "role": "user",
+                        "content": f"请将以下标题翻译成中文：\n\n{title}",
+                    },
+                ],
+                temperature=0.3,
+                max_tokens=500,
+            )
+
+            translated = response.choices[0].message.content.strip()
+            logger.info(f"✅ 翻译完成: {translated[:50]}...")
+            return translated
+
+        except Exception as e:
+            logger.error(f"❌ 标题翻译失败: {e}")
+            return title  # 翻译失败时返回原标题

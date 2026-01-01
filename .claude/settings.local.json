@@ -1,0 +1,12 @@
+{
+  "enabledPlugins": {
+    "glm-plan-usage@zai-coding-plugins": true
+  },
+  "permissions": {
+    "allow": [
+      "Edit",
+      "Bash(pip:*)",
+      "Bash(python:*)"
+    ]
+  }
+}

@@ -13,16 +13,16 @@ project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
 from collector import CollectionService
-from analyzer.ai_analyzer import AIAnalyzer
 from notification import NotificationService
 from database import get_db
 from dotenv import load_dotenv
 import os
+from utils import create_ai_analyzer, setup_logger
 
 # 加载环境变量
 load_dotenv()
 
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__)
 
 
 class TaskScheduler:
@@ -37,15 +37,10 @@ class TaskScheduler:
     def _init_services(self):
         """初始化各个服务"""
         # AI分析器
-        if os.getenv("OPENAI_API_KEY"):
-            self.ai_analyzer = AIAnalyzer(
-                api_key=os.getenv("OPENAI_API_KEY"),
-                base_url=os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1"),
-                model=os.getenv("OPENAI_MODEL", "gpt-4-turbo-preview"),
-            )
+        self.ai_analyzer = create_ai_analyzer()
+        if self.ai_analyzer:
             logger.info("✅ AI分析器初始化成功")
         else:
-            self.ai_analyzer = None
             logger.warning("⚠️  未配置OPENAI_API_KEY，AI分析功能将不可用")
 
         # 采集服务

@@ -2,8 +2,9 @@
 数据库模型定义
 """
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, Float, JSON
+from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, Float, JSON, Index, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
 Base = declarative_base()
@@ -13,11 +14,21 @@ class Article(Base):
     """文章表"""
     __tablename__ = "articles"
 
+    # 复合索引 - 优化常用查询
+    __table_args__ = (
+        Index('idx_article_published_importance', 'published_at', 'importance'),
+        Index('idx_article_source_published', 'source', 'published_at'),
+        Index('idx_article_source_id_published', 'source_id', 'published_at'),
+        Index('idx_article_published_sent', 'published_at', 'is_sent'),
+    )
+
     id = Column(Integer, primary_key=True, autoincrement=True)
     title = Column(String(500), nullable=False, index=True)
+    title_zh = Column(String(500), nullable=True, index=True)  # 中文标题（翻译后）
     url = Column(String(1000), unique=True, nullable=False, index=True)
     content = Column(Text, nullable=True)
     summary = Column(Text, nullable=True)
+    source_id = Column(Integer, ForeignKey('rss_sources.id'), nullable=True, index=True)
     source = Column(String(200), nullable=False, index=True)
     category = Column(String(100), nullable=True, index=True)
     author = Column(String(200), nullable=True)
@@ -39,6 +50,9 @@ class Article(Base):
 
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    # 关系：Article属于RSSSource
+    rss_source = relationship("RSSSource", backref="articles")
 
     def __repr__(self):
         return f"<Article(id={self.id}, title='{self.title[:50]}...', source='{self.source}')>"
@@ -94,6 +108,7 @@ class RSSSource(Base):
 
     # 统计信息
     last_collected_at = Column(DateTime, nullable=True)  # 最后采集时间
+    latest_article_published_at = Column(DateTime, nullable=True)  # 最新文章的发布时间（用于判断源是否活跃）
     articles_count = Column(Integer, default=0)  # 采集到的文章总数
     last_error = Column(Text, nullable=True)  # 最后错误信息
 
