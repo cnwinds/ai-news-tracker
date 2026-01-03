@@ -105,6 +105,11 @@ class ApiService {
     return response.data;
   }
 
+  async getCollectionTaskDetail(id: number): Promise<any> {
+    const response = await this.client.get(`/collection/tasks/${id}/detail`);
+    return response.data;
+  }
+
   async getCollectionStatus(): Promise<CollectionTaskStatus> {
     const response = await this.client.get<CollectionTaskStatus>('/collection/status');
     return response.data;
@@ -124,6 +129,10 @@ class ApiService {
   async generateSummary(request: SummaryGenerateRequest): Promise<DailySummary> {
     const response = await this.client.post<DailySummary>('/summary/generate', request);
     return response.data;
+  }
+
+  async deleteSummary(id: number): Promise<void> {
+    await this.client.delete(`/summary/${id}`);
   }
 
   // 订阅源相关
@@ -185,6 +194,7 @@ class ApiService {
     delete_articles_older_than_days?: number;
     delete_logs_older_than_days?: number;
     delete_unanalyzed_articles?: boolean;
+    delete_articles_by_sources?: string[];
   }): Promise<any> {
     const response = await this.client.post('/cleanup', data);
     return response.data;

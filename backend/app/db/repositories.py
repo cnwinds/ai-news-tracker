@@ -310,10 +310,7 @@ class CollectionLogRepository:
             日志列表
         """
         query = session.query(CollectionLog).filter(
-            CollectionLog.started_at >= task.started_at
+            CollectionLog.task_id == task.id
         )
-
-        if task.completed_at:
-            query = query.filter(CollectionLog.started_at <= task.completed_at)
 
         return query.order_by(CollectionLog.started_at.desc()).all()

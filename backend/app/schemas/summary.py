@@ -47,6 +47,6 @@ class DailySummary(DailySummaryBase):
 class SummaryGenerateRequest(BaseModel):
     """生成摘要请求"""
     summary_type: str = Field("daily", description="摘要类型: daily/weekly")
-    limit: int = Field(20, ge=1, le=50, description="文章数量限制")
-    hours: int = Field(24, ge=1, description="时间范围（小时）")
+    date: Optional[str] = Field(None, description="指定日期 (YYYY-MM-DD格式)，仅当summary_type=daily时有效")
+    week: Optional[str] = Field(None, description="指定周 (YYYY-WW格式，如2024-01表示2024年第1周)，仅当summary_type=weekly时有效")
 

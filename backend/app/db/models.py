@@ -70,9 +70,10 @@ class CollectionLog(Base):
     error_message = Column(Text, nullable=True)
     started_at = Column(DateTime, default=datetime.now)
     completed_at = Column(DateTime, nullable=True)
+    task_id = Column(Integer, nullable=True)  # 关联的采集任务ID
 
     def __repr__(self):
-        return f"<CollectionLog(source='{self.source_name}', status='{self.status}', count={self.articles_count})>"
+        return f"<CollectionLog(source='{self.source_name}', status='{self.status}', count={self.articles_count}, task_id={self.task_id})>"
 
 
 class NotificationLog(Base):

@@ -41,7 +41,7 @@ export default function Dashboard() {
       label: (
         <span>
           <ReadOutlined />
-          每日总结
+          内容总结
         </span>
       ),
       children: <DailySummary />,

@@ -146,4 +146,10 @@ export interface WebSocketMessage {
   [key: string]: any;
 }
 
+export interface SummaryGenerateRequest {
+  summary_type: 'daily' | 'weekly';
+  date?: string; // 指定日期 (YYYY-MM-DD格式)
+  week?: string; // 指定周 (YYYY-WW格式，如2024-01表示2024年第1周)
+}
+
 

@@ -25,18 +25,10 @@ logger = logging.getLogger(__name__)
 class CollectionService:
     """统一数据采集服务"""
 
-    def __init__(self, config_path: str = None, ai_analyzer: AIAnalyzer = None):
-        # 默认使用 backend/app/sources.json
-        if config_path is None:
-            from pathlib import Path
-            # 计算项目根目录
-            # __file__ = backend/app/services/collector/service.py
-            # 需要 6 个 parent 到达项目根目录
-            project_root = Path(__file__).parent.parent.parent.parent.parent.parent
-            config_path = str(project_root / "backend" / "app" / "sources.json")
-        
+    def __init__(self, ai_analyzer: AIAnalyzer = None):
+        # 数据采集只从数据库读取源
+        # 配置文件仅用于导入功能，不用于采集
         self.ai_analyzer = ai_analyzer
-        self.config = self._load_config(config_path)
 
         # 初始化各个采集器
         self.rss_collector = RSSCollector()
@@ -52,14 +44,6 @@ class CollectionService:
         else:
             self.summary_generator = None
 
-    def _load_config(self, config_path: str) -> Dict[str, Any]:
-        """加载配置文件"""
-        try:
-            with open(config_path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception as e:
-            logger.error(f"❌ 加载配置文件失败: {e}")
-            return {"rss_sources": [], "api_sources": [], "web_sources": [], "social_sources": []}
 
     def _merge_extra_config(self, config: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -99,6 +83,12 @@ class CollectionService:
             采集统计信息
         """
         logger.info("🚀 开始采集所有数据源")
+        
+        db = get_db()
+        
+        # 在开始采集前，检查并恢复挂起的任务
+        self._recover_stuck_tasks(db)
+        
         stats = {
             "total_articles": 0,
             "new_articles": 0,
@@ -106,8 +96,6 @@ class CollectionService:
             "sources_error": 0,
             "start_time": datetime.now(),
         }
-
-        db = get_db()
 
         # 1. 采集RSS源（双层并发：多个RSS源 + 每个源内部并发获取内容+AI分析）
         logger.info("\n📡 采集RSS源（双层并发模式）")
@@ -245,7 +233,7 @@ class CollectionService:
         except Exception as e:
             logger.error(f"❌ 更新任务进度失败: {e}")
 
-    def _process_single_rss_source(self, db, source_name: str, feed_result: Dict[str, Any], enable_ai_analysis: bool = False) -> Dict[str, Any]:
+    def _process_single_rss_source(self, db, source_name: str, feed_result: Dict[str, Any], enable_ai_analysis: bool = False, task_id: int = None) -> Dict[str, Any]:
         """
         处理单个RSS源：获取完整内容 -> 保存文章 -> AI分析（全流程并发）
 
@@ -254,6 +242,7 @@ class CollectionService:
             source_name: 订阅源名称
             feed_result: RSS采集结果
             enable_ai_analysis: 是否启用AI分析
+            task_id: 任务ID
 
         Returns:
             处理结果统计
@@ -427,7 +416,7 @@ class CollectionService:
                     session.commit()
 
             # 记录采集日志
-            self._log_collection(db, source_name, "rss", "success", len(articles))
+            self._log_collection(db, source_name, "rss", "success", len(articles), task_id=task_id)
 
             # 第五步：如果启用AI分析，处理需要分析的文章（包括新文章和旧文章）
             if enable_ai_analysis and self.ai_analyzer and (saved_article_ids or articles_to_analyze):
@@ -470,7 +459,7 @@ class CollectionService:
                     source_obj.last_error = str(e)
                     session.commit()
 
-            self._log_collection(db, source_name, "rss", "error", 0, str(e))
+            self._log_collection(db, source_name, "rss", "error", 0, str(e), task_id=task_id)
 
         return result_stats
 
@@ -511,13 +500,9 @@ class CollectionService:
                 _ = source.articles_count
             session.expunge_all()
 
-        # 如果数据库中没有源，则从配置文件读取（向后兼容）
+        # 只从数据库读取源，如果数据库中没有源则不采集
         if not rss_configs:
-            logger.info("  ℹ️  数据库中没有RSS源，从配置文件读取")
-            rss_configs = self.config.get("rss_sources", [])
-
-        if not rss_configs:
-            logger.warning("  ⚠️  没有配置RSS源")
+            logger.info("  ℹ️  数据库中没有启用的RSS源，跳过采集")
             return stats
 
         logger.info(f"  🚀 开始采集 {len(rss_configs)} 个RSS源（第一层并发）")
@@ -537,7 +522,7 @@ class CollectionService:
 
                 # 使用默认参数捕获变量的值，避免闭包陷阱
                 # 这是关键的修复：通过默认参数在定义时捕获值，而不是在运行时引用变量
-                def collect_single_source(config=config_copy, name=source_name):
+                def collect_single_source(config=config_copy, name=source_name, task_id_param=task_id):
                     try:
                         # 获取RSS feed（使用传入的config，确保每个线程使用正确的配置）
                         feed_data = self.rss_collector.fetch_single_feed(config)
@@ -545,7 +530,7 @@ class CollectionService:
                         # 处理这个源（包含获取完整内容、保存、AI分析）
                         # 使用传入的name，确保每个线程使用正确的源名称
                         result = self._process_single_rss_source(
-                            db, name, feed_data, enable_ai_analysis
+                            db, name, feed_data, enable_ai_analysis, task_id=task_id_param
                         )
                         return result
                     except Exception as e:
@@ -590,7 +575,7 @@ class CollectionService:
 
         return stats
 
-    def _process_articles_from_source(self, db, articles: List[Dict[str, Any]], source_name: str, source_type: str, enable_ai_analysis: bool = False) -> Dict[str, Any]:
+    def _process_articles_from_source(self, db, articles: List[Dict[str, Any]], source_name: str, source_type: str, enable_ai_analysis: bool = False, task_id: int = None) -> Dict[str, Any]:
         """
         统一处理文章：保存 + AI分析
 
@@ -600,6 +585,7 @@ class CollectionService:
             source_name: 源名称
             source_type: 源类型 (rss/api/web/social)
             enable_ai_analysis: 是否启用AI分析
+            task_id: 任务ID
 
         Returns:
             {"total": int, "new": int, "ai_analyzed": int}
@@ -634,10 +620,54 @@ class CollectionService:
         return result
 
     def _collect_api_sources(self, db, task_id: int = None, enable_ai_analysis: bool = False) -> Dict[str, Any]:
-        """采集API源"""
+        """
+        采集API源
+
+        Args:
+            db: 数据库管理器
+            task_id: 任务ID
+            enable_ai_analysis: 是否启用AI分析
+
+        Returns:
+            采集统计信息
+        """
         stats = {"sources_success": 0, "sources_error": 0, "new_articles": 0, "total_articles": 0, "ai_analyzed_count": 0}
 
-        api_configs = self.config.get("api_sources", [])
+        api_configs = []
+        with db.get_session() as session:
+            db_sources = session.query(RSSSource).filter(
+                RSSSource.enabled == True,
+                RSSSource.source_type == "api"
+            ).order_by(RSSSource.priority.asc()).all()
+
+            for source in db_sources:
+                config = {
+                    "name": source.name,
+                    "url": source.url,
+                    "enabled": source.enabled,
+                    "category": source.category,
+                }
+
+                if source.extra_config:
+                    try:
+                        import json
+                        extra_config = json.loads(source.extra_config)
+                        if isinstance(extra_config, dict):
+                            config.update(extra_config)
+                    except:
+                        pass
+
+                api_configs.append(config)
+                _ = source.id
+                _ = source.name
+                _ = source.url
+                _ = source.enabled
+            session.expunge_all()
+
+        # 只从数据库读取源，如果数据库中没有源则不采集
+        if not api_configs:
+            logger.info("  ℹ️  数据库中没有启用的API源，跳过采集")
+            return stats
 
         for config in api_configs:
             if not config.get("enabled", True):
@@ -665,23 +695,46 @@ class CollectionService:
                 if not articles:
                     logger.info(f"  ⚠️  {name}: 未获取到文章")
                     stats["sources_error"] += 1
-                    self._log_collection(db, name, "api", "error", 0, "未获取到文章")
+                    self._log_collection(db, name, "api", "error", 0, "未获取到文章", task_id=task_id)
                     continue
 
-                process_result = self._process_articles_from_source(db, articles, name, "api", enable_ai_analysis)
+                process_result = self._process_articles_from_source(db, articles, name, "api", enable_ai_analysis, task_id=task_id)
 
-                self._log_collection(db, name, "api", "success", process_result["total"])
+                self._log_collection(db, name, "api", "success", process_result["total"], task_id=task_id)
                 stats["sources_success"] += 1
                 stats["new_articles"] += process_result["new"]
                 stats["total_articles"] += process_result["total"]
                 stats["ai_analyzed_count"] += process_result["ai_analyzed"]
 
+                with db.get_session() as session:
+                    source_obj = session.query(RSSSource).filter(RSSSource.name == name).first()
+                    if source_obj:
+                        source_obj.last_collected_at = datetime.now()
+                        source_obj.articles_count += len(articles)
+                        source_obj.last_error = None
+
+                        latest_article = session.query(Article).filter(
+                            Article.source == name,
+                            Article.published_at.isnot(None)
+                        ).order_by(Article.published_at.desc()).first()
+
+                        if latest_article:
+                            source_obj.latest_article_published_at = latest_article.published_at
+
+                        session.commit()
+
                 logger.info(f"  ✅ {name}: {process_result['total']} 篇, 新增 {process_result['new']} 篇, AI分析 {process_result['ai_analyzed']} 篇")
 
             except Exception as e:
                 logger.error(f"  ❌ {name}: {e}")
-                self._log_collection(db, name, "api", "error", 0, str(e))
+                self._log_collection(db, name, "api", "error", 0, str(e), task_id=task_id)
                 stats["sources_error"] += 1
+                
+                with db.get_session() as session:
+                    source_obj = session.query(RSSSource).filter(RSSSource.name == name).first()
+                    if source_obj:
+                        source_obj.last_error = str(e)
+                        session.commit()
 
         logger.info(f"  ✅ API采集完成: 成功 {stats['sources_success']} 个源, 失败 {stats['sources_error']} 个源")
         logger.info(f"     总文章: {stats['total_articles']} 篇, 新增: {stats['new_articles']} 篇, AI分析: {stats['ai_analyzed_count']} 篇")
@@ -746,13 +799,9 @@ class CollectionService:
                 _ = source.enabled
             session.expunge_all()
 
-        # 如果数据库中没有源，则从配置文件读取（向后兼容）
+        # 只从数据库读取源，如果数据库中没有源则不采集
         if not web_configs:
-            logger.info("  ℹ️  数据库中没有Web源，从配置文件读取")
-            web_configs = self.config.get("web_sources", [])
-
-        if not web_configs:
-            logger.warning("  ⚠️  没有配置网站源")
+            logger.info("  ℹ️  数据库中没有启用的Web源，跳过采集")
             return stats
 
         logger.info(f"  🚀 开始采集 {len(web_configs)} 个网站源")
@@ -772,7 +821,7 @@ class CollectionService:
                 if not config.get("article_selector"):
                     logger.warning(f"  ⚠️  {source_name}: 缺少 article_selector 配置，跳过")
                     stats["sources_error"] += 1
-                    self._log_collection(db, source_name, "web", "error", 0, "缺少 article_selector 配置")
+                    self._log_collection(db, source_name, "web", "error", 0, "缺少 article_selector 配置", task_id=task_id)
                     continue
 
                 articles = self.web_collector.fetch_articles(config)
@@ -780,10 +829,10 @@ class CollectionService:
                 if not articles:
                     logger.info(f"  ⚠️  {source_name}: 未获取到文章")
                     stats["sources_error"] += 1
-                    self._log_collection(db, source_name, "web", "error", 0, "未获取到文章")
+                    self._log_collection(db, source_name, "web", "error", 0, "未获取到文章", task_id=task_id)
                     continue
 
-                process_result = self._process_articles_from_source(db, articles, source_name, "web", enable_ai_analysis)
+                process_result = self._process_articles_from_source(db, articles, source_name, "web", enable_ai_analysis, task_id=task_id)
 
                 # 更新Web源的统计信息
                 with db.get_session() as session:
@@ -804,7 +853,7 @@ class CollectionService:
 
                         session.commit()
 
-                self._log_collection(db, source_name, "web", "success", process_result["total"])
+                self._log_collection(db, source_name, "web", "success", process_result["total"], task_id=task_id)
                 stats["sources_success"] += 1
                 stats["new_articles"] += process_result["new"]
                 stats["total_articles"] += process_result["total"]
@@ -815,7 +864,7 @@ class CollectionService:
             except Exception as e:
                 logger.error(f"  ❌ {source_name}: {e}")
                 stats["sources_error"] += 1
-                self._log_collection(db, source_name, "web", "error", 0, str(e))
+                self._log_collection(db, source_name, "web", "error", 0, str(e), task_id=task_id)
                 
                 # 更新错误信息
                 with db.get_session() as session:
@@ -889,10 +938,10 @@ class CollectionService:
                 _ = source.enabled
             session.expunge_all()
 
-        # 如果数据库中没有源，则从配置文件读取（向后兼容）
+        # 只从数据库读取源，如果数据库中没有源则不采集
         if not social_configs:
-            logger.info("  ℹ️  数据库中没有社交源，从配置文件读取")
-            social_configs = self.config.get("social_sources", [])
+            logger.info("  ℹ️  数据库中没有启用的社交源，跳过采集")
+            return stats
 
         if not social_configs:
             logger.warning("  ⚠️  没有配置社交媒体源")
@@ -918,12 +967,12 @@ class CollectionService:
                 if not feed_data or not feed_data.get("articles"):
                     logger.info(f"  ⚠️  {source_name}: 未获取到文章")
                     stats["sources_error"] += 1
-                    self._log_collection(db, source_name, "social", "error", 0, "未获取到文章")
+                    self._log_collection(db, source_name, "social", "error", 0, "未获取到文章", task_id=task_id)
                     continue
 
                 articles = feed_data.get("articles", [])
 
-                process_result = self._process_articles_from_source(db, articles, source_name, "social", enable_ai_analysis)
+                process_result = self._process_articles_from_source(db, articles, source_name, "social", enable_ai_analysis, task_id=task_id)
 
                 # 更新社交源的统计信息
                 with db.get_session() as session:
@@ -944,7 +993,7 @@ class CollectionService:
 
                         session.commit()
 
-                self._log_collection(db, source_name, "social", "success", process_result["total"])
+                self._log_collection(db, source_name, "social", "success", process_result["total"], task_id=task_id)
                 stats["sources_success"] += 1
                 stats["new_articles"] += process_result["new"]
                 stats["total_articles"] += process_result["total"]
@@ -955,7 +1004,7 @@ class CollectionService:
             except Exception as e:
                 logger.error(f"  ❌ {source_name}: {e}")
                 stats["sources_error"] += 1
-                self._log_collection(db, source_name, "social", "error", 0, str(e))
+                self._log_collection(db, source_name, "social", "error", 0, str(e), task_id=task_id)
                 
                 # 更新错误信息
                 with db.get_session() as session:
@@ -1118,29 +1167,13 @@ class CollectionService:
     def _translate_article_title_if_needed(self, article: Article):
         """
         如果文章标题是英文且没有中文翻译，则翻译为中文
+        注意：已禁用标题翻译功能，标题保持原样
 
         Args:
             article: 文章对象
         """
-        import re
-
-        # 如果已有中文标题，跳过
-        if article.title_zh:
-            return
-
-        # 检查是否为英文：检查是否包含中文字符
-        def is_english(text: str) -> bool:
-            if not text:
-                return False
-            chinese_chars = len(re.findall(r'[\u4e00-\u9fff]', text))
-            return chinese_chars / len(text) < 0.3
-
-        if is_english(article.title):
-            try:
-                article.title_zh = self.ai_analyzer.translate_title(article.title)
-                logger.info(f"  🌐 翻译标题: {article.title[:50]}... → {article.title_zh[:50]}...")
-            except Exception as e:
-                logger.warning(f"  ⚠️  标题翻译失败: {e}")
+        # 标题保持原样，不进行翻译
+        return
 
     def _analyze_articles(self, db, batch_size: int = 50, max_age_days: int = None, max_workers: int = 3) -> Dict[str, Any]:
         """
@@ -1255,14 +1288,15 @@ class CollectionService:
                                 chinese_chars = len(re.findall(r'[\u4e00-\u9fff]', text))
                                 return chinese_chars / len(text) < 0.3
 
-                            if is_english(article_obj.title):
-                                logger.info(f"  🌐 翻译标题: {article_obj.title[:50]}...")
-                                try:
-                                    article_obj.title_zh = thread_ai_analyzer.translate_title(article_obj.title)
-                                    article_session.commit()
-                                except Exception as e:
-                                    logger.warning(f"  ⚠️  标题翻译失败: {e}")
-                                    article_session.rollback()
+                            # 标题保持原样，不进行翻译
+                            # if is_english(article_obj.title):
+                            #     logger.info(f"  🌐 翻译标题: {article_obj.title[:50]}...")
+                            #     try:
+                            #         article_obj.title_zh = thread_ai_analyzer.translate_title(article_obj.title)
+                            #         article_session.commit()
+                            #     except Exception as e:
+                            #         logger.warning(f"  ⚠️  标题翻译失败: {e}")
+                            #         article_session.rollback()
 
                         # 如果已经分析过，跳过AI分析
                         if article_obj.is_processed:
@@ -1466,7 +1500,53 @@ class CollectionService:
             logger.error(f"❌ 查询未分析文章失败: {e}")
             return article_ids  # 如果查询失败，返回所有ID继续处理
 
-    def _log_collection(self, db, source_name: str, source_type: str, status: str, count: int, error: str = None):
+    def _recover_stuck_tasks(self, db):
+        """
+        检测并恢复挂起的采集任务
+        
+        如果发现状态为running但超过一定时间（默认1小时）的任务，将其标记为error
+        """
+        try:
+            from backend.app.db.models import CollectionTask
+            with db.get_session() as session:
+                # 查找所有running状态的任务
+                running_tasks = session.query(CollectionTask).filter(
+                    CollectionTask.status == "running"
+                ).all()
+                
+                if not running_tasks:
+                    return
+                
+                # 超时时间：1小时
+                timeout_threshold = timedelta(hours=1)
+                current_time = datetime.now()
+                
+                for task in running_tasks:
+                    # 计算任务运行时间
+                    running_time = current_time - task.started_at
+                    
+                    if running_time > timeout_threshold:
+                        # 任务超时，标记为error
+                        logger.warning(
+                            f"⚠️  检测到挂起的采集任务 (ID: {task.id})，"
+                            f"运行时间: {running_time.total_seconds()/3600:.1f}小时，"
+                            f"将其标记为error状态"
+                        )
+                        task.status = "error"
+                        task.error_message = f"任务超时中断（运行时间超过{timeout_threshold.total_seconds()/3600:.1f}小时）"
+                        task.completed_at = current_time
+                        session.commit()
+                        logger.info(f"✅ 已恢复挂起的任务 (ID: {task.id})")
+                    else:
+                        # 任务还在运行中，但时间较短，可能是正常的
+                        logger.debug(
+                            f"ℹ️  发现运行中的任务 (ID: {task.id})，"
+                            f"运行时间: {running_time.total_seconds()/60:.1f}分钟"
+                        )
+        except Exception as e:
+            logger.error(f"❌ 恢复挂起任务失败: {e}", exc_info=True)
+
+    def _log_collection(self, db, source_name: str, source_type: str, status: str, count: int, error: str = None, task_id: int = None):
         """记录采集日志"""
         try:
             with db.get_session() as session:
@@ -1476,6 +1556,7 @@ class CollectionService:
                     status=status,
                     articles_count=count,
                     error_message=error,
+                    task_id=task_id,
                 )
                 session.add(log)
                 session.commit()

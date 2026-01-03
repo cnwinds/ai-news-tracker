@@ -1,5 +1,5 @@
 /**
- * 每日摘要组件
+ * 内容摘要组件
  */
 import { useState } from 'react';
 import {
@@ -11,14 +11,22 @@ import {
   Tag,
   Modal,
   Form,
-  InputNumber,
   Radio,
+  DatePicker,
   message,
+  Spin,
+  Alert,
 } from 'antd';
-import { FileTextOutlined, PlusOutlined } from '@ant-design/icons';
+import { FileTextOutlined, PlusOutlined, ReloadOutlined, DeleteOutlined } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiService } from '@/services/api';
+import ReactMarkdown from 'react-markdown';
 import dayjs from 'dayjs';
+import weekOfYear from 'dayjs/plugin/weekOfYear';
+import isoWeek from 'dayjs/plugin/isoWeek';
+
+dayjs.extend(weekOfYear);
+dayjs.extend(isoWeek);
 
 const { Title, Paragraph } = Typography;
 
@@ -33,7 +41,7 @@ export default function DailySummary() {
   });
 
   const generateMutation = useMutation({
-    mutationFn: (data: { summary_type: string; limit: number; hours: number }) =>
+    mutationFn: (data: { summary_type: string; date?: string; week?: string }) =>
       apiService.generateSummary(data),
     onSuccess: () => {
       message.success('摘要生成成功');
@@ -41,19 +49,89 @@ export default function DailySummary() {
       form.resetFields();
       queryClient.invalidateQueries({ queryKey: ['summaries'] });
     },
-    onError: () => {
-      message.error('生成摘要失败');
+    onError: (error: any) => {
+      message.error(`生成摘要失败: ${error?.response?.data?.detail || error?.message || '未知错误'}`);
     },
   });
 
+  const regenerateMutation = useMutation({
+    mutationFn: (data: { summary_type: string; date?: string; week?: string }) =>
+      apiService.generateSummary(data),
+    onSuccess: () => {
+      message.success('摘要重新生成成功');
+      queryClient.invalidateQueries({ queryKey: ['summaries'] });
+    },
+    onError: (error: any) => {
+      message.error(`重新生成摘要失败: ${error?.response?.data?.detail || error?.message || '未知错误'}`);
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => apiService.deleteSummary(id),
+    onSuccess: () => {
+      message.success('摘要已删除');
+      queryClient.invalidateQueries({ queryKey: ['summaries'] });
+    },
+    onError: (error: any) => {
+      message.error(`删除摘要失败: ${error?.response?.data?.detail || error?.message || '未知错误'}`);
+    },
+  });
+
+  const handleRegenerate = (summary: any) => {
+    const requestData: any = {
+      summary_type: summary.summary_type,
+    };
+
+    if (summary.summary_type === 'daily') {
+      // 从summary_date提取日期
+      requestData.date = dayjs(summary.summary_date).format('YYYY-MM-DD');
+    } else if (summary.summary_type === 'weekly') {
+      // 从summary_date提取周
+      const summaryDate = dayjs(summary.summary_date);
+      requestData.week = `${summaryDate.year()}-${summaryDate.isoWeek().toString().padStart(2, '0')}`;
+    }
+
+    regenerateMutation.mutate(requestData);
+  };
+
+  const handleDelete = (id: number) => {
+    Modal.confirm({
+      title: '确认删除',
+      content: '确定要删除这个摘要吗？此操作不可恢复。',
+      okText: '删除',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: () => {
+        deleteMutation.mutate(id);
+      },
+    });
+  };
+
   const handleGenerate = (values: any) => {
-    generateMutation.mutate(values);
+    const requestData: any = {
+      summary_type: values.summary_type,
+    };
+
+    // 根据类型设置不同的参数
+    if (values.summary_type === 'daily') {
+      if (values.date) {
+        requestData.date = dayjs(values.date).format('YYYY-MM-DD');
+      }
+    } else if (values.summary_type === 'weekly') {
+      if (values.week) {
+        // week格式: YYYY-WW
+        const weekDate = dayjs(values.week);
+        requestData.week = `${weekDate.year()}-${weekDate.isoWeek().toString().padStart(2, '0')}`;
+      }
+    }
+
+    generateMutation.mutate(requestData);
   };
 
   return (
     <div>
       <Card
-        title="📊 每日/每周总结"
+        title="📊 内容总结"
         extra={
           <Button
             type="primary"
@@ -86,7 +164,112 @@ export default function DailySummary() {
                         <Tag color="orange">中重要性: {summary.medium_importance_count}</Tag>
                       </Space>
                     </div>
-                    <Paragraph>{summary.summary_content}</Paragraph>
+                    <div
+                      style={{
+                        padding: '16px',
+                        backgroundColor: '#fafafa',
+                        borderRadius: '4px',
+                        border: '1px solid #e8e8e8',
+                      }}
+                    >
+                      <ReactMarkdown
+                        components={{
+                          h1: ({ children }) => (
+                            <h1 style={{ fontSize: '24px', fontWeight: 'bold', marginTop: '16px', marginBottom: '12px' }}>
+                              {children}
+                            </h1>
+                          ),
+                          h2: ({ children }) => (
+                            <h2 style={{ fontSize: '20px', fontWeight: 'bold', marginTop: '16px', marginBottom: '12px' }}>
+                              {children}
+                            </h2>
+                          ),
+                          h3: ({ children }) => (
+                            <h3 style={{ fontSize: '18px', fontWeight: 'bold', marginTop: '14px', marginBottom: '10px' }}>
+                              {children}
+                            </h3>
+                          ),
+                          p: ({ children }) => (
+                            <p style={{ marginBottom: '12px', lineHeight: '1.6' }}>{children}</p>
+                          ),
+                          ul: ({ children }) => (
+                            <ul style={{ marginBottom: '12px', paddingLeft: '24px' }}>{children}</ul>
+                          ),
+                          ol: ({ children }) => (
+                            <ol style={{ marginBottom: '12px', paddingLeft: '24px' }}>{children}</ol>
+                          ),
+                          li: ({ children }) => (
+                            <li style={{ marginBottom: '6px', lineHeight: '1.6' }}>{children}</li>
+                          ),
+                          strong: ({ children }) => (
+                            <strong style={{ fontWeight: 'bold' }}>{children}</strong>
+                          ),
+                          em: ({ children }) => (
+                            <em style={{ fontStyle: 'italic' }}>{children}</em>
+                          ),
+                          code: ({ children, className }: any) => {
+                            const isInline = !className;
+                            if (isInline) {
+                              return (
+                                <code
+                                  style={{
+                                    backgroundColor: '#f4f4f4',
+                                    padding: '2px 6px',
+                                    borderRadius: '3px',
+                                    fontFamily: 'monospace',
+                                    fontSize: '0.9em',
+                                  }}
+                                >
+                                  {children}
+                                </code>
+                              );
+                            }
+                            return (
+                              <code
+                                style={{
+                                  display: 'block',
+                                  backgroundColor: '#f4f4f4',
+                                  padding: '12px',
+                                  borderRadius: '4px',
+                                  fontFamily: 'monospace',
+                                  fontSize: '0.9em',
+                                  overflow: 'auto',
+                                  marginBottom: '12px',
+                                }}
+                              >
+                                {children}
+                              </code>
+                            );
+                          },
+                          blockquote: ({ children }) => (
+                            <blockquote
+                              style={{
+                                borderLeft: '4px solid #1890ff',
+                                paddingLeft: '16px',
+                                marginLeft: '0',
+                                marginBottom: '12px',
+                                color: '#666',
+                                fontStyle: 'italic',
+                              }}
+                            >
+                              {children}
+                            </blockquote>
+                          ),
+                          a: ({ children, href }) => (
+                            <a
+                              href={href}
+                              style={{ color: '#1890ff', textDecoration: 'none' }}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              {children}
+                            </a>
+                          ),
+                        }}
+                      >
+                        {summary.summary_content}
+                      </ReactMarkdown>
+                    </div>
                     {summary.key_topics && summary.key_topics.length > 0 && (
                       <div>
                         <strong>关键主题：</strong>
@@ -97,6 +280,25 @@ export default function DailySummary() {
                         ))}
                       </div>
                     )}
+                    <div style={{ marginTop: '16px', display: 'flex', gap: '8px' }}>
+                      <Button
+                        type="default"
+                        icon={<ReloadOutlined />}
+                        onClick={() => handleRegenerate(summary)}
+                        loading={regenerateMutation.isPending}
+                      >
+                        重新生成
+                      </Button>
+                      <Button
+                        type="primary"
+                        danger
+                        icon={<DeleteOutlined />}
+                        onClick={() => handleDelete(summary.id)}
+                        loading={deleteMutation.isPending}
+                      >
+                        删除
+                      </Button>
+                    </div>
                   </Space>
                 </Card>
               </List.Item>
@@ -108,11 +310,31 @@ export default function DailySummary() {
       <Modal
         title="生成新摘要"
         open={generateModalVisible}
-        onCancel={() => setGenerateModalVisible(false)}
+        onCancel={() => {
+          if (!generateMutation.isPending) {
+            setGenerateModalVisible(false);
+            form.resetFields();
+          }
+        }}
         onOk={() => form.submit()}
         confirmLoading={generateMutation.isPending}
+        okText={generateMutation.isPending ? '正在生成...' : '生成'}
+        cancelButtonProps={{ disabled: generateMutation.isPending }}
+        width={600}
+        closable={!generateMutation.isPending}
+        maskClosable={!generateMutation.isPending}
       >
-        <Form form={form} onFinish={handleGenerate} layout="vertical">
+        <Spin spinning={generateMutation.isPending} tip="正在生成摘要，请稍候...">
+          {generateMutation.isPending && (
+            <Alert
+              message="正在生成摘要"
+              description="摘要生成可能需要一些时间，请耐心等待。生成完成后会自动刷新列表。"
+              type="info"
+              showIcon
+              style={{ marginBottom: 16 }}
+            />
+          )}
+          <Form form={form} onFinish={handleGenerate} layout="vertical">
           <Form.Item
             name="summary_type"
             label="摘要类型"
@@ -120,30 +342,109 @@ export default function DailySummary() {
             rules={[{ required: true }]}
           >
             <Radio.Group>
-              <Radio value="daily">每日</Radio>
-              <Radio value="weekly">每周</Radio>
+              <Radio value="daily">按天总结</Radio>
+              <Radio value="weekly">按周总结</Radio>
             </Radio.Group>
           </Form.Item>
           <Form.Item
-            name="limit"
-            label="文章数量"
-            initialValue={20}
-            rules={[{ required: true }]}
+            noStyle
+            shouldUpdate={(prevValues, currentValues) => prevValues.summary_type !== currentValues.summary_type}
           >
-            <InputNumber min={1} max={50} style={{ width: '100%' }} />
+            {({ getFieldValue }) => {
+              const summaryType = getFieldValue('summary_type');
+              return (
+                <>
+                  {summaryType === 'daily' && (
+                    <Form.Item
+                      name="date"
+                      label="选择日期"
+                      tooltip="不选择则默认为今天，已总结的日期会显示为灰色"
+                    >
+                      <DatePicker
+                        style={{ width: '100%' }}
+                        format="YYYY-MM-DD"
+                        placeholder="选择日期（默认今天）"
+                        dateRender={(current) => {
+                          if (!summaries) {
+                            return <div>{current.date()}</div>;
+                          }
+                          const dateStr = current.format('YYYY-MM-DD');
+                          const isSummarized = summaries.some(
+                            (s) =>
+                              s.summary_type === 'daily' &&
+                              dayjs(s.summary_date).format('YYYY-MM-DD') === dateStr
+                          );
+                          return (
+                            <div
+                              style={{
+                                color: isSummarized ? '#bfbfbf' : 'inherit',
+                                backgroundColor: isSummarized ? '#f5f5f5' : 'transparent',
+                                borderRadius: '2px',
+                                padding: '2px',
+                                width: '100%',
+                                textAlign: 'center',
+                              }}
+                            >
+                              {current.date()}
+                            </div>
+                          );
+                        }}
+                      />
+                    </Form.Item>
+                  )}
+                  {summaryType === 'weekly' && (
+                    <Form.Item
+                      name="week"
+                      label="选择周"
+                      tooltip="选择该周的任意一天，系统会自动识别该周。不选择则默认为本周，已总结的周会显示为灰色"
+                    >
+                      <DatePicker
+                        style={{ width: '100%' }}
+                        format="YYYY-MM-DD"
+                        placeholder="选择周（默认本周）"
+                        picker="week"
+                        dateRender={(current) => {
+                          if (!summaries) {
+                            return <div>{current.date()}</div>;
+                          }
+                          const currentYear = current.year();
+                          const currentWeek = current.isoWeek();
+                          const isSummarized = summaries.some((s) => {
+                            if (s.summary_type !== 'weekly') return false;
+                            const summaryDate = dayjs(s.summary_date);
+                            return (
+                              summaryDate.year() === currentYear &&
+                              summaryDate.isoWeek() === currentWeek
+                            );
+                          });
+                          return (
+                            <div
+                              style={{
+                                color: isSummarized ? '#bfbfbf' : 'inherit',
+                                backgroundColor: isSummarized ? '#f5f5f5' : 'transparent',
+                                borderRadius: '2px',
+                                padding: '2px',
+                                width: '100%',
+                                textAlign: 'center',
+                              }}
+                            >
+                              {current.date()}
+                            </div>
+                          );
+                        }}
+                      />
+                    </Form.Item>
+                  )}
+                </>
+              );
+            }}
           </Form.Item>
-          <Form.Item
-            name="hours"
-            label="时间范围（小时）"
-            initialValue={24}
-            rules={[{ required: true }]}
-          >
-            <InputNumber min={1} style={{ width: '100%' }} />
-          </Form.Item>
-        </Form>
+          </Form>
+        </Spin>
       </Modal>
     </div>
   );
 }
+
 
 

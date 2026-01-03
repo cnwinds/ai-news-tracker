@@ -77,3 +77,4 @@ class ArticleListResponse(BaseModel):
     total_pages: int
 
 
+

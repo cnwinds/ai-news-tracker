@@ -24,7 +24,7 @@ class SummaryGenerator:
 
         Args:
             db: 数据库管理器
-            date: 总结日期（默认今天）
+            date: 总结日期（默认今天），会计算该日期当天的00:00:00至23:59:59
 
         Returns:
             DailySummary对象
@@ -32,11 +32,11 @@ class SummaryGenerator:
         if date is None:
             date = datetime.now()
 
-        # 计算时间范围（过去24小时）
-        end_date = date
-        start_date = date - timedelta(days=1)
+        # 计算该天的起始和结束时间
+        start_date = date.replace(hour=0, minute=0, second=0, microsecond=0)
+        end_date = date.replace(hour=23, minute=59, second=59, microsecond=999999)
 
-        logger.info(f"📝 生成每日总结: {start_date.strftime('%Y-%m-%d')} ~ {end_date.strftime('%Y-%m-%d')}")
+        logger.info(f"📝 生成每日总结: {start_date.strftime('%Y-%m-%d %H:%M:%S')} ~ {end_date.strftime('%Y-%m-%d %H:%M:%S')}")
 
         # 直接在同一个session中处理所有逻辑
         return self._create_summary(db, start_date, end_date, "daily", date)
@@ -47,7 +47,7 @@ class SummaryGenerator:
 
         Args:
             db: 数据库管理器
-            date: 总结日期（默认今天）
+            date: 总结日期（默认今天），会计算该日期所在ISO周的周一至周日
 
         Returns:
             DailySummary对象
@@ -55,14 +55,23 @@ class SummaryGenerator:
         if date is None:
             date = datetime.now()
 
-        # 计算时间范围（过去7天）
-        end_date = date
-        start_date = date - timedelta(days=7)
+        # 使用ISO周标准计算该周的起始日期（周一）和结束日期（周日）
+        # ISO周：周一到周日，每年第一周是包含1月4日的那一周
+        # weekday(): Monday=0, Sunday=6
+        days_since_monday = date.weekday()
+        start_date = date - timedelta(days=days_since_monday)
+        start_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
+        
+        end_date = start_date + timedelta(days=6)
+        end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
 
         logger.info(f"📝 生成每周总结: {start_date.strftime('%Y-%m-%d')} ~ {end_date.strftime('%Y-%m-%d')}")
 
+        # 使用该周的周日作为summary_date
+        summary_date = end_date
+
         # 直接在同一个session中处理所有逻辑
-        return self._create_summary(db, start_date, end_date, "weekly", date)
+        return self._create_summary(db, start_date, end_date, "weekly", summary_date)
 
     def _create_summary(
         self,
@@ -125,7 +134,7 @@ class SummaryGenerator:
         logger.info(f"  文章总数: {len(articles_data)} (高重要性: {high_count}, 中重要性: {medium_count})")
 
         # 调用LLM生成总结
-        prompt = self._build_summary_prompt(articles_data, summary_type)
+        prompt = self._build_summary_prompt(articles_data, summary_type, start_date, end_date)
         summary_content = self.ai_analyzer.client.chat.completions.create(
             model=self.ai_analyzer.model,
             messages=[
@@ -152,27 +161,70 @@ class SummaryGenerator:
         # 计算耗时
         generation_time = (datetime.now() - start_time).total_seconds()
 
-        # 保存到数据库
+        # 保存到数据库（如果已存在则更新，否则创建）
         with db.get_session() as session:
-            summary = DailySummary(
-                summary_type=summary_type,
-                summary_date=date,
-                start_date=start_date,
-                end_date=end_date,
-                total_articles=len(articles_data),
-                high_importance_count=high_count,
-                medium_importance_count=medium_count,
-                summary_content=summary_text,
-                key_topics=key_topics,
-                recommended_articles=recommended_articles,
-                model_used=self.ai_analyzer.model,
-                generation_time=generation_time
-            )
-            session.add(summary)
-            session.flush()
+            # 检查是否已存在相同类型和日期的总结
+            # 对于daily类型，比较日期（忽略时间部分）
+            # 对于weekly类型，比较summary_date所在的周
+            existing_summary = None
+            if summary_type == "daily":
+                # 每日总结：比较日期（只比较年月日）
+                date_only = date.replace(hour=0, minute=0, second=0, microsecond=0)
+                existing_summary = session.query(DailySummary).filter(
+                    DailySummary.summary_type == summary_type,
+                    DailySummary.summary_date >= date_only,
+                    DailySummary.summary_date < date_only + timedelta(days=1)
+                ).first()
+            else:
+                # 每周总结：比较summary_date所在的周
+                # 计算summary_date所在周的周一和周日
+                days_since_monday = date.weekday()
+                week_start = date - timedelta(days=days_since_monday)
+                week_start = week_start.replace(hour=0, minute=0, second=0, microsecond=0)
+                week_end = week_start + timedelta(days=7)
+                
+                existing_summary = session.query(DailySummary).filter(
+                    DailySummary.summary_type == summary_type,
+                    DailySummary.summary_date >= week_start,
+                    DailySummary.summary_date < week_end
+                ).first()
             
-            summary_id = summary.id
-            logger.info(f"✅ 总结已保存 (ID: {summary_id})")
+            if existing_summary:
+                # 更新现有总结
+                existing_summary.start_date = start_date
+                existing_summary.end_date = end_date
+                existing_summary.total_articles = len(articles_data)
+                existing_summary.high_importance_count = high_count
+                existing_summary.medium_importance_count = medium_count
+                existing_summary.summary_content = summary_text
+                existing_summary.key_topics = key_topics
+                existing_summary.recommended_articles = recommended_articles
+                existing_summary.model_used = self.ai_analyzer.model
+                existing_summary.generation_time = generation_time
+                existing_summary.updated_at = datetime.now()
+                session.flush()
+                summary_id = existing_summary.id
+                logger.info(f"✅ 总结已更新 (ID: {summary_id})")
+            else:
+                # 创建新总结
+                summary = DailySummary(
+                    summary_type=summary_type,
+                    summary_date=date,
+                    start_date=start_date,
+                    end_date=end_date,
+                    total_articles=len(articles_data),
+                    high_importance_count=high_count,
+                    medium_importance_count=medium_count,
+                    summary_content=summary_text,
+                    key_topics=key_topics,
+                    recommended_articles=recommended_articles,
+                    model_used=self.ai_analyzer.model,
+                    generation_time=generation_time
+                )
+                session.add(summary)
+                session.flush()
+                summary_id = summary.id
+                logger.info(f"✅ 总结已保存 (ID: {summary_id})")
             
         # 在session外创建一个新的对象返回，避免detached instance问题
         return DailySummary(
@@ -191,18 +243,32 @@ class SummaryGenerator:
             generation_time=generation_time
         )
 
-    def _build_summary_prompt(self, articles_data: List[Dict[str, Any]], summary_type: str) -> str:
+    def _build_summary_prompt(
+        self, 
+        articles_data: List[Dict[str, Any]], 
+        summary_type: str,
+        start_date: datetime,
+        end_date: datetime
+    ) -> str:
         """
         构建总结提示词
 
         Args:
             articles_data: 文章数据列表
             summary_type: 总结类型（daily/weekly）
+            start_date: 开始日期
+            end_date: 结束日期
 
         Returns:
             提示词字符串
         """
-        time_str = "过去24小时" if summary_type == "daily" else "过去7天"
+        # 根据日期范围生成具体的时间描述
+        if summary_type == "daily":
+            # 每日总结：显示具体日期
+            time_str = start_date.strftime('%Y年%m月%d日')
+        else:
+            # 每周总结：显示日期范围
+            time_str = f"{start_date.strftime('%Y年%m月%d日')} 至 {end_date.strftime('%Y年%m月%d日')}"
 
         # 选择最重要的文章（最多20篇）
         important_articles = articles_data[:20]
@@ -217,7 +283,7 @@ class SummaryGenerator:
    摘要: {article.get('summary', '')[:200]}...
 """
 
-        prompt = f"""请基于{time_str}采集的以下AI领域文章，生成一份{time_str}的新闻总结。
+        prompt = f"""请基于{time_str}期间采集的以下AI领域文章，生成一份{time_str}的新闻总结。
 
 文章列表：
 {articles_str}
@@ -226,16 +292,11 @@ class SummaryGenerator:
 
 # 📊 {time_str}AI新闻总结
 
-## 📈 统计概览
-- 文章总数：X篇
-- 高重要性：X篇
-- 中重要性：X篇
-
 ## 🔥 重点文章
-列出3-5篇最重要的文章，包括：
-- **文章标题和来源**
-- **核心内容**
-- **为什么重要**
+列出3-5篇最重要的文章，每篇文章格式如下：
+- **文章标题（来源）**：直接描述文章的核心内容和重要性，不要使用"核心内容"、"为什么重要"、"文章标题和来源"等任何标签或子标题，直接输出内容即可。例如：
+  - **能文能武!智元首个机器人艺人天团亮相湖南卫视跨年演唱会（量子位）**
+    智元机器人首次在大型电视节目中亮相，展示了AI机器人在娱乐领域的应用潜力，标志着机器人从工业场景向消费场景的重要突破。
 
 ## 📌 重要趋势
 从这些文章中总结出2-3个重要趋势或热点话题

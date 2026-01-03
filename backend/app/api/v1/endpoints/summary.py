@@ -54,92 +54,109 @@ async def get_summary(
     return DailySummarySchema.model_validate(summary)
 
 
+@router.delete("/{summary_id}")
+async def delete_summary(
+    summary_id: int,
+    db: Session = Depends(get_database),
+):
+    """删除摘要"""
+    summary = db.query(DailySummary).filter(DailySummary.id == summary_id).first()
+    if not summary:
+        raise HTTPException(status_code=404, detail="摘要不存在")
+    
+    db.delete(summary)
+    db.commit()
+    return {"message": "摘要已删除", "id": summary_id}
+
+
 @router.post("/generate")
 async def generate_summary(
     request: SummaryGenerateRequest,
     collection_service: CollectionService = Depends(get_collection_service),
     db: Session = Depends(get_database),
 ):
-    """生成新摘要"""
+    """生成新摘要（支持按天或按周，可指定日期/周）"""
     # 检查AI分析器
     ai_analyzer = create_ai_analyzer()
     if not ai_analyzer:
         raise HTTPException(status_code=400, detail="未配置AI分析器")
     
-    # 获取文章
-    db_manager = get_db()
-    articles = collection_service.get_daily_summary(
-        db_manager,
-        limit=request.limit,
-    )
-    
-    if not articles:
-        raise HTTPException(status_code=404, detail="没有符合条件的文章")
-    
-    # 准备文章数据
-    articles_data = []
-    for article in articles:
-        articles_data.append({
-            "title": article.title,
-            "content": article.content,
-            "source": article.source,
-            "published_at": article.published_at,
-        })
-    
-    # 生成摘要
     try:
-        summary_text = ai_analyzer.generate_daily_summary(
-            articles_data,
-            max_count=request.limit,
-        )
+        db_manager = get_db()
+        summary_generator = collection_service.summary_generator
         
-        # 计算时间范围
-        now = datetime.now()
-        start_date = now - timedelta(hours=request.hours)
-        end_date = now
+        if not summary_generator:
+            raise HTTPException(status_code=400, detail="总结生成器未初始化")
         
-        # 统计信息
-        high_count = sum(1 for a in articles if a.importance == "high")
-        medium_count = sum(1 for a in articles if a.importance == "medium")
+        # 解析日期或周
+        target_date = None
+        if request.summary_type == "daily":
+            if request.date:
+                # 解析指定日期
+                try:
+                    target_date = datetime.strptime(request.date, "%Y-%m-%d")
+                except ValueError:
+                    raise HTTPException(status_code=400, detail="日期格式错误，应为YYYY-MM-DD")
+            else:
+                # 默认今天
+                target_date = datetime.now()
+            
+            # 生成每日总结
+            summary_obj = summary_generator.generate_daily_summary(db_manager, target_date)
+            
+        elif request.summary_type == "weekly":
+            if request.week:
+                # 解析指定周 (YYYY-WW格式，WW是ISO周数)
+                try:
+                    year_str, week_num_str = request.week.split("-")
+                    year = int(year_str)
+                    week_num = int(week_num_str)
+                    
+                    # 使用isocalendar()方法找到该ISO周的第一天（周一）
+                    # 从该年1月1日开始查找，找到ISO周数匹配的日期
+                    # 然后计算该周的周一
+                    test_date = datetime(year, 1, 1)
+                    found = False
+                    # 最多检查53周（一年最多53个ISO周）
+                    for i in range(53 * 7):
+                        test_iso_year, test_iso_week, test_weekday = test_date.isocalendar()
+                        if test_iso_year == year and test_iso_week == week_num:
+                            # 找到该周的第一天（周一），weekday=1表示周一
+                            # isocalendar返回的weekday: Monday=1, Sunday=7
+                            days_to_monday = test_weekday - 1
+                            target_date = test_date - timedelta(days=days_to_monday)
+                            found = True
+                            break
+                        test_date += timedelta(days=1)
+                        # 如果已经超出该年范围，停止查找
+                        if test_date.year > year:
+                            break
+                    
+                    if not found:
+                        raise HTTPException(status_code=400, detail=f"无法找到指定的ISO周: {year}-{week_num:02d}")
+                except (ValueError, IndexError) as e:
+                    raise HTTPException(status_code=400, detail=f"周格式错误，应为YYYY-WW: {str(e)}")
+            else:
+                # 默认本周
+                target_date = datetime.now()
+            
+            # 生成每周总结
+            summary_obj = summary_generator.generate_weekly_summary(db_manager, target_date)
+        else:
+            raise HTTPException(status_code=400, detail="不支持的摘要类型")
         
-        # 提取关键主题（从文章标签中）
-        all_topics = []
-        for article in articles:
-            if article.tags:
-                all_topics.extend(article.tags)
-        key_topics = list(set(all_topics))[:10]  # 取前10个
+        if not summary_obj:
+            raise HTTPException(status_code=404, detail="没有符合条件的文章")
         
-        # 推荐文章
-        recommended = []
-        for article in articles[:5]:  # 前5篇
-            if article.importance in ["high", "medium"]:
-                recommended.append({
-                    "id": article.id,
-                    "title": article.title,
-                    "reason": f"重要性: {article.importance}",
-                })
-        
-        # 保存摘要
-        summary = DailySummary(
-            summary_type=request.summary_type,
-            summary_date=now,
-            start_date=start_date,
-            end_date=end_date,
-            summary_content=summary_text,
-            total_articles=len(articles),
-            high_importance_count=high_count,
-            medium_importance_count=medium_count,
-            key_topics=key_topics,
-            recommended_articles=recommended,
-            model_used=ai_analyzer.model,
-        )
-        db.add(summary)
-        db.commit()
-        db.refresh(summary)
+        # 从数据库重新获取完整的summary对象（包含id等）
+        summary = db.query(DailySummary).filter(DailySummary.id == summary_obj.id).first()
+        if not summary:
+            raise HTTPException(status_code=404, detail="生成的摘要未找到")
         
         return DailySummarySchema.model_validate(summary)
         
+    except HTTPException:
+        raise
     except Exception as e:
-        db.rollback()
         raise HTTPException(status_code=500, detail=f"生成摘要失败: {str(e)}")
 

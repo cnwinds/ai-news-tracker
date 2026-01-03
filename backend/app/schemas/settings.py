@@ -10,3 +10,4 @@ class CollectionSettings(BaseModel):
     max_analysis_age_days: int = Field(..., ge=0, description="AI分析最大天数")
 
 
+
