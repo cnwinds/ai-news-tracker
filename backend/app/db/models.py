@@ -177,3 +177,23 @@ class DailySummary(Base):
 
     def __repr__(self):
         return f"<DailySummary(id={self.id}, type='{self.summary_type}', date={self.summary_date})>"
+
+
+class ArticleEmbedding(Base):
+    """文章向量嵌入表"""
+    __tablename__ = "article_embeddings"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    article_id = Column(Integer, ForeignKey('articles.id'), nullable=False, unique=True, index=True)
+    # 存储向量：使用JSON格式存储浮点数列表（sqlite-vss需要特殊处理）
+    embedding = Column(JSON, nullable=False)  # 嵌入向量列表
+    text_content = Column(Text, nullable=False)  # 索引的文本内容（用于调试和重建）
+    embedding_model = Column(String(100), nullable=True)  # 使用的嵌入模型
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    # 关系：ArticleEmbedding属于Article
+    article = relationship("Article", backref="embedding")
+
+    def __repr__(self):
+        return f"<ArticleEmbedding(id={self.id}, article_id={self.article_id})>"

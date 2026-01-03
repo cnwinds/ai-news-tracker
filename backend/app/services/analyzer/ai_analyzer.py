@@ -239,6 +239,35 @@ URL: {url}
         
         return prompt
 
+    def generate_embedding(self, text: str) -> List[float]:
+        """
+        生成文本的嵌入向量
+
+        Args:
+            text: 要生成嵌入向量的文本
+
+        Returns:
+            嵌入向量列表
+        """
+        try:
+            if not text or not text.strip():
+                logger.warning("⚠️  生成嵌入向量时文本为空")
+                return []
+            
+            # 调用OpenAI Embeddings API
+            response = self.client.embeddings.create(
+                model=self.embedding_model,
+                input=text.strip()
+            )
+            
+            embedding = response.data[0].embedding
+            logger.debug(f"✅ 生成嵌入向量成功，维度: {len(embedding)}")
+            return embedding
+            
+        except Exception as e:
+            logger.error(f"❌ 生成嵌入向量失败: {e}")
+            raise
+
     def _parse_text_response(self, text: str) -> Dict[str, Any]:
         """解析文本响应（当API返回的不是JSON时）"""
         result = {

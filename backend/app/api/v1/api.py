@@ -11,6 +11,7 @@ from backend.app.api.v1.endpoints import (
     cleanup,
     settings,
     websocket,
+    rag,
 )
 
 api_router = APIRouter()
@@ -24,4 +25,5 @@ api_router.include_router(statistics.router, prefix="/statistics", tags=["statis
 api_router.include_router(cleanup.router, prefix="/cleanup", tags=["cleanup"])
 api_router.include_router(settings.router, prefix="/settings", tags=["settings"])
 api_router.include_router(websocket.router, prefix="/ws", tags=["websocket"])
+api_router.include_router(rag.router, prefix="/rag", tags=["rag"])
 
