@@ -593,6 +593,15 @@ class CollectionService:
                         # 如果_process_single_rss_source内部抛出异常，它自己会记录日志，这里再记录一次会重复
                         # 但为了确保所有异常都被记录，这里也记录一次（可能会有重复，但比遗漏好）
                         self._log_collection(db, name, "rss", "error", 0, str(e), task_id=task_id_param)
+                        # 更新数据库中的 last_error 字段
+                        try:
+                            with db.get_session() as session:
+                                source_obj = session.query(RSSSource).filter(RSSSource.name == name).first()
+                                if source_obj:
+                                    source_obj.last_error = str(e)
+                                    session.commit()
+                        except Exception as e2:
+                            logger.error(f"❌ 更新源错误信息失败 {name}: {e2}")
                         return {
                             "source_name": name,
                             "success": False,
@@ -622,11 +631,29 @@ class CollectionService:
                         stats["ai_analyzed_count"] += result.get("ai_analyzed", 0)
                     else:
                         stats["sources_error"] += 1
-                        logger.error(f"  ❌ {source_name}: {result.get('error', '未知错误')}")
+                        # 错误日志已在 collect_single_source 中打印，这里不再重复打印
+                        # 只更新数据库中的 last_error 字段
+                        try:
+                            with db.get_session() as session:
+                                source_obj = session.query(RSSSource).filter(RSSSource.name == source_name).first()
+                                if source_obj:
+                                    source_obj.last_error = result.get('error', '未知错误')
+                                    session.commit()
+                        except Exception as e:
+                            logger.error(f"❌ 更新源错误信息失败 {source_name}: {e}")
 
                 except Exception as e:
                     logger.error(f"  ❌ {source_name} 处理异常: {e}")
                     stats["sources_error"] += 1
+                    # 更新数据库中的 last_error 字段
+                    try:
+                        with db.get_session() as session:
+                            source_obj = session.query(RSSSource).filter(RSSSource.name == source_name).first()
+                            if source_obj:
+                                source_obj.last_error = str(e)
+                                session.commit()
+                    except Exception as e2:
+                        logger.error(f"❌ 更新源错误信息失败 {source_name}: {e2}")
 
         logger.info(f"  ✅ RSS采集完成: 成功 {stats['sources_success']} 个源, 失败 {stats['sources_error']} 个源")
         logger.info(f"     总文章: {stats['total_articles']} 篇, 新增: {stats['new_articles']} 篇, AI分析: {stats['ai_analyzed_count']} 篇")

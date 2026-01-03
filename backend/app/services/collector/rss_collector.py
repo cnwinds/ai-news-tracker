@@ -60,7 +60,17 @@ class RSSCollector:
 
     def __init__(self, timeout: int = 30, user_agent: str = None):
         self.timeout = timeout
-        self.user_agent = user_agent or "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        self.user_agent = user_agent or "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        # 完整的浏览器请求头，用于绕过简单的反爬虫检测
+        self.default_headers = {
+            "User-Agent": self.user_agent,
+            "Accept": "application/rss+xml, application/xml, text/xml, */*",
+            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+            "Accept-Encoding": "gzip, deflate, br",
+            "Referer": "https://www.google.com/",
+            "Connection": "keep-alive",
+            "Upgrade-Insecure-Requests": "1",
+        }
 
     def fetch_feed(self, url: str, max_articles: int = 20, source_name: str = None) -> List[Dict[str, Any]]:
         """
@@ -77,8 +87,12 @@ class RSSCollector:
         try:
             logger.info(f"📡 正在获取RSS: {url}")
 
-            # 发送请求
-            headers = {"User-Agent": self.user_agent}
+            # 发送请求（使用完整的浏览器请求头）
+            # 对于 RSSHub 等可能需要验证的服务，使用更完整的请求头
+            headers = self.default_headers.copy()
+            # 如果是 RSSHub，添加特定的 Referer
+            if "rsshub.app" in url or "rsshub" in url.lower():
+                headers["Referer"] = "https://rsshub.app/"
             response = requests.get(url, headers=headers, timeout=self.timeout)
             response.raise_for_status()
 
@@ -99,11 +113,13 @@ class RSSCollector:
             return articles
 
         except requests.RequestException as e:
-            logger.error(f"❌ 请求失败 {url}: {e}")
-            return []
+            # 不在这里打印错误日志，让上层调用者统一处理
+            # 抛出异常，让上层调用者能够捕获并记录失败
+            raise
         except Exception as e:
-            logger.error(f"❌ 解析RSS失败 {url}: {e}")
-            return []
+            # 不在这里打印错误日志，让上层调用者统一处理
+            # 抛出异常，让上层调用者能够捕获并记录失败
+            raise
 
     def _parse_entry(self, entry: Any, feed_info: Any, source_name: str = None) -> Dict[str, Any]:
         """
@@ -373,7 +389,11 @@ class RSSCollector:
 
         try:
             # 获取feed信息（只请求一次）
-            headers = {"User-Agent": self.user_agent}
+            # 使用完整的浏览器请求头
+            headers = self.default_headers.copy()
+            # 如果是 RSSHub，添加特定的 Referer
+            if "rsshub.app" in url or "rsshub" in url.lower():
+                headers["Referer"] = "https://rsshub.app/"
             response = requests.get(url, headers=headers, timeout=self.timeout)
             response.raise_for_status()
 
@@ -403,11 +423,13 @@ class RSSCollector:
             return {"articles": articles, "feed_title": feed_title}
 
         except requests.RequestException as e:
-            logger.error(f"❌ 请求失败 {url}: {e}")
-            return {"articles": [], "feed_title": None}
+            # 不在这里打印错误日志，让上层调用者统一处理
+            # 抛出异常，让上层调用者能够捕获并记录失败
+            raise
         except Exception as e:
-            logger.error(f"❌ 解析RSS失败 {url}: {e}")
-            return {"articles": [], "feed_title": None}
+            # 不在这里打印错误日志，让上层调用者统一处理
+            # 抛出异常，让上层调用者能够捕获并记录失败
+            raise
     
     def _fetch_single_feed(self, config: Dict[str, Any]) -> List[Dict[str, Any]]:
         """

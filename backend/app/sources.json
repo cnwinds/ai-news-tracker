@@ -74,6 +74,56 @@
       "priority": 1,
       "source_type": "rss",
       "description": "追踪人工智能新趋势，报道科技行业新突破"
+    },
+    {
+      "name": "Readhub 热门话题",
+      "url": "https://rsshub.app/readhub/topic",
+      "category": "news",
+      "enabled": true,
+      "language": "zh",
+      "priority": 1,
+      "source_type": "rss",
+      "description": "Readhub 热门话题，通过 RSSHub 生成（注意：可能需要处理验证码）"
+    },
+    {
+      "name": "Readhub 科技动态",
+      "url": "https://rsshub.app/readhub/news",
+      "category": "news",
+      "enabled": true,
+      "language": "zh",
+      "priority": 1,
+      "source_type": "rss",
+      "description": "Readhub 科技动态，通过 RSSHub 生成（注意：可能需要处理验证码）"
+    },
+    {
+      "name": "Readhub 每日早报",
+      "url": "https://rsshub.app/readhub/daily",
+      "category": "news",
+      "enabled": true,
+      "language": "zh",
+      "priority": 2,
+      "source_type": "rss",
+      "description": "Readhub 每日早报，通过 RSSHub 生成（注意：可能需要处理验证码）"
+    },
+    {
+      "name": "Readhub 技术资讯",
+      "url": "https://rsshub.app/readhub/tech",
+      "category": "news",
+      "enabled": true,
+      "language": "zh",
+      "priority": 2,
+      "source_type": "rss",
+      "description": "Readhub 技术资讯，通过 RSSHub 生成（注意：可能需要处理验证码）"
+    },
+    {
+      "name": "Readhub 区块链快讯",
+      "url": "https://rsshub.app/readhub/blockchain",
+      "category": "news",
+      "enabled": false,
+      "language": "zh",
+      "priority": 3,
+      "source_type": "rss",
+      "description": "Readhub 区块链快讯，通过 RSSHub 生成（注意：可能需要处理验证码，默认禁用）"
     }
   ],
   "api_sources": [
