@@ -74,15 +74,26 @@ export default function ArticleCard({ article }: ArticleCardProps) {
       style={{ marginBottom: 16 }}
     >
       <Space direction="vertical" size="small" style={{ width: '100%' }}>
-        {/* 第一行：标题 */}
-        <div>
-          <Title level={5} style={{ marginBottom: 8 }}>
-            {article.title_zh || article.title}
-          </Title>
+        {/* 第一行：importance + 标题 + source */}
+        <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+          {article.importance && (
+            <Tag color={importanceColors[article.importance]} style={{ flexShrink: 0 }}>
+              {article.importance === 'high' ? '高' : article.importance === 'medium' ? '中' : '低'}
+            </Tag>
+          )}
+          <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, flex: '1 1 auto', minWidth: 0 }}>
+            <Title level={5} style={{ marginBottom: 0 }}>
+              {article.title_zh || article.title}
+            </Title>
+            <Space size="small">
+              <Tag color="blue">{article.source}</Tag>
+              {!article.is_processed && <Tag>未分析</Tag>}
+            </Space>
+          </div>
         </div>
 
-        {/* 第二行：日期和作者（最左边）+ 信息源标签（中间） */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+        {/* 第二行：日期和作者 */}
+        <div>
           <Space size="small">
             <Text type="secondary" style={{ fontSize: 12 }}>
               {article.published_at
@@ -94,16 +105,6 @@ export default function ArticleCard({ article }: ArticleCardProps) {
                 作者: {article.author}
               </Text>
             )}
-          </Space>
-          <Space size="small">
-            <Tag color="blue">{article.source}</Tag>
-            {article.category && <Tag>{article.category}</Tag>}
-            {article.importance && (
-              <Tag color={importanceColors[article.importance]}>
-                {article.importance === 'high' ? '高' : article.importance === 'medium' ? '中' : '低'}
-              </Tag>
-            )}
-            {!article.is_processed && <Tag>未分析</Tag>}
           </Space>
         </div>
 
