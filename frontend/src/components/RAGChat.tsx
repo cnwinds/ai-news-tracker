@@ -3,7 +3,7 @@
  */
 import { useState, useRef, useEffect } from 'react';
 import { Card, Input, Button, List, Typography, Empty, Spin, Alert, Space, Tag, Avatar, Select } from 'antd';
-import { SendOutlined, UserOutlined, RobotOutlined, LinkOutlined } from '@ant-design/icons';
+import { SendOutlined, UserOutlined, RobotOutlined, LinkOutlined, PlusOutlined, DeleteOutlined } from '@ant-design/icons';
 import { useMutation } from '@tanstack/react-query';
 import ReactMarkdown from 'react-markdown';
 import { apiService } from '@/services/api';
@@ -22,16 +22,90 @@ interface Message {
   sources?: string[];
 }
 
+interface ChatHistory {
+  id: string;
+  title: string;
+  messages: Message[];
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const STORAGE_KEY = 'rag_chat_history';
+
 export default function RAGChat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [topK, setTopK] = useState(5);
+  const [chatHistories, setChatHistories] = useState<ChatHistory[]>([]);
+  const [currentChatId, setCurrentChatId] = useState<string | null>(null);
 
   // 问答mutation
   const queryMutation = useMutation({
     mutationFn: (request: RAGQueryRequest) => apiService.queryArticles(request),
   });
+
+  // 从 localStorage 加载聊天历史
+  useEffect(() => {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      try {
+        const histories: ChatHistory[] = JSON.parse(saved).map((h: any) => ({
+          ...h,
+          createdAt: new Date(h.createdAt),
+          updatedAt: new Date(h.updatedAt),
+          messages: h.messages.map((m: any) => ({
+            ...m,
+            timestamp: new Date(m.timestamp),
+          })),
+        }));
+        setChatHistories(histories);
+      } catch (e) {
+        console.error('加载聊天历史失败:', e);
+      }
+    }
+  }, []);
+
+  // 保存聊天历史到 localStorage
+  const saveChatHistory = (histories: ChatHistory[]) => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(histories));
+    } catch (e) {
+      console.error('保存聊天历史失败:', e);
+    }
+  };
+
+  // 创建新对话
+  const createNewChat = () => {
+    setMessages([]);
+    setCurrentChatId(null);
+  };
+
+  // 加载历史对话
+  const loadChatHistory = (chatId: string) => {
+    const history = chatHistories.find((h) => h.id === chatId);
+    if (history) {
+      setMessages(history.messages);
+      setCurrentChatId(chatId);
+    }
+  };
+
+  // 删除历史对话
+  const deleteChatHistory = (chatId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const newHistories = chatHistories.filter((h) => h.id !== chatId);
+    setChatHistories(newHistories);
+    saveChatHistory(newHistories);
+    if (currentChatId === chatId) {
+      createNewChat();
+    }
+  };
+
+  // 更新当前对话的标题（使用第一条用户消息）
+  const updateChatTitle = (firstUserMessage: string) => {
+    const title = firstUserMessage.length > 30 ? firstUserMessage.substring(0, 30) + '...' : firstUserMessage;
+    return title;
+  };
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -56,7 +130,26 @@ export default function RAGChat() {
       content: question,
       timestamp: new Date(),
     };
-    setMessages((prev) => [...prev, userMessage]);
+    
+    const newMessages = [...messages, userMessage];
+    setMessages(newMessages);
+
+    // 如果是新对话，创建聊天历史
+    let chatId = currentChatId;
+    if (!chatId) {
+      chatId = Date.now().toString();
+      setCurrentChatId(chatId);
+      const newHistory: ChatHistory = {
+        id: chatId,
+        title: updateChatTitle(question),
+        messages: newMessages,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      const updatedHistories = [newHistory, ...chatHistories];
+      setChatHistories(updatedHistories);
+      saveChatHistory(updatedHistories);
+    }
 
     // 发送请求
     const request: RAGQueryRequest = {
@@ -75,7 +168,34 @@ export default function RAGChat() {
           articles: response.articles,
           sources: response.sources,
         };
-        setMessages((prev) => [...prev, assistantMessage]);
+        const finalMessages = [...newMessages, assistantMessage];
+        setMessages(finalMessages);
+
+        // 更新聊天历史（使用函数式更新确保使用最新状态）
+        setChatHistories((prevHistories) => {
+          const updatedHistories = prevHistories.map((h) => {
+            if (h.id === chatId) {
+              return {
+                ...h,
+                messages: finalMessages,
+                updatedAt: new Date(),
+              };
+            }
+            return h;
+          });
+          // 如果找不到对应的历史记录（新对话），添加它
+          if (!updatedHistories.find((h) => h.id === chatId)) {
+            updatedHistories.unshift({
+              id: chatId!,
+              title: updateChatTitle(question),
+              messages: finalMessages,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            });
+          }
+          saveChatHistory(updatedHistories);
+          return updatedHistories;
+        });
       },
       onError: (error) => {
         // 添加错误消息
@@ -85,7 +205,34 @@ export default function RAGChat() {
           content: `抱歉，处理您的问题时出现错误：${error instanceof Error ? error.message : '未知错误'}`,
           timestamp: new Date(),
         };
-        setMessages((prev) => [...prev, errorMessage]);
+        const finalMessages = [...newMessages, errorMessage];
+        setMessages(finalMessages);
+
+        // 更新聊天历史（使用函数式更新确保使用最新状态）
+        setChatHistories((prevHistories) => {
+          const updatedHistories = prevHistories.map((h) => {
+            if (h.id === chatId) {
+              return {
+                ...h,
+                messages: finalMessages,
+                updatedAt: new Date(),
+              };
+            }
+            return h;
+          });
+          // 如果找不到对应的历史记录（新对话），添加它
+          if (!updatedHistories.find((h) => h.id === chatId)) {
+            updatedHistories.unshift({
+              id: chatId!,
+              title: updateChatTitle(question),
+              messages: finalMessages,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            });
+          }
+          saveChatHistory(updatedHistories);
+          return updatedHistories;
+        });
       },
     });
   };
@@ -104,29 +251,40 @@ export default function RAGChat() {
   };
 
   return (
-    <Card
-      title="💬 AI智能问答"
-      extra={
-        <Space>
-          <Text type="secondary">检索数量：</Text>
-          <Select
-            value={topK}
-            onChange={setTopK}
-            style={{ width: 80 }}
-            options={[
-              { label: '3', value: 3 },
-              { label: '5', value: 5 },
-              { label: '10', value: 10 },
-            ]}
-          />
-        </Space>
-      }
-      style={{ minHeight: 600 }}
-    >
+    <div style={{ display: 'flex', gap: 16, height: 'calc(100vh - 200px)' }}>
+      {/* 主聊天区域 */}
+      <Card
+        title="💬 AI智能问答"
+        extra={
+          <Space>
+            <Button
+              type="text"
+              icon={<PlusOutlined />}
+              onClick={createNewChat}
+              title="新建对话"
+            >
+              新对话
+            </Button>
+            <Text type="secondary">检索数量：</Text>
+            <Select
+              value={topK}
+              onChange={setTopK}
+              style={{ width: 80 }}
+              options={[
+                { label: '3', value: 3 },
+                { label: '5', value: 5 },
+                { label: '10', value: 10 },
+              ]}
+            />
+          </Space>
+        }
+        style={{ flex: 1, minHeight: 600, display: 'flex', flexDirection: 'column' }}
+        bodyStyle={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
+      >
         {/* 消息列表 */}
         <div
           style={{
-            maxHeight: '500px',
+            flex: 1,
             overflowY: 'auto',
             marginBottom: 16,
             padding: '0 8px',
@@ -238,11 +396,34 @@ export default function RAGChat() {
                                     {article.title_zh || article.title}
                                   </Title>
                                   {article.summary && (
-                                    <Text type="secondary" style={{ fontSize: 12 }}>
-                                      {article.summary.length > 100
-                                        ? `${article.summary.substring(0, 100)}...`
-                                        : article.summary}
-                                    </Text>
+                                    <div
+                                      style={{
+                                        fontSize: 12,
+                                        color: 'rgba(0, 0, 0, 0.65)',
+                                        lineHeight: 1.5,
+                                      }}
+                                    >
+                                      <ReactMarkdown
+                                        components={{
+                                          p: ({ children }) => <p style={{ marginBottom: '0.25em', marginTop: 0, fontSize: 12 }}>{children}</p>,
+                                          strong: ({ children }) => <strong style={{ fontWeight: 600 }}>{children}</strong>,
+                                          em: ({ children }) => <em style={{ fontStyle: 'italic' }}>{children}</em>,
+                                          h1: ({ children }) => <h1 style={{ fontSize: '1.2em', fontWeight: 600, marginBottom: '0.25em', marginTop: 0 }}>{children}</h1>,
+                                          h2: ({ children }) => <h2 style={{ fontSize: '1.1em', fontWeight: 600, marginBottom: '0.25em', marginTop: 0 }}>{children}</h2>,
+                                          h3: ({ children }) => <h3 style={{ fontSize: '1em', fontWeight: 600, marginBottom: '0.25em', marginTop: 0 }}>{children}</h3>,
+                                          code: ({ children }) => <code style={{ backgroundColor: '#f5f5f5', padding: '1px 3px', borderRadius: '2px', fontSize: '0.85em' }}>{children}</code>,
+                                          a: ({ href, children }) => (
+                                            <a href={href} target="_blank" rel="noopener noreferrer" style={{ color: '#1890ff', fontSize: 12 }}>
+                                              {children}
+                                            </a>
+                                          ),
+                                        }}
+                                      >
+                                        {article.summary.length > 100
+                                          ? `${article.summary.substring(0, 100)}...`
+                                          : article.summary}
+                                      </ReactMarkdown>
+                                    </div>
                                   )}
                                   <Button
                                     type="link"
@@ -269,7 +450,7 @@ export default function RAGChat() {
                           textAlign: message.type === 'user' ? 'right' : 'left',
                         }}
                       >
-                        {dayjs(message.timestamp).format('HH:mm:ss')}
+                        {dayjs(message.timestamp).format('YYYY-MM-DD HH:mm:ss')}
                       </Text>
                     </div>
                   </div>
@@ -320,6 +501,65 @@ export default function RAGChat() {
             </Button>
           </Space.Compact>
         </div>
-    </Card>
+      </Card>
+
+      {/* 历史记录侧边栏 */}
+      <Card
+        title="💭 聊天记录"
+        style={{ width: 300, display: 'flex', flexDirection: 'column' }}
+        bodyStyle={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', padding: 0 }}
+      >
+        <div style={{ flex: 1, overflowY: 'auto', padding: '8px' }}>
+          {chatHistories.length === 0 ? (
+            <Empty
+              description="暂无聊天记录"
+              style={{ marginTop: 50 }}
+              image={Empty.PRESENTED_IMAGE_SIMPLE}
+            />
+          ) : (
+            <List
+              dataSource={chatHistories}
+              renderItem={(history) => (
+                <List.Item
+                  style={{
+                    padding: '8px 12px',
+                    cursor: 'pointer',
+                    backgroundColor: currentChatId === history.id ? '#e6f7ff' : 'transparent',
+                    borderLeft: currentChatId === history.id ? '3px solid #1890ff' : '3px solid transparent',
+                  }}
+                  onClick={() => loadChatHistory(history.id)}
+                >
+                  <div style={{ width: '100%' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <Text
+                        strong={currentChatId === history.id}
+                        ellipsis
+                        style={{ flex: 1, fontSize: 13 }}
+                      >
+                        {history.title}
+                      </Text>
+                      <Button
+                        type="text"
+                        size="small"
+                        icon={<DeleteOutlined />}
+                        danger
+                        onClick={(e) => deleteChatHistory(history.id, e)}
+                        style={{ flexShrink: 0, marginLeft: 8 }}
+                      />
+                    </div>
+                    <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 4 }}>
+                      {dayjs(history.updatedAt).format('MM-DD HH:mm')}
+                    </Text>
+                    <Text type="secondary" style={{ fontSize: 11, display: 'block' }}>
+                      {history.messages.length} 条消息
+                    </Text>
+                  </div>
+                </List.Item>
+              )}
+            />
+          )}
+        </div>
+      </Card>
+    </div>
   );
 }

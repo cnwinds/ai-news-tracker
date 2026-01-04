@@ -38,10 +38,10 @@ class RAGService:
             # 尝试查询vec0虚拟表
             result = self.db.execute(text("SELECT 1 FROM vec_embeddings LIMIT 1"))
             result.fetchone()
-            logger.info("✅ sqlite-vec扩展可用，将使用SQL向量搜索")
+            logger.debug("✅ sqlite-vec扩展可用，将使用SQL向量搜索")
             return True
         except Exception as e:
-            logger.info(f"ℹ️  sqlite-vec扩展不可用，将使用Python向量计算: {e}")
+            logger.debug(f"ℹ️  sqlite-vec扩展不可用，将使用Python向量计算: {e}")
             return False
 
     def _vector_to_blob(self, vector: List[float]) -> bytes:
@@ -314,6 +314,30 @@ class RAGService:
     ) -> List[Dict[str, Any]]:
         """使用sqlite-vec进行向量搜索"""
         try:
+            # 检查vec_embeddings表是否有数据
+            vec_count = self.db.execute(text("SELECT COUNT(*) FROM vec_embeddings")).scalar()
+            logger.debug(f"vec_embeddings表中有 {vec_count} 条记录")
+            if vec_count == 0:
+                logger.warning("⚠️  vec_embeddings表为空，回退到Python计算")
+                return self._search_with_python(query_embedding, top_k, filters)
+            
+            # 检查查询向量维度是否与数据库中存储的向量维度匹配
+            # 从article_embeddings表获取一个样本向量来检查维度
+            query_dim = len(query_embedding)
+            sample_embedding = self.db.query(ArticleEmbedding).first()
+            if sample_embedding and sample_embedding.embedding:
+                stored_dim = len(sample_embedding.embedding)
+                logger.debug(f"查询向量维度: {query_dim}, 存储向量维度: {stored_dim}")
+                if query_dim != stored_dim:
+                    logger.warning(
+                        f"⚠️  向量维度不匹配：查询向量维度 {query_dim}，"
+                        f"存储向量维度 {stored_dim}，回退到Python计算"
+                    )
+                    return self._search_with_python(query_embedding, top_k, filters)
+            else:
+                logger.warning("⚠️  未找到已索引的文章向量，回退到Python计算")
+                return self._search_with_python(query_embedding, top_k, filters)
+            
             # sqlite-vec使用MATCH操作符，需要JSON数组格式的字符串
             # 或者可以直接使用BLOB格式
             query_vector_str = self._vector_to_match_string(query_embedding)
@@ -498,9 +522,24 @@ class RAGService:
             logger.warning("⚠️  没有找到已索引的文章")
             return []
         
+        # 检查查询向量维度
+        query_dim = len(query_embedding)
+        
         # 计算相似度
         results = []
         for embedding_obj, article in embeddings:
+            if not embedding_obj.embedding:
+                continue
+            
+            stored_dim = len(embedding_obj.embedding)
+            if query_dim != stored_dim:
+                # 跳过维度不匹配的向量
+                logger.debug(
+                    f"⚠️  跳过维度不匹配的文章 {article.id}："
+                    f"查询向量维度 {query_dim}，存储向量维度 {stored_dim}"
+                )
+                continue
+            
             similarity = self._cosine_similarity(query_embedding, embedding_obj.embedding)
             results.append({
                 "article": article,

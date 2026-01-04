@@ -5,6 +5,7 @@ import { useState, useMemo } from 'react';
 import { Card, Input, Select, Space, List, Tag, Typography, Empty, Spin, Alert, Button, DatePicker } from 'antd';
 import { SearchOutlined, LinkOutlined } from '@ant-design/icons';
 import { useMutation, useQuery } from '@tanstack/react-query';
+import ReactMarkdown from 'react-markdown';
 import { apiService } from '@/services/api';
 import type { RAGSearchRequest, ArticleSearchResult, RSSSource } from '@/types';
 import dayjs from 'dayjs';
@@ -90,12 +91,7 @@ export default function RAGSearch() {
     searchMutation.mutate(request);
   };
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSearch();
-    }
-  };
+  // 移除 handleKeyPress，因为 Input.Search 的 onSearch 已经处理了 Enter 键
 
   const formatSimilarity = (similarity: number): string => {
     return `${(similarity * 100).toFixed(1)}%`;
@@ -135,7 +131,6 @@ export default function RAGSearch() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onSearch={handleSearch}
-            onPressEnter={handleKeyPress}
             enterButton={<SearchOutlined />}
             size="large"
             loading={searchMutation.isPending}
@@ -251,9 +246,36 @@ export default function RAGSearch() {
                           </Title>
 
                           {item.summary && (
-                            <Text type="secondary" style={{ fontSize: 14 }}>
-                              {item.summary}
-                            </Text>
+                            <div
+                              style={{
+                                fontSize: 14,
+                                color: 'rgba(0, 0, 0, 0.65)',
+                                lineHeight: 1.6,
+                              }}
+                            >
+                              <ReactMarkdown
+                                components={{
+                                  p: ({ children }) => <p style={{ marginBottom: '0.5em', marginTop: 0 }}>{children}</p>,
+                                  strong: ({ children }) => <strong style={{ fontWeight: 600 }}>{children}</strong>,
+                                  em: ({ children }) => <em style={{ fontStyle: 'italic' }}>{children}</em>,
+                                  ul: ({ children }) => <ul style={{ marginBottom: '0.5em', paddingLeft: '1.5em' }}>{children}</ul>,
+                                  ol: ({ children }) => <ol style={{ marginBottom: '0.5em', paddingLeft: '1.5em' }}>{children}</ol>,
+                                  li: ({ children }) => <li style={{ marginBottom: '0.25em' }}>{children}</li>,
+                                  h1: ({ children }) => <h1 style={{ fontSize: '1.5em', fontWeight: 600, marginBottom: '0.5em', marginTop: 0 }}>{children}</h1>,
+                                  h2: ({ children }) => <h2 style={{ fontSize: '1.3em', fontWeight: 600, marginBottom: '0.5em', marginTop: 0 }}>{children}</h2>,
+                                  h3: ({ children }) => <h3 style={{ fontSize: '1.1em', fontWeight: 600, marginBottom: '0.5em', marginTop: 0 }}>{children}</h3>,
+                                  code: ({ children }) => <code style={{ backgroundColor: '#f5f5f5', padding: '2px 4px', borderRadius: '3px', fontSize: '0.9em' }}>{children}</code>,
+                                  blockquote: ({ children }) => <blockquote style={{ borderLeft: '3px solid #d9d9d9', paddingLeft: '1em', margin: '0.5em 0', color: 'rgba(0, 0, 0, 0.65)' }}>{children}</blockquote>,
+                                  a: ({ href, children }) => (
+                                    <a href={href} target="_blank" rel="noopener noreferrer" style={{ color: '#1890ff' }}>
+                                      {children}
+                                    </a>
+                                  ),
+                                }}
+                              >
+                                {item.summary}
+                              </ReactMarkdown>
+                            </div>
                           )}
 
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>

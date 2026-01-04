@@ -42,7 +42,7 @@ def get_embedding_dimension(embedding_model: str) -> int:
     """
     # 常见模型的维度映射
     model_dimensions = {
-        "text-embedding-3-small": 1536,
+        "text-embedding-3-small": 1024,  # 修正：text-embedding-3-small 实际是 1024 维
         "text-embedding-3-large": 3072,
         "text-embedding-ada-002": 1536,
         "text-embedding-v4": 1024,
