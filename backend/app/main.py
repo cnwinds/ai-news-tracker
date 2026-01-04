@@ -1,8 +1,9 @@
 """
 FastAPI 应用入口
 """
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
 from contextlib import asynccontextmanager
 import sys
 from pathlib import Path
@@ -89,6 +90,25 @@ setup_cors(app)
 
 # 注册路由
 app.include_router(api_router, prefix=settings.API_V1_STR)
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """捕获请求验证错误并记录详细信息"""
+    logger.error(f"请求验证失败: URL={request.url}, method={request.method}")
+    logger.error(f"查询参数: {request.query_params}")
+    logger.error(f"路径参数: {request.path_params}")
+    logger.error(f"验证错误详情: {exc.errors()}")
+    logger.error(f"请求体: {await request.body()}")
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": exc.errors(),
+            "body": str(await request.body()) if hasattr(request, '_body') else None,
+            "query_params": dict(request.query_params),
+            "path_params": dict(request.path_params),
+        }
+    )
 
 
 @app.get("/")

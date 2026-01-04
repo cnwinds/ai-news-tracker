@@ -5,20 +5,14 @@ import { useState } from 'react';
 import { Layout, Tabs, Badge } from 'antd';
 import {
   FileTextOutlined,
-  HistoryOutlined,
   BarChartOutlined,
-  SettingOutlined,
-  DeleteOutlined,
   ReadOutlined,
   SearchOutlined,
   ToolOutlined,
 } from '@ant-design/icons';
 import ArticleList from '@/components/ArticleList';
-import CollectionHistory from '@/components/CollectionHistory';
 import DailySummary from '@/components/DailySummary';
 import Statistics from '@/components/Statistics';
-import SourceManagement from '@/components/SourceManagement';
-import DataCleanup from '@/components/DataCleanup';
 import RAG from '@/components/RAG';
 import SystemSettings from '@/components/SystemSettings';
 import { useWebSocket } from '@/hooks/useWebSocket';
@@ -61,36 +55,6 @@ export default function Dashboard() {
       children: <Statistics />,
     },
     {
-      key: 'collection',
-      label: (
-        <span>
-          <HistoryOutlined />
-          采集历史
-        </span>
-      ),
-      children: <CollectionHistory />,
-    },
-    {
-      key: 'sources',
-      label: (
-        <span>
-          <SettingOutlined />
-          订阅源管理
-        </span>
-      ),
-      children: <SourceManagement />,
-    },
-    {
-      key: 'cleanup',
-      label: (
-        <span>
-          <DeleteOutlined />
-          数据清理
-        </span>
-      ),
-      children: <DataCleanup />,
-    },
-    {
       key: 'rag',
       label: (
         <span>
@@ -105,7 +69,7 @@ export default function Dashboard() {
       label: (
         <span>
           <ToolOutlined />
-          系统配置
+          系统功能
         </span>
       ),
       children: <SystemSettings />,

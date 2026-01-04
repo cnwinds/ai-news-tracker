@@ -377,6 +377,46 @@ class RAGService:
                 distance = float(row[1]) if row[1] is not None else float('inf')
                 similarity = 1.0 / (1.0 + distance) if distance < float('inf') else 0.0
                 
+                # 处理 published_at：可能是 datetime 对象或字符串
+                published_at = row[8]
+                if published_at:
+                    if isinstance(published_at, datetime):
+                        published_at_str = published_at.isoformat()
+                    elif isinstance(published_at, str):
+                        published_at_str = published_at
+                    else:
+                        published_at_str = str(published_at)
+                else:
+                    published_at_str = None
+                
+                # 处理 topics：可能是列表或 JSON 字符串
+                topics = row[10]
+                if topics:
+                    if isinstance(topics, str):
+                        try:
+                            topics = json.loads(topics)
+                        except (json.JSONDecodeError, TypeError):
+                            logger.warning(f"无法解析 topics JSON: {topics}")
+                            topics = []
+                    elif not isinstance(topics, list):
+                        topics = []
+                else:
+                    topics = []
+                
+                # 处理 tags：可能是列表或 JSON 字符串
+                tags = row[11]
+                if tags:
+                    if isinstance(tags, str):
+                        try:
+                            tags = json.loads(tags)
+                        except (json.JSONDecodeError, TypeError):
+                            logger.warning(f"无法解析 tags JSON: {tags}")
+                            tags = []
+                    elif not isinstance(tags, list):
+                        tags = []
+                else:
+                    tags = []
+                
                 search_results.append({
                     "id": row[2],
                     "title": row[3],
@@ -384,10 +424,10 @@ class RAGService:
                     "url": row[5],
                     "summary": row[6],
                     "source": row[7],
-                    "published_at": row[8].isoformat() if row[8] else None,
+                    "published_at": published_at_str,
                     "importance": row[9],
-                    "topics": row[10],
-                    "tags": row[11],
+                    "topics": topics,
+                    "tags": tags,
                     "similarity": similarity
                 })
             
@@ -451,6 +491,29 @@ class RAGService:
         search_results = []
         for result in top_results:
             article = result["article"]
+            
+            # 处理 topics：确保是列表
+            topics = article.topics
+            if topics and isinstance(topics, str):
+                try:
+                    topics = json.loads(topics)
+                except (json.JSONDecodeError, TypeError):
+                    logger.warning(f"无法解析 topics JSON: {topics}")
+                    topics = []
+            elif not isinstance(topics, list):
+                topics = topics if topics else []
+            
+            # 处理 tags：确保是列表
+            tags = article.tags
+            if tags and isinstance(tags, str):
+                try:
+                    tags = json.loads(tags)
+                except (json.JSONDecodeError, TypeError):
+                    logger.warning(f"无法解析 tags JSON: {tags}")
+                    tags = []
+            elif not isinstance(tags, list):
+                tags = tags if tags else []
+            
             search_results.append({
                 "id": article.id,
                 "title": article.title,
@@ -460,8 +523,8 @@ class RAGService:
                 "source": article.source,
                 "published_at": article.published_at.isoformat() if article.published_at else None,
                 "importance": article.importance,
-                "topics": article.topics,
-                "tags": article.tags,
+                "topics": topics,
+                "tags": tags,
                 "similarity": result["similarity"]
             })
         
@@ -480,10 +543,20 @@ class RAGService:
             包含答案和引用文章的字典
         """
         try:
+            logger.info(f"🔍 开始问答流程: question={question[:100]}, top_k={top_k}")
+            
             # 检索相关文章
-            relevant_articles = self.search_articles(question, top_k=top_k)
+            try:
+                relevant_articles = self.search_articles(question, top_k=top_k)
+                logger.info(f"✅ 检索到 {len(relevant_articles)} 篇相关文章")
+            except Exception as e:
+                logger.error(f"❌ 检索文章失败: {e}", exc_info=True)
+                import traceback
+                logger.error(f"检索文章完整堆栈:\n{traceback.format_exc()}")
+                raise
             
             if not relevant_articles:
+                logger.warning("⚠️  没有找到相关文章")
                 return {
                     "answer": "抱歉，没有找到相关的文章来回答您的问题。",
                     "sources": [],
@@ -491,27 +564,44 @@ class RAGService:
                 }
             
             # 构建上下文
-            context_parts = []
-            for i, article_info in enumerate(relevant_articles, 1):
-                article_text = f"""
+            try:
+                context_parts = []
+                for i, article_info in enumerate(relevant_articles, 1):
+                    try:
+                        article_text = f"""
 文章 {i}:
-标题: {article_info['title']}
+标题: {article_info.get('title', 'N/A')}
 """
-                if article_info.get('title_zh'):
-                    article_text += f"中文标题: {article_info['title_zh']}\n"
-                if article_info.get('summary'):
-                    article_text += f"摘要: {article_info['summary']}\n"
-                if article_info.get('topics'):
-                    article_text += f"主题: {', '.join(article_info['topics'])}\n"
-                article_text += f"来源: {article_info['source']}\n"
-                article_text += f"相似度: {article_info['similarity']:.3f}\n"
+                        if article_info.get('title_zh'):
+                            article_text += f"中文标题: {article_info['title_zh']}\n"
+                        if article_info.get('summary'):
+                            article_text += f"摘要: {article_info['summary']}\n"
+                        if article_info.get('topics'):
+                            topics = article_info['topics']
+                            if isinstance(topics, list):
+                                article_text += f"主题: {', '.join(topics)}\n"
+                            else:
+                                article_text += f"主题: {topics}\n"
+                        article_text += f"来源: {article_info.get('source', 'N/A')}\n"
+                        article_text += f"相似度: {article_info.get('similarity', 0):.3f}\n"
+                        
+                        context_parts.append(article_text)
+                    except Exception as e:
+                        logger.error(f"❌ 构建文章 {i} 上下文失败: {e}", exc_info=True)
+                        logger.error(f"文章信息: {article_info}")
+                        continue
                 
-                context_parts.append(article_text)
-            
-            context = "\n---\n".join(context_parts)
+                context = "\n---\n".join(context_parts)
+                logger.info(f"✅ 构建上下文完成，长度: {len(context)} 字符")
+            except Exception as e:
+                logger.error(f"❌ 构建上下文失败: {e}", exc_info=True)
+                import traceback
+                logger.error(f"构建上下文完整堆栈:\n{traceback.format_exc()}")
+                raise
             
             # 构建提示词
-            prompt = f"""基于以下文章内容，回答用户的问题。请使用中文回答，并引用具体的文章。
+            try:
+                prompt = f"""基于以下文章内容，回答用户的问题。请使用中文回答，并引用具体的文章。
 
 相关文章：
 {context}
@@ -519,35 +609,71 @@ class RAGService:
 用户问题：{question}
 
 请提供详细、准确的答案，并在回答中引用相关的文章。如果文章中没有足够的信息来回答问题，请说明。"""
-
+                logger.info(f"✅ 提示词构建完成，长度: {len(prompt)} 字符")
+            except Exception as e:
+                logger.error(f"❌ 构建提示词失败: {e}", exc_info=True)
+                raise
+            
             # 调用LLM生成答案
-            logger.info(f"🤖 正在生成答案...")
-            response = self.ai_analyzer.client.chat.completions.create(
-                model=self.ai_analyzer.model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "你是一个专业的AI新闻助手，擅长基于提供的文章内容回答问题。请使用中文回答，并准确引用文章来源。"
-                    },
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ],
-                temperature=0.3,
-                max_tokens=2000,
-            )
+            try:
+                logger.info(f"🤖 正在调用LLM生成答案...")
+                logger.debug(f"使用模型: {self.ai_analyzer.model}")
+                logger.debug(f"提示词前100字符: {prompt[:100]}")
+                
+                response = self.ai_analyzer.client.chat.completions.create(
+                    model=self.ai_analyzer.model,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "你是一个专业的AI新闻助手，擅长基于提供的文章内容回答问题。请使用中文回答，并准确引用文章来源。"
+                        },
+                        {
+                            "role": "user",
+                            "content": prompt
+                        }
+                    ],
+                    temperature=0.3,
+                    max_tokens=2000,
+                )
+                
+                logger.info(f"✅ LLM响应接收成功")
+                logger.debug(f"响应对象类型: {type(response)}")
+                logger.debug(f"响应choices数量: {len(response.choices) if hasattr(response, 'choices') else 0}")
+                
+                if not response.choices:
+                    raise ValueError("LLM响应中没有choices")
+                
+                answer = response.choices[0].message.content.strip()
+                logger.info(f"✅ 答案生成成功，长度: {len(answer)} 字符")
+                
+            except Exception as e:
+                logger.error(f"❌ 调用LLM失败: {e}", exc_info=True)
+                logger.error(f"LLM客户端类型: {type(self.ai_analyzer.client)}")
+                logger.error(f"模型名称: {self.ai_analyzer.model}")
+                import traceback
+                logger.error(f"LLM调用完整堆栈:\n{traceback.format_exc()}")
+                raise
             
-            answer = response.choices[0].message.content.strip()
-            
-            return {
-                "answer": answer,
-                "sources": [article["source"] for article in relevant_articles],
-                "articles": relevant_articles
-            }
+            # 构建返回结果
+            try:
+                sources = [article.get("source", "N/A") for article in relevant_articles]
+                result = {
+                    "answer": answer,
+                    "sources": sources,
+                    "articles": relevant_articles
+                }
+                logger.info(f"✅ 问答流程完成: answer长度={len(answer)}, sources数量={len(sources)}, articles数量={len(relevant_articles)}")
+                return result
+            except Exception as e:
+                logger.error(f"❌ 构建返回结果失败: {e}", exc_info=True)
+                import traceback
+                logger.error(f"构建返回结果完整堆栈:\n{traceback.format_exc()}")
+                raise
             
         except Exception as e:
-            logger.error(f"❌ 问答失败: {e}")
+            logger.error(f"❌ 问答失败: {e}", exc_info=True)
+            import traceback
+            logger.error(f"问答完整堆栈跟踪:\n{traceback.format_exc()}")
             return {
                 "answer": f"抱歉，生成答案时出现错误: {str(e)}",
                 "sources": [],

@@ -1,5 +1,5 @@
 /**
- * 采集历史组件
+ * 自动采集组件
  */
 import { useState, useEffect } from 'react';
 import {
@@ -212,7 +212,7 @@ export default function CollectionHistory() {
   return (
     <div>
       <Card
-        title="🚀 采集历史"
+        title="🚀 自动采集"
         extra={
           <Space>
             <Button

@@ -12,10 +12,14 @@ import {
   Alert,
   Spin,
   Typography,
+  Tabs,
 } from 'antd';
 import { SaveOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiService } from '@/services/api';
+import SourceManagement from '@/components/SourceManagement';
+import DataCleanup from '@/components/DataCleanup';
+import CollectionHistory from '@/components/CollectionHistory';
 import type { LLMSettings } from '@/types';
 
 const { Title } = Typography;
@@ -58,24 +62,11 @@ export default function SystemSettings() {
     message.success('配置已刷新');
   };
 
-  return (
-    <div>
-      <Card
-        title={
-          <Space>
-            <Title level={4} style={{ margin: 0 }}>
-              ⚙️ 系统配置
-            </Title>
-            <Button
-              icon={<ReloadOutlined />}
-              onClick={handleRefresh}
-              size="small"
-            >
-              刷新
-            </Button>
-          </Space>
-        }
-      >
+  const tabItems = [
+    {
+      key: 'llm',
+      label: 'LLM配置',
+      children: (
         <Spin spinning={llmLoading}>
           <Card>
             <Form
@@ -163,6 +154,44 @@ export default function SystemSettings() {
             </Form>
           </Card>
         </Spin>
+      ),
+    },
+    {
+      key: 'collection',
+      label: '自动采集',
+      children: <CollectionHistory />,
+    },
+    {
+      key: 'sources',
+      label: '订阅源管理',
+      children: <SourceManagement />,
+    },
+    {
+      key: 'cleanup',
+      label: '数据清理',
+      children: <DataCleanup />,
+    },
+  ];
+
+  return (
+    <div>
+      <Card
+        title={
+          <Space>
+            <Title level={4} style={{ margin: 0 }}>
+              ⚙️ 系统功能
+            </Title>
+            <Button
+              icon={<ReloadOutlined />}
+              onClick={handleRefresh}
+              size="small"
+            >
+              刷新
+            </Button>
+          </Space>
+        }
+      >
+        <Tabs items={tabItems} />
       </Card>
     </div>
   );
