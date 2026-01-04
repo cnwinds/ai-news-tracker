@@ -5,14 +5,12 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from contextlib import asynccontextmanager
-import sys
-from pathlib import Path
 import logging
 import os
+from backend.app.core.paths import setup_python_path
 
-# 添加项目根目录到路径
-project_root = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(project_root))
+# 确保项目根目录在 Python 路径中
+setup_python_path()
 
 from backend.app.core.config import settings
 from backend.app.core.security import setup_cors

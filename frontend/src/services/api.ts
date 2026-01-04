@@ -1,7 +1,7 @@
 /**
  * API 服务层
  */
-import axios, { AxiosInstance } from 'axios';
+import axios, { AxiosInstance, AxiosResponse } from 'axios';
 import type {
   Article,
   ArticleListResponse,
@@ -32,6 +32,16 @@ import type {
 } from '@/types';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1';
+
+/**
+ * API 错误接口
+ */
+export interface ApiError {
+  status: number;
+  message: string;
+  code?: string;
+  data?: any;
+}
 
 class ApiService {
   private client: AxiosInstance;
@@ -70,6 +80,31 @@ class ApiService {
     );
   }
 
+  /**
+   * 统一的请求错误处理
+   * @param request Axios 请求 Promise
+   * @returns 响应数据
+   * @throws ApiError 格式化的错误对象
+   */
+  private async handleRequest<T>(request: Promise<AxiosResponse<T>>): Promise<T> {
+    try {
+      const response = await request;
+      return response.data;
+    } catch (error) {
+      if (axios.isAxiosError(error)) {
+        const apiError: ApiError = {
+          status: error.response?.status ?? 500,
+          message: error.response?.data?.detail ?? error.response?.data?.message ?? error.message ?? '请求失败',
+          code: error.code,
+          data: error.response?.data,
+        };
+        throw apiError;
+      }
+      // 非 Axios 错误，直接抛出
+      throw error;
+    }
+  }
+
   // 文章相关
   async getArticles(filter: ArticleFilter = {}): Promise<ArticleListResponse> {
     const params = new URLSearchParams();
@@ -80,77 +115,93 @@ class ApiService {
     if (filter.page) params.append('page', filter.page.toString());
     if (filter.page_size) params.append('page_size', filter.page_size.toString());
 
-    const response = await this.client.get<ArticleListResponse>(`/articles?${params.toString()}`);
-    return response.data;
+    return this.handleRequest(
+      this.client.get<ArticleListResponse>(`/articles?${params.toString()}`)
+    );
   }
 
   async getArticle(id: number): Promise<Article> {
-    const response = await this.client.get<Article>(`/articles/${id}`);
-    return response.data;
+    return this.handleRequest(
+      this.client.get<Article>(`/articles/${id}`)
+    );
   }
 
   async analyzeArticle(id: number, force: boolean = false): Promise<any> {
-    const response = await this.client.post(`/articles/${id}/analyze`, null, {
-      params: { force: force },
-    });
-    return response.data;
+    return this.handleRequest(
+      this.client.post(`/articles/${id}/analyze`, null, {
+        params: { force: force },
+      })
+    );
   }
 
   async deleteArticle(id: number): Promise<void> {
-    await this.client.delete(`/articles/${id}`);
+    await this.handleRequest(
+      this.client.delete(`/articles/${id}`)
+    );
   }
 
   // 采集相关
   async startCollection(enableAi: boolean = true): Promise<CollectionTask> {
-    const response = await this.client.post<CollectionTask>('/collection/start', {
-      enable_ai: enableAi,
-    });
-    return response.data;
+    return this.handleRequest(
+      this.client.post<CollectionTask>('/collection/start', {
+        enable_ai: enableAi,
+      })
+    );
   }
 
   async getCollectionTasks(limit: number = 50): Promise<CollectionTask[]> {
-    const response = await this.client.get<CollectionTask[]>(`/collection/tasks?limit=${limit}`);
-    return response.data;
+    return this.handleRequest(
+      this.client.get<CollectionTask[]>(`/collection/tasks?limit=${limit}`)
+    );
   }
 
   async getCollectionTask(id: number): Promise<CollectionTask> {
-    const response = await this.client.get<CollectionTask>(`/collection/tasks/${id}`);
-    return response.data;
+    return this.handleRequest(
+      this.client.get<CollectionTask>(`/collection/tasks/${id}`)
+    );
   }
 
   async getCollectionTaskDetail(id: number): Promise<any> {
-    const response = await this.client.get(`/collection/tasks/${id}/detail`);
-    return response.data;
+    return this.handleRequest(
+      this.client.get(`/collection/tasks/${id}/detail`)
+    );
   }
 
   async getCollectionStatus(): Promise<CollectionTaskStatus> {
-    const response = await this.client.get<CollectionTaskStatus>('/collection/status');
-    return response.data;
+    return this.handleRequest(
+      this.client.get<CollectionTaskStatus>('/collection/status')
+    );
   }
 
   async stopCollection(): Promise<any> {
-    const response = await this.client.post('/collection/stop');
-    return response.data;
+    return this.handleRequest(
+      this.client.post('/collection/stop')
+    );
   }
 
   // 摘要相关
   async getSummaries(limit: number = 50): Promise<DailySummary[]> {
-    const response = await this.client.get<DailySummary[]>(`/summary?limit=${limit}`);
-    return response.data;
+    return this.handleRequest(
+      this.client.get<DailySummary[]>(`/summary?limit=${limit}`)
+    );
   }
 
   async getSummary(id: number): Promise<DailySummary> {
-    const response = await this.client.get<DailySummary>(`/summary/${id}`);
-    return response.data;
+    return this.handleRequest(
+      this.client.get<DailySummary>(`/summary/${id}`)
+    );
   }
 
   async generateSummary(request: SummaryGenerateRequest): Promise<DailySummary> {
-    const response = await this.client.post<DailySummary>('/summary/generate', request);
-    return response.data;
+    return this.handleRequest(
+      this.client.post<DailySummary>('/summary/generate', request)
+    );
   }
 
   async deleteSummary(id: number): Promise<void> {
-    await this.client.delete(`/summary/${id}`);
+    await this.handleRequest(
+      this.client.delete(`/summary/${id}`)
+    );
   }
 
   // 订阅源相关
@@ -166,45 +217,54 @@ class ApiService {
     if (params?.source_type) queryParams.append('source_type', params.source_type);
     if (params?.enabled_only !== undefined) queryParams.append('enabled_only', params.enabled_only.toString());
 
-    const response = await this.client.get<RSSSource[]>(`/sources?${queryParams.toString()}`);
-    return response.data;
+    return this.handleRequest(
+      this.client.get<RSSSource[]>(`/sources?${queryParams.toString()}`)
+    );
   }
 
   async getSource(id: number): Promise<RSSSource> {
-    const response = await this.client.get<RSSSource>(`/sources/${id}`);
-    return response.data;
+    return this.handleRequest(
+      this.client.get<RSSSource>(`/sources/${id}`)
+    );
   }
 
   async createSource(data: RSSSourceCreate): Promise<RSSSource> {
-    const response = await this.client.post<RSSSource>('/sources', data);
-    return response.data;
+    return this.handleRequest(
+      this.client.post<RSSSource>('/sources', data)
+    );
   }
 
   async updateSource(id: number, data: RSSSourceUpdate): Promise<RSSSource> {
-    const response = await this.client.put<RSSSource>(`/sources/${id}`, data);
-    return response.data;
+    return this.handleRequest(
+      this.client.put<RSSSource>(`/sources/${id}`, data)
+    );
   }
 
   async deleteSource(id: number): Promise<void> {
-    await this.client.delete(`/sources/${id}`);
+    await this.handleRequest(
+      this.client.delete(`/sources/${id}`)
+    );
   }
 
   // 默认数据源相关
   async getDefaultSources(sourceType?: string): Promise<any[]> {
     const params = sourceType ? `?source_type=${sourceType}` : '';
-    const response = await this.client.get<any[]>(`/sources/default/list${params}`);
-    return response.data;
+    return this.handleRequest(
+      this.client.get<any[]>(`/sources/default/list${params}`)
+    );
   }
 
   async importDefaultSources(sourceNames: string[]): Promise<any> {
-    const response = await this.client.post('/sources/default/import', sourceNames);
-    return response.data;
+    return this.handleRequest(
+      this.client.post('/sources/default/import', sourceNames)
+    );
   }
 
   // 统计相关
   async getStatistics(): Promise<Statistics> {
-    const response = await this.client.get<Statistics>('/statistics');
-    return response.data;
+    return this.handleRequest(
+      this.client.get<Statistics>('/statistics')
+    );
   }
 
   // 清理相关
@@ -214,124 +274,148 @@ class ApiService {
     delete_unanalyzed_articles?: boolean;
     delete_articles_by_sources?: string[];
   }): Promise<any> {
-    const response = await this.client.post('/cleanup', data);
-    return response.data;
+    return this.handleRequest(
+      this.client.post('/cleanup', data)
+    );
   }
 
   // 配置相关
   async getCollectionSettings(): Promise<CollectionSettings> {
-    const response = await this.client.get<CollectionSettings>('/settings/collection');
-    return response.data;
+    return this.handleRequest(
+      this.client.get<CollectionSettings>('/settings/collection')
+    );
   }
 
   async updateCollectionSettings(data: CollectionSettings): Promise<CollectionSettings> {
-    const response = await this.client.put<CollectionSettings>('/settings/collection', data);
-    return response.data;
+    return this.handleRequest(
+      this.client.put<CollectionSettings>('/settings/collection', data)
+    );
   }
 
   async getAutoCollectionSettings(): Promise<AutoCollectionSettings> {
-    const response = await this.client.get<AutoCollectionSettings>('/settings/auto-collection');
-    return response.data;
+    return this.handleRequest(
+      this.client.get<AutoCollectionSettings>('/settings/auto-collection')
+    );
   }
 
   async updateAutoCollectionSettings(data: AutoCollectionSettings): Promise<AutoCollectionSettings> {
-    const response = await this.client.put<AutoCollectionSettings>('/settings/auto-collection', data);
-    return response.data;
+    return this.handleRequest(
+      this.client.put<AutoCollectionSettings>('/settings/auto-collection', data)
+    );
   }
 
   // 总结配置相关
   async getSummarySettings(): Promise<SummarySettings> {
-    const response = await this.client.get<SummarySettings>('/settings/summary');
-    return response.data;
+    return this.handleRequest(
+      this.client.get<SummarySettings>('/settings/summary')
+    );
   }
 
   async updateSummarySettings(data: SummarySettings): Promise<SummarySettings> {
-    const response = await this.client.put<SummarySettings>('/settings/summary', data);
-    return response.data;
+    return this.handleRequest(
+      this.client.put<SummarySettings>('/settings/summary', data)
+    );
   }
 
   // LLM配置相关
   async getLLMSettings(): Promise<LLMSettings> {
-    const response = await this.client.get<LLMSettings>('/settings/llm');
-    return response.data;
+    return this.handleRequest(
+      this.client.get<LLMSettings>('/settings/llm')
+    );
   }
 
   async updateLLMSettings(data: LLMSettings): Promise<LLMSettings> {
-    const response = await this.client.put<LLMSettings>('/settings/llm', data);
-    return response.data;
+    return this.handleRequest(
+      this.client.put<LLMSettings>('/settings/llm', data)
+    );
   }
 
   // 提供商管理相关
   async getProviders(enabledOnly: boolean = false): Promise<LLMProvider[]> {
-    const response = await this.client.get<LLMProvider[]>(`/settings/providers?enabled_only=${enabledOnly}`);
-    return response.data;
+    return this.handleRequest(
+      this.client.get<LLMProvider[]>(`/settings/providers?enabled_only=${enabledOnly}`)
+    );
   }
 
   async getProvider(providerId: number): Promise<LLMProvider> {
-    const response = await this.client.get<LLMProvider>(`/settings/providers/${providerId}`);
-    return response.data;
+    return this.handleRequest(
+      this.client.get<LLMProvider>(`/settings/providers/${providerId}`)
+    );
   }
 
   async createProvider(data: LLMProviderCreate): Promise<LLMProvider> {
-    const response = await this.client.post<LLMProvider>('/settings/providers', data);
-    return response.data;
+    return this.handleRequest(
+      this.client.post<LLMProvider>('/settings/providers', data)
+    );
   }
 
   async updateProvider(providerId: number, data: LLMProviderUpdate): Promise<LLMProvider> {
-    const response = await this.client.put<LLMProvider>(`/settings/providers/${providerId}`, data);
-    return response.data;
+    return this.handleRequest(
+      this.client.put<LLMProvider>(`/settings/providers/${providerId}`, data)
+    );
   }
 
   async deleteProvider(providerId: number): Promise<void> {
-    await this.client.delete(`/settings/providers/${providerId}`);
+    await this.handleRequest(
+      this.client.delete(`/settings/providers/${providerId}`)
+    );
   }
 
   // 采集器配置相关
   async getCollectorSettings(): Promise<CollectorSettings> {
-    const response = await this.client.get<CollectorSettings>('/settings/collector');
-    return response.data;
+    return this.handleRequest(
+      this.client.get<CollectorSettings>('/settings/collector')
+    );
   }
 
   async updateCollectorSettings(data: CollectorSettings): Promise<CollectorSettings> {
-    const response = await this.client.put<CollectorSettings>('/settings/collector', data);
-    return response.data;
+    return this.handleRequest(
+      this.client.put<CollectorSettings>('/settings/collector', data)
+    );
   }
 
   // 通知配置相关
   async getNotificationSettings(): Promise<NotificationSettings> {
-    const response = await this.client.get<NotificationSettings>('/settings/notification');
-    return response.data;
+    return this.handleRequest(
+      this.client.get<NotificationSettings>('/settings/notification')
+    );
   }
 
   async updateNotificationSettings(data: NotificationSettings): Promise<NotificationSettings> {
-    const response = await this.client.put<NotificationSettings>('/settings/notification', data);
-    return response.data;
+    return this.handleRequest(
+      this.client.put<NotificationSettings>('/settings/notification', data)
+    );
   }
 
   // RAG相关
   async searchArticles(request: RAGSearchRequest): Promise<RAGSearchResponse> {
-    const response = await this.client.post<RAGSearchResponse>('/rag/search', request);
-    return response.data;
+    return this.handleRequest(
+      this.client.post<RAGSearchResponse>('/rag/search', request)
+    );
   }
 
   async queryArticles(request: RAGQueryRequest): Promise<RAGQueryResponse> {
-    const response = await this.client.post<RAGQueryResponse>('/rag/query', request);
-    return response.data;
+    return this.handleRequest(
+      this.client.post<RAGQueryResponse>('/rag/query', request)
+    );
   }
 
   async getRAGStats(): Promise<RAGStatsResponse> {
-    const response = await this.client.get<RAGStatsResponse>('/rag/stats');
-    return response.data;
+    return this.handleRequest(
+      this.client.get<RAGStatsResponse>('/rag/stats')
+    );
   }
 
   async indexArticle(articleId: number): Promise<any> {
-    const response = await this.client.post(`/rag/index/${articleId}`);
-    return response.data;
+    return this.handleRequest(
+      this.client.post(`/rag/index/${articleId}`)
+    );
   }
 
   async indexAllUnindexedArticles(batchSize: number = 10): Promise<RAGBatchIndexResponse> {
-    const response = await this.client.post<RAGBatchIndexResponse>(`/rag/index/all?batch_size=${batchSize}`);
-    return response.data;
+    return this.handleRequest(
+      this.client.post<RAGBatchIndexResponse>(`/rag/index/all?batch_size=${batchSize}`)
+    );
   }
 }
 

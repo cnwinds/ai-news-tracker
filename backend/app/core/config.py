@@ -2,12 +2,10 @@
 FastAPI 应用配置
 """
 import os
-from pathlib import Path
-import sys
+from backend.app.core.paths import setup_python_path
 
-# 添加项目根目录到路径
-project_root = Path(__file__).parent.parent.parent.parent
-sys.path.insert(0, str(project_root))
+# 确保项目根目录在 Python 路径中
+setup_python_path()
 
 from backend.app.core.settings import settings as app_settings
 

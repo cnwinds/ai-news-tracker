@@ -21,15 +21,12 @@ class Settings:
 
     def _load_env(self):
         """加载环境变量"""
-        # 首先设置项目根目录（从 backend/app/core/settings.py 计算）
-        # __file__ = backend/app/core/settings.py
-        # .parent = backend/app/core/
-        # .parent = backend/app/
-        # .parent = backend/
-        # .parent = 项目根目录
-        self.PROJECT_ROOT: Path = Path(__file__).parent.parent.parent.parent
-        self.DATA_DIR: Path = self.PROJECT_ROOT / "backend" / "app" / "data"
-        self.CONFIG_DIR: Path = self.PROJECT_ROOT / "backend" / "app"
+        # 使用统一的路径管理模块
+        from backend.app.core.paths import PROJECT_ROOT, APP_ROOT
+        
+        self.PROJECT_ROOT: Path = PROJECT_ROOT
+        self.DATA_DIR: Path = APP_ROOT / "data"
+        self.CONFIG_DIR: Path = APP_ROOT
 
         # 确保必要目录存在
         self.DATA_DIR.mkdir(parents=True, exist_ok=True)

@@ -1,19 +1,17 @@
 """
 RAG相关 API 端点
 """
-import sys
 import logging
-from pathlib import Path
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from sqlalchemy.orm import Session
+from backend.app.core.paths import setup_python_path
 
 logger = logging.getLogger(__name__)
 
-# 添加项目根目录到路径
-project_root = Path(__file__).parent.parent.parent.parent.parent.parent
-sys.path.insert(0, str(project_root))
+# 确保项目根目录在 Python 路径中
+setup_python_path()
 
 from backend.app.db.models import Article, ArticleEmbedding
 from backend.app.core.dependencies import get_database

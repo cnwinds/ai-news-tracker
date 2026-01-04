@@ -2,6 +2,7 @@
 数据访问层 - 封装常用数据库查询
 """
 from datetime import datetime
+from typing import Optional
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -292,7 +293,7 @@ class CollectionTaskRepository:
         )
 
     @staticmethod
-    def get_latest_task(session: Session) -> CollectionTask or None:
+    def get_latest_task(session: Session) -> Optional[CollectionTask]:
         """
         获取最新的采集任务
 
@@ -448,7 +449,7 @@ class LLMProviderRepository:
         return query.order_by(LLMProvider.name.asc()).all()
 
     @staticmethod
-    def get_by_id(session: Session, provider_id: int) -> LLMProvider or None:
+    def get_by_id(session: Session, provider_id: int) -> Optional[LLMProvider]:
         """
         根据ID获取提供商
 
@@ -495,7 +496,7 @@ class LLMProviderRepository:
     @staticmethod
     def update(session: Session, provider_id: int, name: str = None, api_key: str = None,
                api_base: str = None, llm_model: str = None, embedding_model: str = None,
-               enabled: bool = None) -> LLMProvider or None:
+               enabled: bool = None) -> Optional[LLMProvider]:
         """
         更新提供商
 

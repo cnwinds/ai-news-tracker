@@ -5,11 +5,10 @@ import logging
 import sys
 from pathlib import Path
 from typing import Optional
-import sys as sys_module
+from backend.app.core.paths import setup_python_path
 
-# 添加项目根目录到路径
-project_root = Path(__file__).parent.parent.parent.parent.parent
-sys_module.path.insert(0, str(project_root))
+# 确保项目根目录在 Python 路径中
+setup_python_path()
 
 from backend.app.core.settings import settings
 

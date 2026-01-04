@@ -3,7 +3,7 @@
 """
 import json
 from datetime import datetime, timedelta
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from pathlib import Path
 import logging
 from time import sleep
@@ -1263,7 +1263,7 @@ class CollectionService:
             logger.error(f"❌ 保存文章失败: {e}")
             return False
 
-    def _save_article_and_get_id(self, db, article: Dict[str, Any]) -> int or None:
+    def _save_article_and_get_id(self, db, article: Dict[str, Any]) -> Optional[int]:
         """
         保存文章到数据库并返回文章ID
 
@@ -1301,7 +1301,7 @@ class CollectionService:
             logger.error(f"❌ 保存文章失败: {e}")
             return None
 
-    def _save_or_update_article_and_get_id(self, db, article: Dict[str, Any]) -> Dict[str, Any] or None:
+    def _save_or_update_article_and_get_id(self, db, article: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
         保存或更新文章到数据库并返回文章ID和信息
 

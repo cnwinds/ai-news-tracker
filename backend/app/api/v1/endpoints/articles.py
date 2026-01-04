@@ -5,14 +5,10 @@ from datetime import datetime, timedelta
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-import sys
-from pathlib import Path
+from backend.app.core.paths import setup_python_path
 
-# 添加项目根目录到路径
-# __file__ = backend/app/api/v1/endpoints/articles.py
-# 需要 6 个 parent 到达项目根目录
-project_root = Path(__file__).parent.parent.parent.parent.parent.parent
-sys.path.insert(0, str(project_root))
+# 确保项目根目录在 Python 路径中
+setup_python_path()
 
 from backend.app.db.repositories import ArticleRepository
 from backend.app.db.models import Article

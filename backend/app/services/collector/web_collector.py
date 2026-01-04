@@ -5,7 +5,7 @@
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import logging
 import re
 
@@ -176,7 +176,7 @@ class WebCollector:
         else:
             return url
 
-    def _parse_date(self, date_text: str) -> datetime or None:
+    def _parse_date(self, date_text: str) -> Optional[datetime]:
         """
         解析日期字符串
 

@@ -4,7 +4,7 @@ RSS数据采集器
 import feedparser
 import requests
 from datetime import datetime
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Optional
 import logging
 from bs4 import BeautifulSoup
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -200,7 +200,7 @@ class RSSCollector:
             logger.warning(f"⚠️  清理HTML失败: {e}")
             return html
 
-    def _extract_date_from_page(self, soup: BeautifulSoup, url: str) -> datetime or None:
+    def _extract_date_from_page(self, soup: BeautifulSoup, url: str) -> Optional[datetime]:
         """
         从页面HTML中提取发布日期
 
@@ -242,7 +242,7 @@ class RSSCollector:
             logger.warning(f"⚠️  提取日期失败: {e}")
             return None
 
-    def fetch_full_content(self, url: str) -> Tuple[str, datetime or None]:
+    def fetch_full_content(self, url: str) -> Tuple[str, Optional[datetime]]:
         """
         获取文章的完整页面内容和发布日期
 

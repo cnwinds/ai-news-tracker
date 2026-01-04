@@ -2,13 +2,11 @@
 工厂函数模块 - 用于创建通用对象实例
 """
 from typing import Optional
-import sys
 import logging
-from pathlib import Path
+from backend.app.core.paths import setup_python_path
 
-# 添加项目根目录到路径
-project_root = Path(__file__).parent.parent.parent.parent.parent
-sys.path.insert(0, str(project_root))
+# 确保项目根目录在 Python 路径中
+setup_python_path()
 
 from backend.app.services.analyzer.ai_analyzer import AIAnalyzer
 from backend.app.core.settings import settings

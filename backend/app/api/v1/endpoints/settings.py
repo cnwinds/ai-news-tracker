@@ -2,14 +2,10 @@
 配置相关 API 端点
 """
 from fastapi import APIRouter, Depends
-import sys
-from pathlib import Path
+from backend.app.core.paths import setup_python_path
 
-# 添加项目根目录到路径
-# __file__ = backend/app/api/v1/endpoints/settings.py
-# 需要 6 个 parent 到达项目根目录
-project_root = Path(__file__).parent.parent.parent.parent.parent.parent
-sys.path.insert(0, str(project_root))
+# 确保项目根目录在 Python 路径中
+setup_python_path()
 
 from backend.app.schemas.settings import (
     CollectionSettings, 

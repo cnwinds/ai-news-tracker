@@ -5,12 +5,10 @@
 import json
 from pathlib import Path
 from typing import List, Dict, Any
+from backend.app.core.paths import APP_ROOT
 
 # 获取配置文件路径（sources.json 在 backend/app 目录）
-# __file__ = backend/app/core/import_rss_sources.py
-# .parent = backend/app/core/
-# .parent = backend/app/
-CONFIG_PATH = Path(__file__).parent.parent / "sources.json"
+CONFIG_PATH = APP_ROOT / "sources.json"
 
 
 def load_sources(source_type: str = "rss") -> List[Dict[str, Any]]:

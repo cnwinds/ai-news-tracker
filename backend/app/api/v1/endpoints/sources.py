@@ -4,19 +4,10 @@
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-import sys
-from pathlib import Path
+from backend.app.core.paths import setup_python_path, APP_ROOT
 
-# 添加项目根目录到路径
-# __file__ = backend/app/api/v1/endpoints/sources.py
-# .parent = backend/app/api/v1/endpoints/
-# .parent = backend/app/api/v1/
-# .parent = backend/app/api/
-# .parent = backend/app/
-# .parent = backend/
-# .parent = 项目根目录
-project_root = Path(__file__).parent.parent.parent.parent.parent.parent
-sys.path.insert(0, str(project_root))
+# 确保项目根目录在 Python 路径中
+setup_python_path()
 
 from backend.app.db.repositories import RSSSourceRepository
 from backend.app.db.models import RSSSource
@@ -136,7 +127,7 @@ async def get_default_sources(
     if not import_rss_sources:
         logger.warning("import_rss_sources 模块未加载，尝试直接读取 JSON 文件")
         # sources.json 在 backend/app 目录下
-        sources_json_path = Path(__file__).parent.parent.parent.parent / "sources.json"
+        sources_json_path = APP_ROOT / "sources.json"
         
         if not sources_json_path.exists():
             error_msg = f"无法找到 sources.json 文件。路径: {sources_json_path}"
@@ -229,7 +220,7 @@ async def import_default_sources(
     if not import_rss_sources:
         logger.warning("import_rss_sources 模块未加载，尝试直接读取 JSON 文件")
         # sources.json 在 backend/app 目录下
-        sources_json_path = Path(__file__).parent.parent.parent.parent / "sources.json"
+        sources_json_path = APP_ROOT / "sources.json"
         
         if not sources_json_path.exists():
             error_msg = f"无法找到 sources.json 文件。路径: {sources_json_path}"

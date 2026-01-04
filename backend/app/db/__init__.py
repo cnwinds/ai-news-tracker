@@ -7,17 +7,11 @@ from pathlib import Path
 from contextlib import contextmanager
 from typing import Generator
 import logging
-import sys
 import sqlite3
+from backend.app.core.paths import setup_python_path
 
-# 添加项目根目录到路径
-# __file__ = backend/app/db/__init__.py
-# .parent = backend/app/db/
-# .parent = backend/app/
-# .parent = backend/
-# .parent = 项目根目录
-project_root = Path(__file__).parent.parent.parent.parent
-sys.path.insert(0, str(project_root))
+# 确保项目根目录在 Python 路径中
+setup_python_path()
 
 from backend.app.db.models import Base
 from backend.app.db.repositories import (
@@ -72,8 +66,9 @@ class DatabaseManager:
         # 默认使用 backend/app/data/ai_news.db
         if database_url is None:
             from backend.app.core.settings import settings
+            from backend.app.core.paths import APP_ROOT
             # 计算数据库路径
-            db_path = Path(__file__).parent.parent / "data" / "ai_news.db"
+            db_path = APP_ROOT / "data" / "ai_news.db"
             database_url = f"sqlite:///{db_path.absolute()}"
         else:
             # 如果提供了 database_url，使用它
