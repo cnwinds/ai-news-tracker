@@ -13,6 +13,8 @@ import {
   Spin,
   Typography,
   Tabs,
+  Select,
+  Switch,
 } from 'antd';
 import { SaveOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -20,13 +22,14 @@ import { apiService } from '@/services/api';
 import SourceManagement from '@/components/SourceManagement';
 import DataCleanup from '@/components/DataCleanup';
 import CollectionHistory from '@/components/CollectionHistory';
-import type { LLMSettings } from '@/types';
+import type { LLMSettings, NotificationSettings } from '@/types';
 
 const { Title } = Typography;
 
 export default function SystemSettings() {
   const queryClient = useQueryClient();
   const [llmForm] = Form.useForm();
+  const [notificationForm] = Form.useForm();
 
   // 获取LLM配置
   const { data: llmSettings, isLoading: llmLoading } = useQuery({
@@ -46,6 +49,24 @@ export default function SystemSettings() {
     },
   });
 
+  // 获取通知配置
+  const { data: notificationSettings, isLoading: notificationLoading } = useQuery({
+    queryKey: ['notification-settings'],
+    queryFn: () => apiService.getNotificationSettings(),
+  });
+
+  // 更新通知配置
+  const updateNotificationMutation = useMutation({
+    mutationFn: (data: NotificationSettings) => apiService.updateNotificationSettings(data),
+    onSuccess: () => {
+      message.success('通知配置已保存');
+      queryClient.invalidateQueries({ queryKey: ['notification-settings'] });
+    },
+    onError: () => {
+      message.error('保存通知配置失败');
+    },
+  });
+
   // 当配置加载完成后，初始化表单数据
   useEffect(() => {
     if (llmSettings) {
@@ -53,8 +74,18 @@ export default function SystemSettings() {
     }
   }, [llmSettings, llmForm]);
 
+  useEffect(() => {
+    if (notificationSettings) {
+      notificationForm.setFieldsValue(notificationSettings);
+    }
+  }, [notificationSettings, notificationForm]);
+
   const handleLLMSave = (values: LLMSettings) => {
     updateLLMMutation.mutate(values);
+  };
+
+  const handleNotificationSave = (values: NotificationSettings) => {
+    updateNotificationMutation.mutate(values);
   };
 
   const handleRefresh = () => {
@@ -145,6 +176,110 @@ export default function SystemSettings() {
                     icon={<ReloadOutlined />}
                     onClick={() => {
                       llmForm.setFieldsValue(llmSettings);
+                    }}
+                  >
+                    重置
+                  </Button>
+                </Space>
+              </Form.Item>
+            </Form>
+          </Card>
+        </Spin>
+      ),
+    },
+    {
+      key: 'notification',
+      label: '通知配置',
+      children: (
+        <Spin spinning={notificationLoading}>
+          <Card>
+            <Form
+              form={notificationForm}
+              layout="vertical"
+              onFinish={handleNotificationSave}
+              initialValues={notificationSettings}
+            >
+              <Alert
+                message="通知配置说明"
+                description="配置飞书或钉钉机器人，用于接收每日摘要和高重要性文章的推送通知。"
+                type="info"
+                showIcon
+                style={{ marginBottom: 24 }}
+              />
+
+              <Form.Item
+                name="platform"
+                label="通知平台"
+                rules={[{ required: true, message: '请选择通知平台' }]}
+                tooltip="选择通知平台：飞书或钉钉"
+              >
+                <Select
+                  placeholder="请选择通知平台"
+                  style={{ width: '100%' }}
+                  options={[
+                    { label: '飞书', value: 'feishu' },
+                    { label: '钉钉', value: 'dingtalk' },
+                  ]}
+                />
+              </Form.Item>
+
+              <Form.Item
+                name="webhook_url"
+                label="Webhook URL"
+                rules={[{ required: true, message: '请输入Webhook URL' }]}
+                tooltip="飞书或钉钉机器人的Webhook URL"
+              >
+                <Input
+                  placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/..."
+                  style={{ width: '100%' }}
+                />
+              </Form.Item>
+
+              <Form.Item
+                noStyle
+                shouldUpdate={(prevValues, currentValues) =>
+                  prevValues.platform !== currentValues.platform
+                }
+              >
+                {({ getFieldValue }) =>
+                  getFieldValue('platform') === 'dingtalk' ? (
+                    <Form.Item
+                      name="secret"
+                      label="加签密钥（可选）"
+                      tooltip="钉钉机器人的加签密钥，如果机器人配置了加签，请填写此字段"
+                    >
+                      <Input.Password
+                        placeholder="如果使用了加签，请输入密钥"
+                        style={{ width: '100%' }}
+                      />
+                    </Form.Item>
+                  ) : null
+                }
+              </Form.Item>
+
+              <Form.Item
+                name="instant_notification_enabled"
+                label="启用即时通知"
+                valuePropName="checked"
+                tooltip="是否启用即时通知：当采集到高重要性文章时立即推送"
+              >
+                <Switch />
+              </Form.Item>
+
+              <Form.Item>
+                <Space>
+                  <Button
+                    type="primary"
+                    icon={<SaveOutlined />}
+                    htmlType="submit"
+                    loading={updateNotificationMutation.isPending}
+                  >
+                    保存配置
+                  </Button>
+                  <Button
+                    icon={<ReloadOutlined />}
+                    onClick={() => {
+                      notificationForm.setFieldsValue(notificationSettings);
                     }}
                   >
                     重置

@@ -82,7 +82,7 @@ class NotificationLog(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     notification_type = Column(String(50), nullable=False)  # daily_summary/instant
-    platform = Column(String(50), nullable=False)  # feishu/email/telegram
+    platform = Column(String(50), nullable=False)  # feishu/dingtalk/email/telegram
     status = Column(String(20), nullable=False)  # success/error
     articles_count = Column(Integer, default=0)
     error_message = Column(Text, nullable=True)

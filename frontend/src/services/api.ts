@@ -19,6 +19,7 @@ import type {
   SummarySettings,
   LLMSettings,
   CollectorSettings,
+  NotificationSettings,
   RAGSearchRequest,
   RAGSearchResponse,
   RAGQueryRequest,
@@ -265,6 +266,17 @@ class ApiService {
 
   async updateCollectorSettings(data: CollectorSettings): Promise<CollectorSettings> {
     const response = await this.client.put<CollectorSettings>('/settings/collector', data);
+    return response.data;
+  }
+
+  // 通知配置相关
+  async getNotificationSettings(): Promise<NotificationSettings> {
+    const response = await this.client.get<NotificationSettings>('/settings/notification');
+    return response.data;
+  }
+
+  async updateNotificationSettings(data: NotificationSettings): Promise<NotificationSettings> {
+    const response = await this.client.put<NotificationSettings>('/settings/notification', data);
     return response.data;
   }
 

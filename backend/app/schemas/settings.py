@@ -41,3 +41,11 @@ class CollectorSettings(BaseModel):
     request_timeout: int = Field(..., ge=1, description="请求超时（秒）")
 
 
+class NotificationSettings(BaseModel):
+    """通知配置模型"""
+    platform: str = Field(default="feishu", description="通知平台（feishu/dingtalk）")
+    webhook_url: str = Field(default="", description="Webhook URL")
+    secret: str = Field(default="", description="钉钉加签密钥（可选，仅钉钉需要）")
+    instant_notification_enabled: bool = Field(default=True, description="是否启用即时通知")
+
+

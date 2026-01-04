@@ -166,6 +166,13 @@ export interface CollectorSettings {
   request_timeout: number;
 }
 
+export interface NotificationSettings {
+  platform: 'feishu' | 'dingtalk';
+  webhook_url: string;
+  secret: string; // 钉钉加签密钥（可选）
+  instant_notification_enabled: boolean;
+}
+
 export interface WebSocketMessage {
   type: string;
   message?: string;

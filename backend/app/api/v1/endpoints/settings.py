@@ -16,7 +16,8 @@ from backend.app.schemas.settings import (
     AutoCollectionSettings, 
     SummarySettings,
     LLMSettings,
-    CollectorSettings
+    CollectorSettings,
+    NotificationSettings
 )
 from backend.app.core.settings import settings
 
@@ -264,5 +265,41 @@ async def update_collector_settings(
         collection_interval_hours=settings.COLLECTION_INTERVAL_HOURS,
         max_articles_per_source=settings.MAX_ARTICLES_PER_SOURCE,
         request_timeout=settings.REQUEST_TIMEOUT,
+    )
+
+
+@router.get("/notification", response_model=NotificationSettings)
+async def get_notification_settings():
+    """获取通知配置"""
+    # 确保从数据库加载最新配置
+    settings.load_settings_from_db()
+    return NotificationSettings(
+        platform=settings.NOTIFICATION_PLATFORM,
+        webhook_url=settings.NOTIFICATION_WEBHOOK_URL,
+        secret=settings.NOTIFICATION_SECRET,
+        instant_notification_enabled=settings.INSTANT_NOTIFICATION_ENABLED,
+    )
+
+
+@router.put("/notification", response_model=NotificationSettings)
+async def update_notification_settings(
+    new_settings: NotificationSettings,
+):
+    """更新通知配置"""
+    success = settings.save_notification_settings(
+        platform=new_settings.platform,
+        webhook_url=new_settings.webhook_url,
+        secret=new_settings.secret,
+        instant_notification_enabled=new_settings.instant_notification_enabled,
+    )
+    if not success:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=500, detail="保存通知配置失败")
+    
+    return NotificationSettings(
+        platform=settings.NOTIFICATION_PLATFORM,
+        webhook_url=settings.NOTIFICATION_WEBHOOK_URL,
+        secret=settings.NOTIFICATION_SECRET,
+        instant_notification_enabled=settings.INSTANT_NOTIFICATION_ENABLED,
     )
 

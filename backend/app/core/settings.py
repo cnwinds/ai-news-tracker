@@ -40,7 +40,13 @@ class Settings:
         self.OPENAI_MODEL: str = "gpt-4-turbo-preview"
         self.OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
 
-        # 飞书机器人配置
+        # 通知配置（从数据库加载，这里只设置默认值）
+        self.NOTIFICATION_PLATFORM: str = "feishu"  # feishu 或 dingtalk
+        self.NOTIFICATION_WEBHOOK_URL: str = os.getenv("FEISHU_BOT_WEBHOOK", "")  # 兼容旧配置
+        self.NOTIFICATION_SECRET: str = ""  # 钉钉加签密钥（可选）
+        self.INSTANT_NOTIFICATION_ENABLED: bool = True  # 是否启用即时通知
+        
+        # 兼容旧配置（飞书机器人配置）
         self.FEISHU_BOT_WEBHOOK: str = os.getenv("FEISHU_BOT_WEBHOOK", "")
 
         # 数据库配置（默认使用 backend/app/data/ai_news.db）
@@ -72,6 +78,7 @@ class Settings:
         self._summary_settings_loaded = False
         self._llm_settings_loaded = False
         self._collector_settings_loaded = False
+        self._notification_settings_loaded = False
         
         # 设置默认值（如果数据库中没有配置，将使用这些值）
         self.MAX_ARTICLE_AGE_DAYS: int = int(os.getenv("MAX_ARTICLE_AGE_DAYS", "30"))
@@ -90,12 +97,17 @@ class Settings:
         """检查飞书通知是否启用"""
         return bool(self.FEISHU_BOT_WEBHOOK)
     
+    def is_notification_enabled(self) -> bool:
+        """检查通知是否启用"""
+        return bool(self.NOTIFICATION_WEBHOOK_URL)
+    
     def load_settings_from_db(self):
         """从数据库加载所有配置（在数据库初始化后调用）"""
         self._load_collection_settings()
         self._load_summary_settings()
         self._load_llm_settings()
         self._load_collector_settings()
+        self._load_notification_settings()
     
     def _load_collection_settings(self):
         """加载采集配置（从数据库读取，支持运行时修改）"""
@@ -533,6 +545,85 @@ class Settings:
             return True
         except Exception as e:
             logger.error(f"保存采集器配置失败: {e}")
+            return False
+    
+    def _load_notification_settings(self):
+        """加载通知配置（从数据库读取，支持运行时修改）"""
+        if self._notification_settings_loaded:
+            return
+        
+        try:
+            from backend.app.db import get_db
+            from backend.app.db.repositories import AppSettingsRepository
+            
+            db = get_db()
+            # 确保数据库已初始化
+            if not hasattr(db, 'engine'):
+                return
+            
+            with db.get_session() as session:
+                self.NOTIFICATION_PLATFORM = AppSettingsRepository.get_setting(
+                    session, "notification_platform", self.NOTIFICATION_PLATFORM
+                )
+                self.NOTIFICATION_WEBHOOK_URL = AppSettingsRepository.get_setting(
+                    session, "notification_webhook_url", self.NOTIFICATION_WEBHOOK_URL
+                )
+                self.NOTIFICATION_SECRET = AppSettingsRepository.get_setting(
+                    session, "notification_secret", self.NOTIFICATION_SECRET
+                )
+                self.INSTANT_NOTIFICATION_ENABLED = AppSettingsRepository.get_setting(
+                    session, "instant_notification_enabled", self.INSTANT_NOTIFICATION_ENABLED
+                )
+            
+            # 兼容旧配置：如果数据库中没有配置，但环境变量中有 FEISHU_BOT_WEBHOOK，使用它
+            if not self.NOTIFICATION_WEBHOOK_URL and self.FEISHU_BOT_WEBHOOK:
+                self.NOTIFICATION_WEBHOOK_URL = self.FEISHU_BOT_WEBHOOK
+                self.NOTIFICATION_PLATFORM = "feishu"
+            
+            self._notification_settings_loaded = True
+        except Exception as e:
+            # 如果数据库未初始化或读取失败，使用默认值
+            logger.debug(f"从数据库加载通知配置失败，使用默认值: {e}")
+    
+    def save_notification_settings(
+        self,
+        platform: str,
+        webhook_url: str,
+        secret: str = "",
+        instant_notification_enabled: bool = True
+    ):
+        """保存通知配置到数据库"""
+        try:
+            from backend.app.db import get_db
+            from backend.app.db.repositories import AppSettingsRepository
+            
+            db = get_db()
+            with db.get_session() as session:
+                AppSettingsRepository.set_setting(
+                    session, "notification_platform", platform, "string",
+                    "通知平台（feishu/dingtalk）"
+                )
+                AppSettingsRepository.set_setting(
+                    session, "notification_webhook_url", webhook_url, "string",
+                    "通知Webhook URL"
+                )
+                AppSettingsRepository.set_setting(
+                    session, "notification_secret", secret, "string",
+                    "钉钉加签密钥（可选）"
+                )
+                AppSettingsRepository.set_setting(
+                    session, "instant_notification_enabled", instant_notification_enabled, "bool",
+                    "是否启用即时通知"
+                )
+            
+            # 更新内存中的值
+            self.NOTIFICATION_PLATFORM = platform
+            self.NOTIFICATION_WEBHOOK_URL = webhook_url
+            self.NOTIFICATION_SECRET = secret
+            self.INSTANT_NOTIFICATION_ENABLED = instant_notification_enabled
+            return True
+        except Exception as e:
+            logger.error(f"保存通知配置失败: {e}")
             return False
 
 

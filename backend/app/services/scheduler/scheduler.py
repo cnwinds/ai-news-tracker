@@ -52,17 +52,30 @@ class TaskScheduler:
 
         # 通知服务（如果存在）
         try:
-            from notification import NotificationService
-            feishu_webhook = os.getenv("FEISHU_BOT_WEBHOOK") or settings.FEISHU_BOT_WEBHOOK
-            if feishu_webhook:
-                self.notifier = NotificationService(feishu_webhook=feishu_webhook)
-                logger.info("✅ 通知服务初始化成功")
+            from backend.app.services.notification import NotificationService
+            # 从数据库加载通知配置
+            settings.load_settings_from_db()
+            
+            webhook_url = settings.NOTIFICATION_WEBHOOK_URL
+            platform = settings.NOTIFICATION_PLATFORM
+            secret = settings.NOTIFICATION_SECRET
+            
+            if webhook_url:
+                self.notifier = NotificationService(
+                    platform=platform,
+                    webhook_url=webhook_url,
+                    secret=secret
+                )
+                logger.info(f"✅ 通知服务初始化成功（平台: {platform}）")
             else:
                 self.notifier = None
-                logger.warning("⚠️  未配置FEISHU_BOT_WEBHOOK，推送功能将不可用")
-        except ImportError:
+                logger.warning("⚠️  未配置通知Webhook URL，推送功能将不可用")
+        except ImportError as e:
             self.notifier = None
-            logger.warning("⚠️  通知服务模块未找到，推送功能将不可用")
+            logger.warning(f"⚠️  通知服务模块未找到，推送功能将不可用: {e}")
+        except Exception as e:
+            self.notifier = None
+            logger.warning(f"⚠️  通知服务初始化失败: {e}")
 
         # 数据库
         self.db = get_db()
@@ -310,9 +323,14 @@ class TaskScheduler:
 
                 logger.info(f"🚨 发现 {len(articles)} 篇高重要性文章，准备推送")
 
+                # 检查是否启用了即时通知
+                if not settings.INSTANT_NOTIFICATION_ENABLED:
+                    logger.info("⚠️  即时通知未启用，跳过推送")
+                    return
+
                 for article in articles:
                     if self.notifier and hasattr(self.notifier, 'send_instant_alert'):
-                        success = self.notifier.send_instant_alert(article)
+                        success = self.notifier.send_instant_alert(article, db=session)
                         if success:
                             article.is_sent = True
                             logger.info(f"✅ 已推送: {article.title[:50]}...")
