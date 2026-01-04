@@ -9,6 +9,7 @@ import ReactMarkdown from 'react-markdown';
 import { apiService } from '@/services/api';
 import type { RAGQueryRequest, RAGQueryResponse, ArticleSearchResult } from '@/types';
 import dayjs from 'dayjs';
+import { useTheme } from '@/contexts/ThemeContext';
 
 const { TextArea } = Input;
 const { Text } = Typography;
@@ -39,6 +40,7 @@ export default function RAGChat() {
   const [topK, setTopK] = useState(5);
   const [chatHistories, setChatHistories] = useState<ChatHistory[]>([]);
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
+  const { theme } = useTheme();
 
   // 问答mutation
   const queryMutation = useMutation({
@@ -337,8 +339,12 @@ export default function RAGChat() {
                     >
                       <div
                         style={{
-                          backgroundColor: message.type === 'user' ? '#1890ff' : '#f0f0f0',
-                          color: message.type === 'user' ? '#fff' : '#000',
+                          backgroundColor: message.type === 'user' 
+                            ? '#4096ff' 
+                            : (theme === 'dark' ? '#262626' : '#f0f0f0'),
+                          color: message.type === 'user' 
+                            ? '#fff' 
+                            : (theme === 'dark' ? '#ffffff' : '#000'),
                           padding: '12px 16px',
                           borderRadius: '12px',
                           wordBreak: 'break-word',
@@ -348,16 +354,62 @@ export default function RAGChat() {
                           <div>
                             <ReactMarkdown
                               components={{
-                                p: ({ children }) => <p style={{ marginBottom: '0.5em', marginTop: 0 }}>{children}</p>,
-                                strong: ({ children }) => <strong style={{ fontWeight: 600 }}>{children}</strong>,
-                                em: ({ children }) => <em style={{ fontStyle: 'italic' }}>{children}</em>,
-                                ul: ({ children }) => <ul style={{ marginBottom: '0.5em', paddingLeft: '1.5em' }}>{children}</ul>,
-                                ol: ({ children }) => <ol style={{ marginBottom: '0.5em', paddingLeft: '1.5em' }}>{children}</ol>,
-                                li: ({ children }) => <li style={{ marginBottom: '0.25em' }}>{children}</li>,
+                                p: ({ children }) => (
+                                  <p style={{ 
+                                    marginBottom: '0.5em', 
+                                    marginTop: 0,
+                                    color: theme === 'dark' ? '#ffffff' : 'inherit',
+                                  }}>
+                                    {children}
+                                  </p>
+                                ),
+                                strong: ({ children }) => (
+                                  <strong style={{ 
+                                    fontWeight: 600,
+                                    color: theme === 'dark' ? '#ffffff' : 'inherit',
+                                  }}>
+                                    {children}
+                                  </strong>
+                                ),
+                                em: ({ children }) => (
+                                  <em style={{ 
+                                    fontStyle: 'italic',
+                                    color: theme === 'dark' ? '#e0e0e0' : 'inherit',
+                                  }}>
+                                    {children}
+                                  </em>
+                                ),
+                                ul: ({ children }) => (
+                                  <ul style={{ 
+                                    marginBottom: '0.5em', 
+                                    paddingLeft: '1.5em',
+                                    color: theme === 'dark' ? '#ffffff' : 'inherit',
+                                  }}>
+                                    {children}
+                                  </ul>
+                                ),
+                                ol: ({ children }) => (
+                                  <ol style={{ 
+                                    marginBottom: '0.5em', 
+                                    paddingLeft: '1.5em',
+                                    color: theme === 'dark' ? '#ffffff' : 'inherit',
+                                  }}>
+                                    {children}
+                                  </ol>
+                                ),
+                                li: ({ children }) => (
+                                  <li style={{ 
+                                    marginBottom: '0.25em',
+                                    color: theme === 'dark' ? '#ffffff' : 'inherit',
+                                  }}>
+                                    {children}
+                                  </li>
+                                ),
                                 code: ({ children }) => (
                                   <code
                                     style={{
-                                      backgroundColor: 'rgba(0, 0, 0, 0.1)',
+                                      backgroundColor: theme === 'dark' ? '#1a1a1a' : 'rgba(0, 0, 0, 0.1)',
+                                      color: theme === 'dark' ? '#ffffff' : 'inherit',
                                       padding: '2px 4px',
                                       borderRadius: '3px',
                                       fontSize: '0.9em',
@@ -372,7 +424,11 @@ export default function RAGChat() {
                             </ReactMarkdown>
                           </div>
                         ) : (
-                          <Text style={{ color: message.type === 'user' ? '#fff' : '#000' }}>
+                          <Text style={{ 
+                            color: message.type === 'user' 
+                              ? '#fff' 
+                              : (theme === 'dark' ? '#ffffff' : '#000')
+                          }}>
                             {message.content}
                           </Text>
                         )}
@@ -381,7 +437,15 @@ export default function RAGChat() {
                       {/* 引用来源 */}
                       {message.type === 'assistant' && message.articles && message.articles.length > 0 && (
                         <div style={{ marginTop: 12, width: '100%' }}>
-                          <Text type="secondary" style={{ fontSize: 12, marginBottom: 8, display: 'block' }}>
+                          <Text 
+                            type="secondary" 
+                            style={{ 
+                              fontSize: 12, 
+                              marginBottom: 8, 
+                              display: 'block',
+                              color: theme === 'dark' ? '#e0e0e0' : 'inherit',
+                            }}
+                          >
                             参考来源：
                           </Text>
                           <Space direction="vertical" size="small" style={{ width: '100%' }}>
@@ -392,8 +456,8 @@ export default function RAGChat() {
                                   key={idx}
                                   style={{
                                     padding: '8px 12px',
-                                    backgroundColor: '#fafafa',
-                                    border: '1px solid #e8e8e8',
+                                    backgroundColor: theme === 'dark' ? '#1f1f1f' : '#fafafa',
+                                    border: theme === 'dark' ? '1px solid #434343' : '1px solid #e8e8e8',
                                     borderRadius: '4px',
                                   }}
                                 >
@@ -403,7 +467,7 @@ export default function RAGChat() {
                                       target="_blank"
                                       rel="noopener noreferrer"
                                       style={{
-                                        color: '#1890ff',
+                                        color: theme === 'dark' ? '#4096ff' : '#1890ff',
                                         textDecoration: 'none',
                                         fontWeight: 500,
                                         fontSize: 14,
@@ -417,7 +481,10 @@ export default function RAGChat() {
                                     >
                                       [{articleNumber}]
                                     </a>
-                                    <Text style={{ fontSize: 14 }}>
+                                    <Text style={{ 
+                                      fontSize: 14,
+                                      color: theme === 'dark' ? '#ffffff' : 'inherit',
+                                    }}>
                                       {article.title_zh || article.title}
                                     </Text>
                                     <Tag color="blue">{article.source}</Tag>
@@ -448,8 +515,19 @@ export default function RAGChat() {
           {queryMutation.isPending && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 0' }}>
               <Avatar icon={<RobotOutlined />} style={{ backgroundColor: '#52c41a', flexShrink: 0 }} />
-              <div style={{ backgroundColor: '#f0f0f0', padding: '12px 16px', borderRadius: '12px' }}>
-                <Spin size="small" /> <Text style={{ marginLeft: 8 }}>正在思考...</Text>
+              <div style={{ 
+                backgroundColor: theme === 'dark' ? '#262626' : '#f0f0f0',
+                color: theme === 'dark' ? '#ffffff' : '#000000',
+                padding: '12px 16px', 
+                borderRadius: '12px',
+              }}>
+                <Spin size="small" /> 
+                <Text style={{ 
+                  marginLeft: 8,
+                  color: theme === 'dark' ? '#ffffff' : 'inherit',
+                }}>
+                  正在思考...
+                </Text>
               </div>
             </div>
           )}
@@ -511,8 +589,12 @@ export default function RAGChat() {
                   style={{
                     padding: '8px 12px',
                     cursor: 'pointer',
-                    backgroundColor: currentChatId === history.id ? '#e6f7ff' : 'transparent',
-                    borderLeft: currentChatId === history.id ? '3px solid #1890ff' : '3px solid transparent',
+                    backgroundColor: currentChatId === history.id 
+                      ? (theme === 'dark' ? '#111a2c' : '#e6f7ff')
+                      : 'transparent',
+                    borderLeft: currentChatId === history.id 
+                      ? `3px solid ${theme === 'dark' ? '#4096ff' : '#1890ff'}`
+                      : '3px solid transparent',
                   }}
                   onClick={() => loadChatHistory(history.id)}
                 >

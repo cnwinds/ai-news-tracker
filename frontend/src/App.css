@@ -10,10 +10,217 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  transition: background-color 0.3s ease, color 0.3s ease;
 }
 
 #root {
   min-height: 100vh;
+}
+
+/* 主题样式 */
+.light-theme {
+  background-color: #ffffff;
+  color: #000000;
+}
+
+.dark-theme {
+  background-color: #1a1a1a;
+  color: #ffffff;
+}
+
+/* 深色主题下的选项卡优化 */
+.dark-theme .ant-tabs-tab {
+  color: #bfbfbf !important;
+  transition: color 0.3s ease;
+}
+
+.dark-theme .ant-tabs-tab:hover {
+  color: #ffffff !important;
+}
+
+.dark-theme .ant-tabs-tab-active {
+  color: #4096ff !important;
+}
+
+.dark-theme .ant-tabs-tab-active .ant-tabs-tab-btn {
+  color: #4096ff !important;
+}
+
+.dark-theme .ant-tabs-ink-bar {
+  background: #4096ff !important;
+}
+
+/* 深色主题下的卡片优化 */
+.dark-theme .ant-card {
+  background: #1f1f1f !important;
+  border-color: #303030 !important;
+}
+
+.dark-theme .ant-card-head {
+  background: #1f1f1f !important;
+  border-color: #303030 !important;
+}
+
+.dark-theme .ant-card-head-title {
+  color: #ffffff !important;
+}
+
+.dark-theme .ant-card-body {
+  color: #ffffff !important;
+}
+
+/* 深色主题下的列表项优化 */
+.dark-theme .ant-list-item {
+  border-color: #303030 !important;
+}
+
+.dark-theme .ant-list-item-meta-title {
+  color: #ffffff !important;
+}
+
+.dark-theme .ant-list-item-meta-description {
+  color: #e0e0e0 !important;
+}
+
+/* 深色主题下的文字颜色优化 - 提高对比度 */
+.dark-theme .ant-typography {
+  color: #ffffff !important;
+}
+
+.dark-theme .ant-typography-copy {
+  color: #ffffff !important;
+}
+
+.dark-theme .ant-typography-edit {
+  color: #ffffff !important;
+}
+
+/* 深色主题下的段落文字 */
+.dark-theme p {
+  color: #ffffff !important;
+}
+
+/* 深色主题下的次要文字 */
+.dark-theme .ant-typography-secondary {
+  color: #e0e0e0 !important;
+}
+
+.dark-theme .ant-typography-success {
+  color: #52c41a !important;
+}
+
+.dark-theme .ant-typography-warning {
+  color: #faad14 !important;
+}
+
+.dark-theme .ant-typography-danger {
+  color: #ff4d4f !important;
+}
+
+/* 深色主题下的按钮优化 */
+.dark-theme .ant-btn-primary {
+  background: #4096ff;
+  border-color: #4096ff;
+}
+
+.dark-theme .ant-btn-primary:hover {
+  background: #69b7ff;
+  border-color: #69b7ff;
+}
+
+/* 深色主题下的输入框优化 */
+.dark-theme .ant-input,
+.dark-theme .ant-select-selector {
+  background: #1f1f1f !important;
+  border-color: #434343 !important;
+  color: #ffffff !important;
+}
+
+.dark-theme .ant-input::placeholder,
+.dark-theme .ant-select-selection-placeholder {
+  color: #8c8c8c !important;
+}
+
+/* 深色主题下的徽章和标签优化 */
+.dark-theme .ant-badge-status-text {
+  color: #bfbfbf !important;
+}
+
+.dark-theme .ant-tag {
+  background: #262626 !important;
+  border-color: #434343 !important;
+  color: #bfbfbf !important;
+}
+
+/* 深色主题下的列表项优化 */
+.dark-theme .ant-list-item {
+  border-color: #303030 !important;
+}
+
+/* 深色主题下的分割线优化 */
+.dark-theme .ant-divider {
+  border-color: #303030 !important;
+}
+
+/* 深色主题下的表格优化 */
+.dark-theme .ant-table {
+  background: #1f1f1f !important;
+  color: #ffffff !important;
+}
+
+.dark-theme .ant-table-thead > tr > th {
+  background: #262626 !important;
+  border-color: #303030 !important;
+  color: #ffffff !important;
+}
+
+.dark-theme .ant-table-tbody > tr > td {
+  border-color: #303030 !important;
+  color: #ffffff !important;
+}
+
+.dark-theme .ant-table-tbody > tr:hover > td {
+  background: #262626 !important;
+}
+
+/* 深色主题下的模态框优化 */
+.dark-theme .ant-modal-content {
+  background: #1f1f1f !important;
+}
+
+.dark-theme .ant-modal-header {
+  background: #1f1f1f !important;
+  border-color: #303030 !important;
+}
+
+.dark-theme .ant-modal-title {
+  color: #ffffff !important;
+}
+
+/* 深色主题下的下拉菜单优化 */
+.dark-theme .ant-dropdown-menu {
+  background: #1f1f1f !important;
+  border-color: #434343 !important;
+}
+
+.dark-theme .ant-dropdown-menu-item {
+  color: #ffffff !important;
+}
+
+.dark-theme .ant-dropdown-menu-item:hover {
+  background: #262626 !important;
+}
+
+/* 深色主题下的日期选择器优化 */
+.dark-theme .ant-picker {
+  background: #1f1f1f !important;
+  border-color: #434343 !important;
+  color: #ffffff !important;
+}
+
+.dark-theme .ant-picker-panel {
+  background: #1f1f1f !important;
+  border-color: #434343 !important;
 }
 
 /* 隐藏滚动条但保持滚动功能 */
@@ -24,6 +231,25 @@ body {
 
 .hidden-scrollbar::-webkit-scrollbar {
   display: none; /* Chrome/Safari */
+}
+
+/* 暗色主题下的滚动条样式 */
+.dark-theme ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.dark-theme ::-webkit-scrollbar-track {
+  background: #1f1f1f;
+}
+
+.dark-theme ::-webkit-scrollbar-thumb {
+  background: #424242;
+  border-radius: 4px;
+}
+
+.dark-theme ::-webkit-scrollbar-thumb:hover {
+  background: #555555;
 }
 
 

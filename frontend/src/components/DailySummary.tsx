@@ -27,6 +27,7 @@ import ReactMarkdown from 'react-markdown';
 import dayjs from 'dayjs';
 import weekOfYear from 'dayjs/plugin/weekOfYear';
 import isoWeek from 'dayjs/plugin/isoWeek';
+import { useTheme } from '@/contexts/ThemeContext';
 
 dayjs.extend(weekOfYear);
 dayjs.extend(isoWeek);
@@ -76,6 +77,7 @@ export default function DailySummary() {
   const [expandedSummaries, setExpandedSummaries] = useState<Set<number>>(new Set());
   const [selectedWeekDate, setSelectedWeekDate] = useState<dayjs.Dayjs | null>(null);
   const [hoveredWeekDate, setHoveredWeekDate] = useState<dayjs.Dayjs | null>(null);
+  const { theme } = useTheme();
 
   const { data: summaries, isLoading } = useQuery({
     queryKey: ['summaries'],
@@ -283,53 +285,109 @@ export default function DailySummary() {
                         <div
                           style={{
                             padding: '16px',
-                            backgroundColor: '#fafafa',
+                            backgroundColor: theme === 'dark' ? '#262626' : '#fafafa',
                             borderRadius: '4px',
-                            border: '1px solid #e8e8e8',
+                            border: theme === 'dark' ? '1px solid #434343' : '1px solid #e8e8e8',
+                            color: theme === 'dark' ? '#ffffff' : '#000000',
                           }}
                         >
                           <ReactMarkdown
                             components={{
                               h1: ({ children }) => (
-                                <h1 style={{ fontSize: '24px', fontWeight: 'bold', marginTop: '16px', marginBottom: '12px' }}>
+                                <h1 style={{ 
+                                  fontSize: '24px', 
+                                  fontWeight: 'bold', 
+                                  marginTop: '16px', 
+                                  marginBottom: '12px',
+                                  color: theme === 'dark' ? '#ffffff' : '#000000',
+                                }}>
                                   {children}
                                 </h1>
                               ),
                               h2: ({ children }) => (
-                                <h2 style={{ fontSize: '20px', fontWeight: 'bold', marginTop: '16px', marginBottom: '12px' }}>
+                                <h2 style={{ 
+                                  fontSize: '20px', 
+                                  fontWeight: 'bold', 
+                                  marginTop: '16px', 
+                                  marginBottom: '12px',
+                                  color: theme === 'dark' ? '#ffffff' : '#000000',
+                                }}>
                                   {children}
                                 </h2>
                               ),
                               h3: ({ children }) => (
-                                <h3 style={{ fontSize: '18px', fontWeight: 'bold', marginTop: '14px', marginBottom: '10px' }}>
+                                <h3 style={{ 
+                                  fontSize: '18px', 
+                                  fontWeight: 'bold', 
+                                  marginTop: '14px', 
+                                  marginBottom: '10px',
+                                  color: theme === 'dark' ? '#ffffff' : '#000000',
+                                }}>
                                   {children}
                                 </h3>
                               ),
                               p: ({ children }) => (
-                                <p style={{ marginBottom: '12px', lineHeight: '1.6' }}>{children}</p>
+                                <p style={{ 
+                                  marginBottom: '12px', 
+                                  lineHeight: '1.6',
+                                  color: theme === 'dark' ? '#ffffff' : '#000000',
+                                }}>
+                                  {children}
+                                </p>
                               ),
                               ul: ({ children }) => (
-                                <ul style={{ marginBottom: '12px', paddingLeft: '24px' }}>{children}</ul>
+                                <ul style={{ 
+                                  marginBottom: '12px', 
+                                  paddingLeft: '24px',
+                                  color: theme === 'dark' ? '#ffffff' : '#000000',
+                                }}>
+                                  {children}
+                                </ul>
                               ),
                               ol: ({ children }) => (
-                                <ol style={{ marginBottom: '12px', paddingLeft: '24px' }}>{children}</ol>
+                                <ol style={{ 
+                                  marginBottom: '12px', 
+                                  paddingLeft: '24px',
+                                  color: theme === 'dark' ? '#ffffff' : '#000000',
+                                }}>
+                                  {children}
+                                </ol>
                               ),
                               li: ({ children }) => (
-                                <li style={{ marginBottom: '6px', lineHeight: '1.6' }}>{children}</li>
+                                <li style={{ 
+                                  marginBottom: '6px', 
+                                  lineHeight: '1.6',
+                                  color: theme === 'dark' ? '#ffffff' : '#000000',
+                                }}>
+                                  {children}
+                                </li>
                               ),
                               strong: ({ children }) => (
-                                <strong style={{ fontWeight: 'bold' }}>{children}</strong>
+                                <strong style={{ 
+                                  fontWeight: 'bold',
+                                  color: theme === 'dark' ? '#ffffff' : '#000000',
+                                }}>
+                                  {children}
+                                </strong>
                               ),
                               em: ({ children }) => (
-                                <em style={{ fontStyle: 'italic' }}>{children}</em>
+                                <em style={{ 
+                                  fontStyle: 'italic',
+                                  color: theme === 'dark' ? '#bfbfbf' : '#000000',
+                                }}>
+                                  {children}
+                                </em>
                               ),
                               code: ({ children, className }: any) => {
                                 const isInline = !className;
+                                const codeBg = theme === 'dark' ? '#1a1a1a' : '#f4f4f4';
+                                const codeColor = theme === 'dark' ? '#ffffff' : '#000000';
                                 if (isInline) {
                                   return (
                                     <code
                                       style={{
-                                        backgroundColor: '#f4f4f4',
+                                        backgroundColor: codeBg,
+                                        color: codeColor,
                                         padding: '2px 6px',
                                         borderRadius: '3px',
                                         fontFamily: 'monospace',
@@ -344,7 +402,8 @@ export default function DailySummary() {
                                   <code
                                     style={{
                                       display: 'block',
-                                      backgroundColor: '#f4f4f4',
+                                      backgroundColor: codeBg,
+                                      color: codeColor,
                                       padding: '12px',
                                       borderRadius: '4px',
                                       fontFamily: 'monospace',
@@ -360,11 +419,11 @@ export default function DailySummary() {
                               blockquote: ({ children }) => (
                                 <blockquote
                                   style={{
-                                    borderLeft: '4px solid #1890ff',
+                                    borderLeft: `4px solid ${theme === 'dark' ? '#4096ff' : '#1890ff'}`,
                                     paddingLeft: '16px',
                                     marginLeft: '0',
                                     marginBottom: '12px',
-                                    color: '#666',
+                                    color: theme === 'dark' ? '#bfbfbf' : '#666',
                                     fontStyle: 'italic',
                                   }}
                                 >
@@ -374,7 +433,10 @@ export default function DailySummary() {
                               a: ({ children, href }) => (
                                 <a
                                   href={href}
-                                  style={{ color: '#1890ff', textDecoration: 'none' }}
+                                  style={{ 
+                                    color: theme === 'dark' ? '#4096ff' : '#1890ff', 
+                                    textDecoration: 'none' 
+                                  }}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                 >
@@ -388,7 +450,9 @@ export default function DailySummary() {
                         </div>
                         {summary.key_topics && summary.key_topics.length > 0 && (
                           <div>
-                            <strong>关键主题：</strong>
+                            <strong style={{ color: theme === 'dark' ? '#ffffff' : '#000000' }}>
+                              关键主题：
+                            </strong>
                             {summary.key_topics.map((topic, index) => (
                               <Tag key={index} style={{ marginBottom: 4 }}>
                                 {topic}
@@ -497,8 +561,12 @@ export default function DailySummary() {
                           return (
                             <div
                               style={{
-                                color: isSummarized ? '#bfbfbf' : 'inherit',
-                                backgroundColor: isSummarized ? '#f5f5f5' : 'transparent',
+                                color: isSummarized 
+                                  ? (theme === 'dark' ? '#595959' : '#bfbfbf') 
+                                  : 'inherit',
+                                backgroundColor: isSummarized 
+                                  ? (theme === 'dark' ? '#303030' : '#f5f5f5') 
+                                  : 'transparent',
                                 borderRadius: '2px',
                                 padding: '2px',
                                 width: '100%',
@@ -541,23 +609,25 @@ export default function DailySummary() {
                           
                           // 优先显示选中状态，然后是悬停状态
                           const backgroundColor = isInSelectedWeek 
-                            ? '#e6f7ff' 
+                            ? (theme === 'dark' ? '#111a2c' : '#e6f7ff')
                             : isInHoveredWeek 
-                              ? '#f0f9ff' 
+                              ? (theme === 'dark' ? '#1a1f2e' : '#f0f9ff')
                               : isSummarized 
-                                ? '#f5f5f5' 
+                                ? (theme === 'dark' ? '#303030' : '#f5f5f5')
                                 : 'transparent';
                           
                           const border = isInSelectedWeek 
-                            ? '1px solid #1890ff' 
+                            ? `1px solid ${theme === 'dark' ? '#4096ff' : '#1890ff'}`
                             : isInHoveredWeek 
-                              ? '1px solid #91d5ff' 
+                              ? `1px solid ${theme === 'dark' ? '#69b7ff' : '#91d5ff'}`
                               : 'none';
                           
                           return (
                             <div
                               style={{
-                                color: isSummarized ? '#bfbfbf' : 'inherit',
+                                color: isSummarized 
+                                  ? (theme === 'dark' ? '#595959' : '#bfbfbf') 
+                                  : 'inherit',
                                 backgroundColor,
                                 borderRadius: '2px',
                                 padding: '2px',
