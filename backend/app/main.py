@@ -1,15 +1,26 @@
 """
 FastAPI 应用入口
 """
-from fastapi import FastAPI, Request
+import sys
+from pathlib import Path
+
+# 在导入 backend 模块之前，先设置 Python 路径
+# 计算项目根目录（从当前文件位置：backend/app/main.py -> backend/app -> backend -> 项目根）
+_current_file = Path(__file__).resolve()
+_project_root = _current_file.parent.parent.parent
+if str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
+
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from contextlib import asynccontextmanager
 import logging
 import os
+import traceback
 from backend.app.core.paths import setup_python_path
 
-# 确保项目根目录在 Python 路径中
+# 确保项目根目录在 Python 路径中（双重保险）
 setup_python_path()
 
 from backend.app.core.config import settings
@@ -44,6 +55,13 @@ async def lifespan(app: FastAPI):
         from backend.app.core.settings import settings as app_settings
         app_settings.load_settings_from_db()
         logger.info("✅ 配置已从数据库加载")
+        
+        # 第二阶段：初始化 vec0 虚拟表（需要配置加载后才能确定维度）
+        try:
+            db.init_sqlite_vec_table(embedding_model=app_settings.OPENAI_EMBEDDING_MODEL)
+            logger.info("✅ vec0虚拟表初始化完成")
+        except Exception as e:
+            logger.warning(f"⚠️  vec0虚拟表初始化失败: {e}")
     except Exception as e:
         logger.warning(f"⚠️  从数据库加载配置失败: {e}")
     

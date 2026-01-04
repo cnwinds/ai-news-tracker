@@ -81,3 +81,4 @@ class RAGStatsResponse(BaseModel):
     index_coverage: float = Field(..., description="索引覆盖率 (0-1)")
     source_stats: Dict[str, int]
 
+

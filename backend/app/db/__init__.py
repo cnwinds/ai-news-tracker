@@ -103,19 +103,23 @@ class DatabaseManager:
         self.init_db()
 
     def init_db(self):
-        """初始化数据库表"""
+        """初始化数据库表（第一阶段：只创建基础表结构）"""
         try:
             Base.metadata.create_all(bind=self.engine)
-            self._init_sqlite_vec()
-            # 注意：不在这里加载配置，避免循环依赖
-            # 配置将在应用启动时或首次访问时加载
-            logger.info("✅ 数据库初始化成功")
+            # 注意：不在这里初始化 vec0 虚拟表，避免循环依赖
+            # vec0 表的初始化将在配置加载后通过 init_sqlite_vec_table() 完成
+            logger.info("✅ 数据库基础表初始化成功")
         except Exception as e:
             logger.error(f"❌ 数据库初始化失败: {e}")
             raise
 
-    def _init_sqlite_vec(self):
-        """初始化sqlite-vec扩展和虚拟表"""
+    def init_sqlite_vec_table(self, embedding_model: str = None):
+        """
+        初始化sqlite-vec扩展和vec0虚拟表（第二阶段：在配置加载后调用）
+        
+        Args:
+            embedding_model: 嵌入模型名称，如果为None则使用默认值
+        """
         try:
             # 获取SQLite连接路径
             if not self.database_url.startswith("sqlite:///"):
@@ -137,29 +141,28 @@ class DatabaseManager:
                 logger.warning("⚠️  sqlite-vec模块未安装，将使用Python向量计算")
                 return
             
+            # 确定嵌入模型和维度
+            if not embedding_model:
+                # 如果没有提供，尝试从全局 settings 读取
+                try:
+                    from backend.app.core.settings import settings
+                    embedding_model = settings.OPENAI_EMBEDDING_MODEL
+                except Exception:
+                    embedding_model = "text-embedding-3-small"
+            
+            dimension = get_embedding_dimension(embedding_model)
+            logger.info(f"📊 使用嵌入模型: {embedding_model}，维度: {dimension}")
+            
             # 使用原生SQLite连接加载扩展
             conn = sqlite3.connect(db_path)
             conn.enable_load_extension(True)
             
             try:
                 # 加载 sqlite-vec 扩展
-                # sqlite-vec 提供了 load() 函数来加载扩展
                 sqlite_vec.load(conn)
                 
                 # 创建vec0虚拟表（如果不存在）
-                # vec0表用于存储向量数据，与article_embeddings表关联
-                # 注意：vec0需要指定向量维度，需要根据配置的嵌入模型动态确定
                 with conn:
-                    # 获取配置的嵌入模型和维度
-                    try:
-                        from backend.app.core.settings import settings
-                        embedding_model = settings.OPENAI_EMBEDDING_MODEL
-                        dimension = get_embedding_dimension(embedding_model)
-                        logger.info(f"📊 使用嵌入模型: {embedding_model}，维度: {dimension}")
-                    except Exception as e:
-                        logger.warning(f"⚠️  无法获取嵌入模型配置，使用默认维度 1536: {e}")
-                        dimension = 1536
-                    
                     # 检查表是否已存在
                     cursor = conn.execute("""
                         SELECT name FROM sqlite_master 

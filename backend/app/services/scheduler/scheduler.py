@@ -164,7 +164,8 @@ class TaskScheduler:
             logger.error(f"❌ 添加每周摘要任务失败: {e}")
 
     def _run_collection(self):
-        """执行采集任务"""
+        """执行采集任务（自动定时采集）"""
+        task_id = None
         try:
             logger.info("=" * 60)
             logger.info("🚀 开始执行定时采集任务")
@@ -172,7 +173,36 @@ class TaskScheduler:
             logger.info(f"📋 任务ID: collection_job")
             logger.info(f"🔄 采集间隔: 每 {settings.get_auto_collection_interval_hours() or settings.COLLECTION_INTERVAL_HOURS} 小时")
 
-            stats = self.collector.collect_all(enable_ai_analysis=True)
+            # 创建采集任务记录（与手动采集保持一致）
+            from backend.app.db.models import CollectionTask
+            with self.db.get_session() as session:
+                task = CollectionTask(
+                    status="running",
+                    ai_enabled=True,  # 定时采集默认启用AI分析
+                    started_at=datetime.now(),
+                )
+                session.add(task)
+                session.commit()
+                session.refresh(task)
+                task_id = task.id
+                logger.info(f"📝 已创建采集任务记录 (ID: {task_id})")
+
+            # 执行采集（传递 task_id 以便更新任务进度）
+            stats = self.collector.collect_all(enable_ai_analysis=True, task_id=task_id)
+
+            # 更新任务状态为完成
+            with self.db.get_session() as session:
+                task = session.query(CollectionTask).filter(CollectionTask.id == task_id).first()
+                if task:
+                    task.status = "completed"
+                    task.new_articles_count = stats.get('new_articles', 0)
+                    task.total_sources = stats.get('sources_success', 0) + stats.get('sources_error', 0)
+                    task.success_sources = stats.get('sources_success', 0)
+                    task.failed_sources = stats.get('sources_error', 0)
+                    task.duration = stats.get('duration', 0)
+                    task.completed_at = datetime.now()
+                    task.ai_analyzed_count = stats.get('ai_analyzed_count', 0)
+                    session.commit()
 
             logger.info(f"✅ 采集完成:")
             logger.info(f"   总文章数: {stats['total_articles']}")
@@ -191,6 +221,20 @@ class TaskScheduler:
 
         except Exception as e:
             logger.error(f"❌ 采集任务执行失败: {e}", exc_info=True)
+            
+            # 更新任务状态为错误
+            if task_id:
+                try:
+                    from backend.app.db.models import CollectionTask
+                    with self.db.get_session() as session:
+                        task = session.query(CollectionTask).filter(CollectionTask.id == task_id).first()
+                        if task:
+                            task.status = "error"
+                            task.error_message = str(e)
+                            task.completed_at = datetime.now()
+                            session.commit()
+                except Exception as update_error:
+                    logger.error(f"❌ 更新任务状态失败: {update_error}", exc_info=True)
 
     def _run_daily_summary(self):
         """执行每日摘要任务（生成总结并自动推送）"""
