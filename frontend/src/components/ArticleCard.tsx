@@ -3,7 +3,7 @@
  */
 import { useState } from 'react';
 import { Card, Tag, Button, Space, Typography, Popconfirm } from 'antd';
-import { LinkOutlined, DeleteOutlined, RobotOutlined, UpOutlined, DownOutlined, ReloadOutlined } from '@ant-design/icons';
+import { LinkOutlined, DeleteOutlined, RobotOutlined, UpOutlined, DownOutlined } from '@ant-design/icons';
 import ReactMarkdown from 'react-markdown';
 import dayjs from 'dayjs';
 import type { Article } from '@/types';

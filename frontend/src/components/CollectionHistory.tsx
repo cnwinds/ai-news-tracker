@@ -22,25 +22,22 @@ import {
   Switch,
 } from 'antd';
 import { PlayCircleOutlined, ReloadOutlined, EyeOutlined, SettingOutlined, StopOutlined } from '@ant-design/icons';
-import { LinkOutlined, CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons';
+import { CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons';
 
 const { Text, Paragraph } = Typography;
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiService } from '@/services/api';
 import { useWebSocket } from '@/hooks/useWebSocket';
-import { useTheme } from '@/contexts/ThemeContext';
 import dayjs from 'dayjs';
 import type { CollectionTask, AutoCollectionSettings } from '@/types';
 
 export default function CollectionHistory() {
-  const [settingsModalVisible, setSettingsModalVisible] = useState(false);
   const [autoCollectionModalVisible, setAutoCollectionModalVisible] = useState(false);
   const [detailModalVisible, setDetailModalVisible] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
   const [autoCollectionForm] = Form.useForm();
   const queryClient = useQueryClient();
   const { subscribe } = useWebSocket();
-  const { theme } = useTheme();
 
   const { data: tasks, isLoading } = useQuery({
     queryKey: ['collection-tasks'],

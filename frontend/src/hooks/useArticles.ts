@@ -3,7 +3,7 @@
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiService } from '@/services/api';
-import type { ArticleFilter, Article } from '@/types';
+import type { ArticleFilter } from '@/types';
 import { message } from 'antd';
 
 export function useArticles(filter: ArticleFilter = {}) {

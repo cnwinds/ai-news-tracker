@@ -4,7 +4,7 @@
 import { Card, Row, Col, Statistic } from 'antd';
 import { useQuery } from '@tanstack/react-query';
 import { apiService } from '@/services/api';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 
 export default function Statistics() {
   const { data: stats, isLoading } = useQuery({

@@ -121,7 +121,8 @@ export default function DataCleanup() {
               showSearch
               filterOption={(input, option) => {
                 if (option?.type === 'group') return true;
-                return (option?.label ?? '').toLowerCase().includes(input.toLowerCase());
+                const label = String(option?.label ?? '');
+                return label.toLowerCase().includes(input.toLowerCase());
               }}
             >
               {Object.entries(groupedSources).map(([type, sourcesList]: [string, any]) => (

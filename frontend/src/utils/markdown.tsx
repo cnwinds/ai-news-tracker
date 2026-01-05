@@ -2,7 +2,6 @@
  * Markdown 组件配置
  * 统一的 ReactMarkdown 组件配置，支持主题切换
  */
-import React from 'react';
 import type { ThemeMode } from '@/contexts/ThemeContext';
 import { getThemeColor } from './theme';
 

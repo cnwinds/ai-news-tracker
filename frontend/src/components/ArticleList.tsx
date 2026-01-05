@@ -18,7 +18,7 @@ export default function ArticleList() {
     page_size: 20,
   });
 
-  const { data, isLoading, error, refetch } = useArticles(filter);
+  const { data, isLoading, error } = useArticles(filter);
 
   // 获取所有订阅源列表
   const { data: sources } = useQuery({
@@ -90,7 +90,8 @@ export default function ArticleList() {
               showSearch
               filterOption={(input, option) => {
                 if (option?.type === 'group') return true;
-                return (option?.label ?? '').toLowerCase().includes(input.toLowerCase());
+                const label = String(option?.label ?? '');
+                return label.toLowerCase().includes(input.toLowerCase());
               }}
             >
               {Object.entries(groupedSources).map(([type, sourcesList]: [string, any]) => (
