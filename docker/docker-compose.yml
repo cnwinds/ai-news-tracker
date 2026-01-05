@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  # 后端服务
+  backend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.backend
+    container_name: ai-news-tracker-backend
+    ports:
+      - "8000:8000"
+    volumes:
+      # 映射数据库目录到项目根目录的 data 目录
+      - ../data:/app/backend/app/data
+      # 映射日志目录到项目根目录的 logs 目录
+      - ../logs:/app/logs
+    environment:
+      - PYTHONPATH=/app
+      - DATABASE_URL=sqlite:////app/backend/app/data/ai_news.db
+    restart: unless-stopped
+    networks:
+      - ai-news-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # 前端服务
+  frontend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.frontend
+    container_name: ai-news-tracker-frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - ai-news-network
+
+networks:
+  ai-news-network:
+    driver: bridge
+
+volumes:
+  # 数据持久化卷（可选，如果不想使用本地目录映射）
+  # database-data:
+  #   driver: local

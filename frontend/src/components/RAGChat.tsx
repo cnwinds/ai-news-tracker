@@ -134,7 +134,7 @@ export default function RAGChat() {
       content: question,
       timestamp: new Date(),
     };
-    
+
     const newMessages = [...messages, userMessage];
     setMessages(newMessages);
 
@@ -251,17 +251,17 @@ export default function RAGChat() {
   // 处理回答文本中的引用格式：将"文章 X"转换为"[X]"，并移除文章标题和来源
   const processAnswerText = (text: string): string => {
     let processed = text;
-    
+
     // 1. 将"文章 X"或"文章X"转换为"[X]"
     processed = processed.replace(/文章\s*(\d+)/g, '[$1]');
-    
+
     // 2. 移除类似"——《文章标题》，来源：来源名称"的格式
     // 匹配：——（或长破折号）《标题》，来源：来源名
     processed = processed.replace(/[———]\s*《[^》]+》[，,]\s*来源[：:]\s*[^\n]+/g, '');
-    
+
     // 3. 移除类似"——《文章标题》"的格式（没有来源的情况）
     processed = processed.replace(/[———]\s*《[^》]+》/g, '');
-    
+
     return processed;
   };
 
@@ -326,7 +326,7 @@ export default function RAGChat() {
                     <Avatar
                       icon={message.type === 'user' ? <UserOutlined /> : <RobotOutlined />}
                       style={{
-                        backgroundColor: message.type === 'user' ? '#1890ff' : '#52c41a',
+                        backgroundColor: message.type === 'user' ? getThemeColor(theme, 'userAvatarBg') : getThemeColor(theme, 'assistantAvatarBg'),
                         flexShrink: 0,
                       }}
                     />
@@ -363,11 +363,11 @@ export default function RAGChat() {
                       {/* 引用来源 */}
                       {message.type === 'assistant' && message.articles && message.articles.length > 0 && (
                         <div style={{ marginTop: 12, width: '100%' }}>
-                          <Text 
-                            type="secondary" 
-                            style={{ 
-                              fontSize: 12, 
-                              marginBottom: 8, 
+                          <Text
+                            type="secondary"
+                            style={{
+                              fontSize: 12,
+                              marginBottom: 8,
                               display: 'block',
                               color: getThemeColor(theme, 'textSecondary'),
                             }}
@@ -377,7 +377,7 @@ export default function RAGChat() {
                           <Space direction="vertical" size="small" style={{ width: '100%' }}>
                             {message.articles.map((article, idx) => {
                               const articleNumber = idx + 1;
-                              const primaryColor = theme === 'dark' ? '#4096ff' : '#1890ff';
+                              const primaryColor = getThemeColor(theme, 'primary');
                               return (
                                 <div
                                   key={idx}
@@ -407,7 +407,7 @@ export default function RAGChat() {
                                     >
                                       [{articleNumber}]
                                     </a>
-                                    <Text style={{ 
+                                    <Text style={{
                                       fontSize: 14,
                                       color: getThemeColor(theme, 'text'),
                                     }}>
@@ -440,14 +440,14 @@ export default function RAGChat() {
           )}
           {queryMutation.isPending && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 0' }}>
-              <Avatar icon={<RobotOutlined />} style={{ backgroundColor: '#52c41a', flexShrink: 0 }} />
-              <div style={{ 
+              <Avatar icon={<RobotOutlined />} style={{ backgroundColor: getThemeColor(theme, 'assistantAvatarBg'), flexShrink: 0 }} />
+              <div style={{
                 ...getMessageBubbleStyle(theme, 'assistant'),
-                padding: '12px 16px', 
+                padding: '12px 16px',
                 borderRadius: '12px',
               }}>
-                <Spin size="small" /> 
-                <Text style={{ 
+                <Spin size="small" />
+                <Text style={{
                   marginLeft: 8,
                   color: getThemeColor(theme, 'assistantMessageText'),
                 }}>

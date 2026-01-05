@@ -1,0 +1,39 @@
+# 前端 Dockerfile - 多阶段构建
+# 阶段1: 构建阶段
+FROM node:18-alpine AS builder
+
+WORKDIR /app
+
+# 复制前端依赖文件
+COPY frontend/package*.json ./
+
+# 安装依赖
+RUN npm ci
+
+# 复制前端源代码
+COPY frontend/ ./
+
+# 设置构建时的环境变量
+# API使用相对路径，nginx会代理到后端
+# WebSocket使用当前协议和主机（在浏览器中会自动使用当前页面的协议和主机）
+ENV VITE_API_BASE_URL=/api/v1
+# WebSocket URL会在运行时根据window.location自动生成，这里设置一个默认值
+ENV VITE_WS_BASE_URL=ws://localhost:5173/api/v1/ws
+
+# 构建前端应用
+RUN npm run build
+
+# 阶段2: 运行阶段
+FROM nginx:alpine
+
+# 复制构建好的文件到nginx
+COPY --from=builder /app/dist /usr/share/nginx/html
+
+# 复制nginx配置
+COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
+
+# 暴露端口
+EXPOSE 80
+
+# 启动nginx
+CMD ["nginx", "-g", "daemon off;"]

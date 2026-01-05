@@ -42,9 +42,9 @@ const { Title } = Typography;
 // 一周定义为：从上周六到本周五（共7天）
 const getWeekRange = (date: dayjs.Dayjs) => {
   const dayOfWeek = date.day(); // 0=周日, 1=周一, ..., 6=周六
-  
+
   let monday: dayjs.Dayjs;
-  
+
   if (dayOfWeek === 6) {
     // 如果是周六，这个周六属于"从本周六到下周五"这个周期
     // 所以需要找到包含这个周六的周期：本周六到下周五
@@ -56,7 +56,7 @@ const getWeekRange = (date: dayjs.Dayjs) => {
     // 对于周日，需要先加一天到周一，然后再找ISO周的周一
     monday = date.add(dayOfWeek === 0 ? 1 : 0, 'day').startOf('isoWeek');
   }
-  
+
   // 周六是周一的前2天（上周六）
   const saturday = monday.subtract(2, 'day');
   // 周五是周一的后4天（本周五）
@@ -68,8 +68,8 @@ const getWeekRange = (date: dayjs.Dayjs) => {
 const isInWeekRange = (date: dayjs.Dayjs, weekDate: dayjs.Dayjs | null) => {
   if (!weekDate) return false;
   const { saturday, friday } = getWeekRange(weekDate);
-  return (date.isAfter(saturday, 'day') || date.isSame(saturday, 'day')) && 
-         (date.isBefore(friday, 'day') || date.isSame(friday, 'day'));
+  return (date.isAfter(saturday, 'day') || date.isSame(saturday, 'day')) &&
+    (date.isBefore(friday, 'day') || date.isSame(friday, 'day'));
 };
 
 export default function DailySummary() {
@@ -204,7 +204,7 @@ export default function DailySummary() {
     }
 
     const summaryId = summary.id;
-    
+
     // 如果已经加载过，直接返回
     if (recommendedArticles.has(summaryId)) {
       return;
@@ -219,7 +219,7 @@ export default function DailySummary() {
         apiService.getArticle(rec.id)
       );
       const articles = await Promise.all(articlePromises);
-      
+
       // 保存到状态
       setRecommendedArticles((prev) => {
         const newMap = new Map(prev);
@@ -305,17 +305,17 @@ export default function DailySummary() {
             dataSource={summaries}
             renderItem={(summary) => (
               <List.Item style={{ padding: 0, marginBottom: 8 }}>
-                <Card 
+                <Card
                   style={{ width: '100%', marginBottom: 0 }}
                   bodyStyle={{ padding: '12px 16px' }}
                 >
                   <Space direction="vertical" size="small" style={{ width: '100%' }}>
                     {/* 第一行（概览）：标题 + 统计Tag + 展开按钮，整行可点击 */}
-                    <div 
-                      style={{ 
-                        display: 'flex', 
-                        alignItems: 'center', 
-                        flexWrap: 'wrap', 
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        flexWrap: 'wrap',
                         gap: 6,
                         cursor: 'pointer',
                         padding: '2px 0',
@@ -324,17 +324,17 @@ export default function DailySummary() {
                     >
                       {/* 标题 */}
                       <Title level={5} style={{ marginBottom: 0, display: 'inline', flexShrink: 0 }}>
-                        {summary.summary_type === 'daily' 
+                        {summary.summary_type === 'daily'
                           ? `每日摘要 - ${dayjs(summary.summary_date).format('YYYY-MM-DD')}`
                           : `每周摘要 - ${dayjs(summary.start_date).format('YYYY-MM-DD')} 至 ${dayjs(summary.end_date).format('YYYY-MM-DD')}`
                         }
                       </Title>
-                      
+
                       {/* 统计Tag */}
                       <Tag style={{ flexShrink: 0 }}>文章数: {summary.total_articles}</Tag>
                       <Tag color="red" style={{ flexShrink: 0 }}>高重要性: {summary.high_importance_count}</Tag>
                       <Tag color="orange" style={{ flexShrink: 0 }}>中重要性: {summary.medium_importance_count}</Tag>
-                      
+
                       {/* 展开/收起图标 - 推到最右边 */}
                       <Button
                         type="text"
@@ -459,146 +459,146 @@ export default function DailySummary() {
             />
           )}
           <Form form={form} onFinish={handleGenerate} layout="vertical">
-          <Form.Item
-            name="summary_type"
-            label="摘要类型"
-            initialValue="daily"
-            rules={[{ required: true }]}
-          >
-            <Radio.Group>
-              <Radio value="daily">按天总结</Radio>
-              <Radio value="weekly">按周总结</Radio>
-            </Radio.Group>
-          </Form.Item>
-          <Form.Item
-            noStyle
-            shouldUpdate={(prevValues, currentValues) => prevValues.summary_type !== currentValues.summary_type}
-          >
-            {({ getFieldValue }) => {
-              const summaryType = getFieldValue('summary_type');
-              return (
-                <>
-                  {summaryType === 'daily' && (
-                    <Form.Item
-                      name="date"
-                      label="选择日期"
-                      tooltip="不选择则默认为今天，已总结的日期会显示为灰色"
-                    >
-                      <DatePicker
-                        style={{ width: '100%' }}
-                        format="YYYY-MM-DD"
-                        placeholder="选择日期（默认今天）"
-                        dateRender={(current) => {
-                          if (!summaries) {
-                            return <div>{current.date()}</div>;
-                          }
-                          const dateStr = current.format('YYYY-MM-DD');
-                          const isSummarized = summaries.some(
-                            (s) =>
-                              s.summary_type === 'daily' &&
-                              dayjs(s.summary_date).format('YYYY-MM-DD') === dateStr
-                          );
-                          const backgroundColor = isSummarized 
-                            ? getThemeColor(theme, 'bgElevated')
-                            : 'transparent';
-                          
-                          const color = isSummarized 
-                            ? getThemeColor(theme, 'textTertiary')
-                            : 'inherit';
-                          
-                          return (
-                            <div
-                              style={{
-                                color,
-                                backgroundColor,
-                                borderRadius: '2px',
-                                padding: '2px',
-                                width: '100%',
-                                textAlign: 'center',
-                              }}
-                            >
-                              {current.date()}
-                            </div>
-                          );
-                        }}
-                      />
-                    </Form.Item>
-                  )}
-                  {summaryType === 'weekly' && (
-                    <Form.Item
-                      name="week"
-                      label="选择周"
-                      tooltip="选择该周的任意一天，系统会自动识别该周。不选择则默认为本周，已总结的周会显示为灰色"
-                    >
-                      <DatePicker
-                        style={{ width: '100%' }}
-                        format="YYYY-MM-DD"
-                        placeholder="选择周（默认本周）"
-                        onChange={(date) => {
-                          setSelectedWeekDate(date);
-                        }}
-                        dateRender={(current) => {
-                          const isInSelectedWeek = isInWeekRange(current, selectedWeekDate);
-                          const isInHoveredWeek = isInWeekRange(current, hoveredWeekDate);
-                          const isSummarized = summaries ? summaries.some((s) => {
-                            if (s.summary_type !== 'weekly') return false;
-                            const summaryDate = dayjs(s.summary_date);
-                            const currentYear = current.year();
-                            const currentWeek = current.isoWeek();
-                            return (
-                              summaryDate.year() === currentYear &&
-                              summaryDate.isoWeek() === currentWeek
+            <Form.Item
+              name="summary_type"
+              label="摘要类型"
+              initialValue="daily"
+              rules={[{ required: true }]}
+            >
+              <Radio.Group>
+                <Radio value="daily">按天总结</Radio>
+                <Radio value="weekly">按周总结</Radio>
+              </Radio.Group>
+            </Form.Item>
+            <Form.Item
+              noStyle
+              shouldUpdate={(prevValues, currentValues) => prevValues.summary_type !== currentValues.summary_type}
+            >
+              {({ getFieldValue }) => {
+                const summaryType = getFieldValue('summary_type');
+                return (
+                  <>
+                    {summaryType === 'daily' && (
+                      <Form.Item
+                        name="date"
+                        label="选择日期"
+                        tooltip="不选择则默认为今天，已总结的日期会显示为灰色"
+                      >
+                        <DatePicker
+                          style={{ width: '100%' }}
+                          format="YYYY-MM-DD"
+                          placeholder="选择日期（默认今天）"
+                          dateRender={(current) => {
+                            if (!summaries) {
+                              return <div>{current.date()}</div>;
+                            }
+                            const dateStr = current.format('YYYY-MM-DD');
+                            const isSummarized = summaries.some(
+                              (s) =>
+                                s.summary_type === 'daily' &&
+                                dayjs(s.summary_date).format('YYYY-MM-DD') === dateStr
                             );
-                          }) : false;
-                          
-                          // 优先显示选中状态，然后是悬停状态
-                          const selectedStyle = getSelectedStyle(theme);
-                          const primaryColor = theme === 'dark' ? '#4096ff' : '#1890ff';
-                          const hoverColor = theme === 'dark' ? '#69b7ff' : '#91d5ff';
-                          
-                          const backgroundColor = isInSelectedWeek 
-                            ? selectedStyle.backgroundColor
-                            : isInHoveredWeek 
-                              ? (theme === 'dark' ? '#1a1f2e' : '#f0f9ff')
-                              : isSummarized 
-                                ? getThemeColor(theme, 'bgElevated')
-                                : 'transparent';
-                          
-                          const border = isInSelectedWeek 
-                            ? selectedStyle.borderLeft?.replace('3px', '1px') || `1px solid ${primaryColor}`
-                            : isInHoveredWeek 
-                              ? `1px solid ${hoverColor}`
-                              : 'none';
-                          
-                          return (
-                            <div
-                              style={{
-                                color: isSummarized 
-                                  ? getThemeColor(theme, 'textTertiary')
-                                  : 'inherit',
-                                backgroundColor,
-                                borderRadius: '2px',
-                                padding: '2px',
-                                width: '100%',
-                                textAlign: 'center',
-                                border,
-                                cursor: 'pointer',
-                                transition: 'background-color 0.2s, border 0.2s',
-                              }}
-                              onMouseEnter={() => setHoveredWeekDate(current)}
-                              onMouseLeave={() => setHoveredWeekDate(null)}
-                            >
-                              {current.date()}
-                            </div>
-                          );
-                        }}
-                      />
-                    </Form.Item>
-                  )}
-                </>
-              );
-            }}
-          </Form.Item>
+                            const backgroundColor = isSummarized
+                              ? getThemeColor(theme, 'bgElevated')
+                              : 'transparent';
+
+                            const color = isSummarized
+                              ? getThemeColor(theme, 'textTertiary')
+                              : 'inherit';
+
+                            return (
+                              <div
+                                style={{
+                                  color,
+                                  backgroundColor,
+                                  borderRadius: '2px',
+                                  padding: '2px',
+                                  width: '100%',
+                                  textAlign: 'center',
+                                }}
+                              >
+                                {current.date()}
+                              </div>
+                            );
+                          }}
+                        />
+                      </Form.Item>
+                    )}
+                    {summaryType === 'weekly' && (
+                      <Form.Item
+                        name="week"
+                        label="选择周"
+                        tooltip="选择该周的任意一天，系统会自动识别该周。不选择则默认为本周，已总结的周会显示为灰色"
+                      >
+                        <DatePicker
+                          style={{ width: '100%' }}
+                          format="YYYY-MM-DD"
+                          placeholder="选择周（默认本周）"
+                          onChange={(date) => {
+                            setSelectedWeekDate(date);
+                          }}
+                          dateRender={(current) => {
+                            const isInSelectedWeek = isInWeekRange(current, selectedWeekDate);
+                            const isInHoveredWeek = isInWeekRange(current, hoveredWeekDate);
+                            const isSummarized = summaries ? summaries.some((s) => {
+                              if (s.summary_type !== 'weekly') return false;
+                              const summaryDate = dayjs(s.summary_date);
+                              const currentYear = current.year();
+                              const currentWeek = current.isoWeek();
+                              return (
+                                summaryDate.year() === currentYear &&
+                                summaryDate.isoWeek() === currentWeek
+                              );
+                            }) : false;
+
+                            // 优先显示选中状态，然后是悬停状态
+                            const selectedStyle = getSelectedStyle(theme);
+                            const primaryColor = getThemeColor(theme, 'primary');
+                            const hoverColor = getThemeColor(theme, 'primaryHover');
+
+                            const backgroundColor = isInSelectedWeek
+                              ? selectedStyle.backgroundColor
+                              : isInHoveredWeek
+                                ? getThemeColor(theme, 'calendarHoverBg')
+                                : isSummarized
+                                  ? getThemeColor(theme, 'bgElevated')
+                                  : 'transparent';
+
+                            const border = isInSelectedWeek
+                              ? selectedStyle.borderLeft?.replace('3px', '1px') || `1px solid ${primaryColor}`
+                              : isInHoveredWeek
+                                ? `1px solid ${hoverColor}`
+                                : 'none';
+
+                            return (
+                              <div
+                                style={{
+                                  color: isSummarized
+                                    ? getThemeColor(theme, 'textTertiary')
+                                    : 'inherit',
+                                  backgroundColor,
+                                  borderRadius: '2px',
+                                  padding: '2px',
+                                  width: '100%',
+                                  textAlign: 'center',
+                                  border,
+                                  cursor: 'pointer',
+                                  transition: 'background-color 0.2s, border 0.2s',
+                                }}
+                                onMouseEnter={() => setHoveredWeekDate(current)}
+                                onMouseLeave={() => setHoveredWeekDate(null)}
+                              >
+                                {current.date()}
+                              </div>
+                            );
+                          }}
+                        />
+                      </Form.Item>
+                    )}
+                  </>
+                );
+              }}
+            </Form.Item>
           </Form>
         </Spin>
       </Modal>

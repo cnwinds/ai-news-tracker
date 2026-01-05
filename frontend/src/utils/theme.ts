@@ -34,6 +34,14 @@ export const colors = {
     // 选中状态
     selectedBg: '#e6f7ff',
     selectedBorder: '#1890ff',
+    // 品牌色
+    primary: '#1890ff',
+    primaryHover: '#91d5ff',
+    // 头像背景
+    userAvatarBg: '#1890ff',
+    assistantAvatarBg: '#52c41a',
+    // 日历悬停背景
+    calendarHoverBg: '#f0f9ff',
   },
   dark: {
     // 背景色
@@ -63,6 +71,14 @@ export const colors = {
     // 选中状态
     selectedBg: '#111a2c',
     selectedBorder: '#4096ff',
+    // 品牌色
+    primary: '#4096ff',
+    primaryHover: '#69b7ff',
+    // 头像背景
+    userAvatarBg: '#4096ff',
+    assistantAvatarBg: '#52c41a',
+    // 日历悬停背景
+    calendarHoverBg: '#1a1f2e',
   },
 } as const;
 

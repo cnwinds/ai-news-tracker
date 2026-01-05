@@ -1,0 +1,18 @@
+# Docker Compose 覆盖文件示例
+# 复制此文件为 docker-compose.override.yml 来自定义配置
+# docker-compose会自动读取 docker-compose.override.yml 文件
+
+version: '3.8'
+
+services:
+  backend:
+    # 可以在这里覆盖或添加配置
+    # environment:
+    #   - LOG_LEVEL=DEBUG
+    # ports:
+    #   - "8001:8000"  # 修改端口
+
+  frontend:
+    # 可以在这里覆盖或添加配置
+    # ports:
+    #   - "3000:80"  # 修改端口
