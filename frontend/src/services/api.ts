@@ -152,6 +152,12 @@ class ApiService {
     );
   }
 
+  async updateArticle(id: number, data: Partial<Article>): Promise<Article> {
+    return this.handleRequest(
+      this.client.put<Article>(`/articles/${id}`, data)
+    );
+  }
+
   // 采集相关
   async startCollection(enableAi: boolean = true): Promise<CollectionTask> {
     return this.handleRequest(

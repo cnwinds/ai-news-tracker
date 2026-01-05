@@ -25,6 +25,7 @@ export interface Article {
   is_processed: boolean;
   is_sent: boolean;
   is_favorited: boolean;
+  user_notes?: string;
   created_at: string;
   updated_at: string;
 }

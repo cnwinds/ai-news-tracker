@@ -36,6 +36,7 @@ class ArticleUpdate(BaseModel):
     tags: Optional[List[str]] = None
     key_points: Optional[List[str]] = None
     is_processed: Optional[bool] = None
+    user_notes: Optional[str] = None
 
 
 class Article(ArticleBase):
@@ -51,6 +52,7 @@ class Article(ArticleBase):
     is_processed: bool = False
     is_sent: bool = False
     is_favorited: bool = False
+    user_notes: Optional[str] = None
     collected_at: datetime
     created_at: datetime
     updated_at: datetime

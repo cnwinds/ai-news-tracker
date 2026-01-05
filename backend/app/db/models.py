@@ -48,6 +48,7 @@ class Article(Base):
     is_processed = Column(Boolean, default=False)  # 是否已AI分析
     is_sent = Column(Boolean, default=False)  # 是否已推送
     is_favorited = Column(Boolean, default=False, index=True)  # 是否已收藏
+    user_notes = Column(Text, nullable=True)  # 用户笔记：存储用户当时的思考或评论
 
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)

@@ -2,15 +2,17 @@
  * 文章卡片组件
  */
 import { useState } from 'react';
-import { Card, Tag, Button, Space, Typography, Popconfirm, Tooltip } from 'antd';
-import { LinkOutlined, DeleteOutlined, RobotOutlined, UpOutlined, DownOutlined, StarOutlined, StarFilled } from '@ant-design/icons';
+import { Card, Tag, Button, Space, Typography, Popconfirm, Tooltip, Input } from 'antd';
+import { LinkOutlined, DeleteOutlined, RobotOutlined, UpOutlined, DownOutlined, StarOutlined, StarFilled, EditOutlined, SaveOutlined } from '@ant-design/icons';
 import ReactMarkdown from 'react-markdown';
 import dayjs from 'dayjs';
 import type { Article } from '@/types';
-import { useAnalyzeArticle, useDeleteArticle, useFavoriteArticle, useUnfavoriteArticle } from '@/hooks/useArticles';
+import { useAnalyzeArticle, useDeleteArticle, useFavoriteArticle, useUnfavoriteArticle, useUpdateArticle } from '@/hooks/useArticles';
 import { useTheme } from '@/contexts/ThemeContext';
 import { createMarkdownComponents } from '@/utils/markdown';
 import { getThemeColor } from '@/utils/theme';
+
+const { TextArea } = Input;
 
 const { Title, Text } = Typography;
 
@@ -20,10 +22,13 @@ interface ArticleCardProps {
 
 export default function ArticleCard({ article }: ArticleCardProps) {
   const [expanded, setExpanded] = useState(false);
+  const [isEditingNotes, setIsEditingNotes] = useState(false);
+  const [notesValue, setNotesValue] = useState(article.user_notes || '');
   const analyzeMutation = useAnalyzeArticle();
   const deleteMutation = useDeleteArticle();
   const favoriteMutation = useFavoriteArticle();
   const unfavoriteMutation = useUnfavoriteArticle();
+  const updateMutation = useUpdateArticle();
   const { theme } = useTheme();
 
   // 处理 summary 字段：如果是 JSON 字符串，尝试解析并提取 summary 字段
@@ -81,6 +86,22 @@ export default function ArticleCard({ article }: ArticleCardProps) {
     } else {
       favoriteMutation.mutate(article.id);
     }
+  };
+
+  const handleSaveNotes = () => {
+    updateMutation.mutate({
+      id: article.id,
+      data: { user_notes: notesValue },
+    }, {
+      onSuccess: () => {
+        setIsEditingNotes(false);
+      },
+    });
+  };
+
+  const handleCancelEditNotes = () => {
+    setNotesValue(article.user_notes || '');
+    setIsEditingNotes(false);
   };
 
   return (
@@ -212,6 +233,82 @@ export default function ArticleCard({ article }: ArticleCardProps) {
                     <Tag key={index}>{tag}</Tag>
                   ))}
                 </Space>
+              </div>
+            )}
+
+            {/* 用户笔记区域 */}
+            {isEditingNotes ? (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <Text strong style={{ fontSize: 14 }}>我的笔记</Text>
+                </div>
+                <div>
+                  <TextArea
+                    value={notesValue}
+                    onChange={(e) => setNotesValue(e.target.value)}
+                    placeholder="记录你的思考或评论..."
+                    rows={4}
+                    style={{ marginBottom: 8 }}
+                  />
+                  <Space>
+                    <Button
+                      type="primary"
+                      size="small"
+                      icon={<SaveOutlined />}
+                      onClick={handleSaveNotes}
+                      loading={updateMutation.isPending}
+                    >
+                      保存
+                    </Button>
+                    <Button
+                      size="small"
+                      onClick={handleCancelEditNotes}
+                    >
+                      取消
+                    </Button>
+                  </Space>
+                </div>
+              </div>
+            ) : article.user_notes ? (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <Text strong style={{ fontSize: 14 }}>我的笔记</Text>
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<EditOutlined />}
+                    onClick={() => setIsEditingNotes(true)}
+                  >
+                    编辑
+                  </Button>
+                </div>
+                <div
+                  style={{
+                    padding: '8px 12px',
+                    backgroundColor: getThemeColor(theme, 'background'),
+                    border: `1px solid ${getThemeColor(theme, 'border')}`,
+                    borderRadius: 4,
+                    minHeight: 40,
+                    fontSize: 14,
+                    color: getThemeColor(theme, 'text'),
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
+                  }}
+                >
+                  {article.user_notes}
+                </div>
+              </div>
+            ) : (
+              <div style={{ marginBottom: 12 }}>
+                <Button
+                  type="dashed"
+                  size="small"
+                  icon={<EditOutlined />}
+                  onClick={() => setIsEditingNotes(true)}
+                  style={{ width: '100%' }}
+                >
+                  增加笔记
+                </Button>
               </div>
             )}
             

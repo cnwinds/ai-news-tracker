@@ -112,6 +112,9 @@ class DatabaseManager:
             # 迁移：添加 is_favorited 字段（如果不存在）
             self._migrate_add_is_favorited()
             
+            # 迁移：添加 user_notes 字段（如果不存在）
+            self._migrate_add_user_notes()
+            
             logger.info("✅ 数据库基础表初始化成功")
         except Exception as e:
             logger.error(f"❌ 数据库初始化失败: {e}")
@@ -137,6 +140,26 @@ class DatabaseManager:
         except Exception as e:
             # 如果字段已存在或其他错误，记录但不中断
             logger.debug(f"is_favorited 字段迁移检查: {e}")
+
+    def _migrate_add_user_notes(self):
+        """迁移：为 articles 表添加 user_notes 字段（如果不存在）"""
+        try:
+            from sqlalchemy import inspect, text
+            inspector = inspect(self.engine)
+            columns = [col['name'] for col in inspector.get_columns('articles')]
+            
+            if 'user_notes' not in columns:
+                logger.info("🔄 检测到缺少 user_notes 字段，正在添加...")
+                with self.engine.connect() as conn:
+                    conn.execute(text("""
+                        ALTER TABLE articles 
+                        ADD COLUMN user_notes TEXT
+                    """))
+                    conn.commit()
+                logger.info("✅ user_notes 字段添加成功")
+        except Exception as e:
+            # 如果字段已存在或其他错误，记录但不中断
+            logger.debug(f"user_notes 字段迁移检查: {e}")
 
     def init_sqlite_vec_table(self, embedding_model: str = None):
         """

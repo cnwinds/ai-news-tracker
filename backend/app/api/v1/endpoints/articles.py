@@ -17,6 +17,7 @@ from backend.app.schemas.article import (
     Article as ArticleSchema,
     ArticleListResponse,
     ArticleFilter,
+    ArticleUpdate,
 )
 from backend.app.utils import create_ai_analyzer
 
@@ -231,4 +232,27 @@ async def unfavorite_article(
     db.commit()
     
     return {"message": "已取消收藏", "article_id": article_id, "is_favorited": False}
+
+
+@router.put("/{article_id}", response_model=ArticleSchema)
+async def update_article(
+    article_id: int,
+    article_update: ArticleUpdate,
+    db: Session = Depends(get_database),
+):
+    """更新文章"""
+    article = db.query(Article).filter(Article.id == article_id).first()
+    if not article:
+        raise HTTPException(status_code=404, detail="文章不存在")
+    
+    # 更新字段（只更新提供的字段）
+    update_data = article_update.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(article, field, value)
+    
+    article.updated_at = datetime.now()
+    db.commit()
+    db.refresh(article)
+    
+    return ArticleSchema.model_validate(article)
 

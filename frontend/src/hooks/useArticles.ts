@@ -90,3 +90,20 @@ export function useUnfavoriteArticle() {
     },
   });
 }
+
+export function useUpdateArticle() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, data }: { id: number; data: Partial<import('@/types').Article> }) => 
+      apiService.updateArticle(id, data),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['article', variables.id] });
+      queryClient.invalidateQueries({ queryKey: ['articles'] });
+      message.success('更新成功');
+    },
+    onError: () => {
+      message.error('更新失败');
+    },
+  });
+}
