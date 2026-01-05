@@ -1,6 +1,6 @@
 # Docker Compose 覆盖文件示例
 # 复制此文件为 docker-compose.override.yml 来自定义配置
-# docker-compose会自动读取 docker-compose.override.yml 文件
+# docker compose 会自动读取 docker-compose.override.yml 文件
 
 version: '3.8'
 

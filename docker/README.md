@@ -23,23 +23,23 @@
 
 ```bash
 # 构建并启动所有服务
-docker-compose -f docker/docker-compose.yml up -d --build
+docker compose -f docker/docker-compose.yml up -d --build
 
 # 查看服务状态
-docker-compose -f docker/docker-compose.yml ps
+docker compose -f docker/docker-compose.yml ps
 
 # 查看日志
-docker-compose -f docker/docker-compose.yml logs -f
+docker compose -f docker/docker-compose.yml logs -f
 ```
 
 ### 停止服务
 
 ```bash
 # 停止所有服务
-docker-compose -f docker/docker-compose.yml down
+docker compose -f docker/docker-compose.yml down
 
 # 停止并删除数据卷（注意：这会删除数据库）
-docker-compose -f docker/docker-compose.yml down -v
+docker compose -f docker/docker-compose.yml down -v
 ```
 
 ## 📂 数据持久化
@@ -107,15 +107,15 @@ chmod -R 755 data
 ### 3. 前端无法连接后端
 
 检查：
-- 后端服务是否正常运行：`docker-compose logs backend`
-- 网络连接是否正常：`docker-compose ps`
+- 后端服务是否正常运行：`docker compose logs backend`
+- 网络连接是否正常：`docker compose ps`
 - Nginx 配置是否正确
 
 ### 4. 重新构建镜像
 
 如果代码有更新，需要重新构建：
 ```bash
-docker-compose -f docker/docker-compose.yml up -d --build
+docker compose -f docker/docker-compose.yml up -d --build
 ```
 
 ## 📝 开发模式
@@ -130,14 +130,14 @@ docker-compose -f docker/docker-compose.yml up -d --build
 查看容器日志：
 ```bash
 # 查看所有服务日志
-docker-compose -f docker/docker-compose.yml logs
+docker compose -f docker/docker-compose.yml logs
 
 # 查看特定服务日志
-docker-compose -f docker/docker-compose.yml logs backend
-docker-compose -f docker/docker-compose.yml logs frontend
+docker compose -f docker/docker-compose.yml logs backend
+docker compose -f docker/docker-compose.yml logs frontend
 
 # 实时查看日志
-docker-compose -f docker/docker-compose.yml logs -f
+docker compose -f docker/docker-compose.yml logs -f
 ```
 
 进入容器：

@@ -13,7 +13,7 @@ if ! command -v docker &> /dev/null; then
 fi
 
 # 检查 Docker Compose 是否安装
-if ! command -v docker-compose &> /dev/null && ! docker compose version &> /dev/null; then
+if ! docker compose version &> /dev/null; then
     echo "❌ 错误: 未找到 Docker Compose，请先安装 Docker Compose"
     exit 1
 fi
@@ -27,12 +27,8 @@ echo "📁 创建必要的目录..."
 mkdir -p ../data
 mkdir -p ../logs
 
-# 检查是否使用 docker-compose 或 docker compose
-if command -v docker-compose &> /dev/null; then
-    DOCKER_COMPOSE_CMD="docker-compose"
-else
-    DOCKER_COMPOSE_CMD="docker compose"
-fi
+# 使用 docker compose (Docker Compose V2)
+DOCKER_COMPOSE_CMD="docker compose"
 
 # 构建并启动服务
 echo "🔨 构建 Docker 镜像..."
