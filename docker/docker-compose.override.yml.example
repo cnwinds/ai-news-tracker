@@ -2,8 +2,6 @@
 # 复制此文件为 docker-compose.override.yml 来自定义配置
 # docker compose 会自动读取 docker-compose.override.yml 文件
 
-version: '3.8'
-
 services:
   backend:
     # 可以在这里覆盖或添加配置

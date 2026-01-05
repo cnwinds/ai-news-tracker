@@ -1,4 +1,7 @@
 # 后端 Dockerfile
+# 注意：建议配置 Docker daemon 使用国内镜像加速器（见 DOCKER_MIRROR.md）
+# 如果未配置加速器，可以尝试使用以下镜像源：
+# FROM docker.mirrors.ustc.edu.cn/library/python:3.11-slim  # 中科大镜像
 FROM python:3.11-slim
 
 # 设置工作目录

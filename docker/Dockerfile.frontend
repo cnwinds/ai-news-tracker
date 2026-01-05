@@ -1,5 +1,8 @@
 # 前端 Dockerfile - 多阶段构建
 # 阶段1: 构建阶段
+# 注意：建议配置 Docker daemon 使用国内镜像加速器（见 DOCKER_MIRROR.md）
+# 如果未配置加速器，可以尝试使用以下镜像源：
+# FROM docker.mirrors.ustc.edu.cn/library/node:18-alpine  # 中科大镜像
 FROM node:18-alpine AS builder
 
 WORKDIR /app
@@ -24,6 +27,9 @@ ENV VITE_WS_BASE_URL=ws://localhost:5173/api/v1/ws
 RUN npm run build
 
 # 阶段2: 运行阶段
+# 注意：建议配置 Docker daemon 使用国内镜像加速器（见 DOCKER_MIRROR.md）
+# 如果未配置加速器，可以尝试使用以下镜像源：
+# FROM docker.mirrors.ustc.edu.cn/library/nginx:alpine  # 中科大镜像
 FROM nginx:alpine
 
 # 复制构建好的文件到nginx
