@@ -4,13 +4,9 @@
 import json
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
-from pathlib import Path
 import logging
-from time import sleep
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-
-from sqlalchemy import desc
-from sqlalchemy.orm import Session
 
 from backend.app.services.collector.rss_collector import RSSCollector
 from backend.app.services.collector.api_collector import ArXivCollector, HuggingFaceCollector, PapersWithCodeCollector
@@ -1225,82 +1221,6 @@ class CollectionService:
 
         return stats
 
-    def _save_article(self, db, article: Dict[str, Any]) -> bool:
-        """
-        保存文章到数据库
-
-        Returns:
-            True if new article, False if already exists
-        """
-        try:
-            with db.get_session() as session:
-                # 检查是否已存在
-                existing = session.query(Article).filter(Article.url == article["url"]).first()
-
-                if existing:
-                    return False
-
-                # 创建新文章
-                # 对于完整内容，不限制长度（使用Text类型可以存储大量文本）
-                content = article.get("content", "")
-                new_article = Article(
-                    title=article.get("title"),
-                    url=article.get("url"),
-                    content=content,  # 不限制长度，使用Text类型
-                    source=article.get("source"),
-                    category=article.get("category"),
-                    author=article.get("author"),
-                    published_at=article.get("published_at"),
-                    extra_data=article.get("metadata"),
-                )
-
-                session.add(new_article)
-                session.commit()
-
-                return True
-
-        except Exception as e:
-            logger.error(f"❌ 保存文章失败: {e}")
-            return False
-
-    def _save_article_and_get_id(self, db, article: Dict[str, Any]) -> Optional[int]:
-        """
-        保存文章到数据库并返回文章ID
-
-        Returns:
-            文章ID（如果文章已存在返回None）
-        """
-        try:
-            with db.get_session() as session:
-                # 检查是否已存在
-                existing = session.query(Article).filter(Article.url == article["url"]).first()
-
-                if existing:
-                    return None
-
-                # 创建新文章
-                content = article.get("content", "")
-                new_article = Article(
-                    title=article.get("title"),
-                    url=article.get("url"),
-                    content=content,
-                    source=article.get("source"),
-                    category=article.get("category"),
-                    author=article.get("author"),
-                    published_at=article.get("published_at"),
-                    extra_data=article.get("metadata"),
-                )
-
-                session.add(new_article)
-                session.commit()
-
-                # 返回新插入的文章ID
-                return new_article.id
-
-        except Exception as e:
-            logger.error(f"❌ 保存文章失败: {e}")
-            return None
-
     def _save_or_update_article_and_get_id(self, db, article: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
         保存或更新文章到数据库并返回文章ID和信息
@@ -1353,7 +1273,6 @@ class CollectionService:
                 # 如果是唯一性约束错误，可能是由并发引起的，重试
                 if "UNIQUE constraint failed" in str(e) and attempt < max_retries - 1:
                     logger.warning(f"⚠️  并发冲突，第 {attempt + 1} 次重试: {article.get('url', 'Unknown')}")
-                    import time
                     time.sleep(0.1 * (attempt + 1))  # 递增延迟
                     continue
                 else:
@@ -1734,36 +1653,6 @@ class CollectionService:
                 session.commit()
         except Exception as e:
             logger.error(f"❌ 记录日志失败: {e}")
-
-    def get_recent_articles(self, db, limit: int = 100, hours: int = 24) -> List[Article]:
-        """获取最近的文章"""
-        with db.get_session() as session:
-            time_threshold = datetime.now() - timedelta(hours=hours)
-
-            articles = (
-                session.query(Article)
-                .filter(Article.published_at >= time_threshold)
-                .order_by(desc(Article.published_at))
-                .limit(limit)
-                .all()
-            )
-
-            return articles
-
-    def get_daily_summary(self, db, limit: int = 10) -> List[Article]:
-        """获取每日重要文章"""
-        with db.get_session() as session:
-            time_threshold = datetime.now() - timedelta(hours=24)
-
-            articles = (
-                session.query(Article)
-                .filter(Article.published_at >= time_threshold, Article.importance.in_(["high", "medium"]))
-                .order_by(desc(Article.published_at))
-                .limit(limit)
-                .all()
-            )
-
-            return articles
 
     def generate_daily_summary(self, db, date: datetime = None):
         """

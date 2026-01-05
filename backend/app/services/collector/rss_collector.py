@@ -327,57 +327,6 @@ class RSSCollector:
         """
         return self._fetch_single_feed_with_info(config)
 
-    def fetch_multiple_feeds(self, feed_configs: List[Dict[str, Any]], max_workers: int = 5) -> Dict[str, Dict[str, Any]]:
-        """
-        批量获取多个RSS源（并发）
-
-        Args:
-            feed_configs: RSS配置列表
-            max_workers: 最大并发数，默认5
-
-        Returns:
-            {source_name: {"articles": [articles], "feed_title": "feed title"}}
-        """
-        results = {}
-        
-        # 过滤启用的配置
-        enabled_configs = [
-            config for config in feed_configs 
-            if config.get("enabled", True) and config.get("url")
-        ]
-        
-        if not enabled_configs:
-            logger.warning("⚠️  没有启用的RSS源")
-            return results
-        
-        logger.info(f"🚀 开始并发获取 {len(enabled_configs)} 个RSS源（最大并发数: {max_workers}）")
-        
-        # 使用线程池并发获取
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # 提交所有任务
-            future_to_config = {
-                executor.submit(self._fetch_single_feed_with_info, config): config 
-                for config in enabled_configs
-            }
-            
-            # 收集结果
-            completed = 0
-            for future in as_completed(future_to_config):
-                config = future_to_config[future]
-                name = config.get("name", "Unknown")
-                completed += 1
-                
-                try:
-                    feed_result = future.result()
-                    results[name] = feed_result
-                    logger.info(f"✅ [{completed}/{len(enabled_configs)}] {name}: 获取 {len(feed_result.get('articles', []))} 篇文章 (feed title: {feed_result.get('feed_title', 'Unknown')})")
-                except Exception as e:
-                    logger.error(f"❌ [{completed}/{len(enabled_configs)}] {name}: 获取失败 - {e}")
-                    results[name] = {"articles": [], "feed_title": None}
-        
-        logger.info(f"✅ RSS源获取完成，成功: {len([r for r in results.values() if r.get('articles')])}/{len(enabled_configs)}")
-        return results
-    
     def _fetch_single_feed_with_info(self, config: Dict[str, Any]) -> Dict[str, Any]:
         """
         获取单个RSS源（包含feed信息，用于并发执行）
@@ -439,23 +388,3 @@ class RSSCollector:
             # 不在这里打印错误日志，让上层调用者统一处理
             # 抛出异常，让上层调用者能够捕获并记录失败
             raise
-    
-    def _fetch_single_feed(self, config: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """
-        获取单个RSS源（用于并发执行）
-
-        Args:
-            config: RSS配置
-
-        Returns:
-            文章列表
-        """
-        name = config.get("name", "Unknown")
-        url = config.get("url")
-        max_articles = config.get("max_articles", 20)
-
-        if not url:
-            logger.warning(f"⚠️  {name} 没有配置URL")
-            return []
-
-        return self.fetch_feed(url, max_articles, source_name=name)
