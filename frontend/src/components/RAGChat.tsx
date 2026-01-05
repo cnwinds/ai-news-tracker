@@ -7,11 +7,11 @@ import { SendOutlined, UserOutlined, RobotOutlined, PlusOutlined, DeleteOutlined
 import { useMutation } from '@tanstack/react-query';
 import ReactMarkdown from 'react-markdown';
 import { apiService } from '@/services/api';
-import type { RAGQueryRequest, RAGQueryResponse, ArticleSearchResult } from '@/types';
+import type { RAGQueryRequest, ArticleSearchResult } from '@/types';
 import dayjs from 'dayjs';
 import { useTheme } from '@/contexts/ThemeContext';
 import { createMarkdownComponents } from '@/utils/markdown';
-import { getMessageBubbleStyle, getReferenceStyle, getSelectedStyle, getThemeColor } from '@/utils/theme';
+import { getMessageBubbleStyle, getSelectedStyle, getThemeColor } from '@/utils/theme';
 
 const { TextArea } = Input;
 const { Text } = Typography;

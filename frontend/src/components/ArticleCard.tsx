@@ -285,7 +285,7 @@ export default function ArticleCard({ article }: ArticleCardProps) {
                 <div
                   style={{
                     padding: '8px 12px',
-                    backgroundColor: getThemeColor(theme, 'background'),
+                    backgroundColor: getThemeColor(theme, 'bgSecondary'),
                     border: `1px solid ${getThemeColor(theme, 'border')}`,
                     borderRadius: 4,
                     minHeight: 40,
