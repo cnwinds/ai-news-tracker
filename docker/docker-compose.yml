@@ -15,6 +15,7 @@ services:
     environment:
       - PYTHONPATH=/app
       - DATABASE_URL=sqlite:////app/backend/app/data/ai_news.db
+      - TZ=Asia/Shanghai
     restart: unless-stopped
     networks:
       - ai-news-network

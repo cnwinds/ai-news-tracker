@@ -338,3 +338,13 @@ body {
 .dark-theme ::-webkit-scrollbar-thumb:hover {
   background: var(--color-disabled);
 }
+
+/* 流式输出光标闪烁动画 */
+@keyframes blink {
+  0%, 50% {
+    opacity: 1;
+  }
+  51%, 100% {
+    opacity: 0;
+  }
+}

@@ -418,6 +418,95 @@ class ApiService {
     );
   }
 
+  /**
+   * 流式查询文章（问答）
+   * @param request 问答请求
+   * @param onChunk 处理每个数据块的回调函数
+   * @returns Promise<void>
+   */
+  async queryArticlesStream(
+    request: RAGQueryRequest,
+    onChunk: (chunk: {
+      type: 'articles' | 'content' | 'done' | 'error';
+      data: any;
+    }) => void
+  ): Promise<void> {
+    try {
+      const response = await fetch(`${API_BASE_URL}/rag/query/stream`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(request),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || errorData.message || `HTTP ${response.status}`);
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error('无法获取响应流');
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        
+        if (done) {
+          break;
+        }
+
+        // 解码数据块
+        buffer += decoder.decode(value, { stream: true });
+        
+        // 处理SSE格式的数据（以 "data: " 开头，以 "\n\n" 结尾）
+        const lines = buffer.split('\n\n');
+        buffer = lines.pop() || ''; // 保留最后一个不完整的数据块
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const jsonStr = line.slice(6); // 移除 "data: " 前缀
+              const chunk = JSON.parse(jsonStr);
+              onChunk(chunk);
+            } catch (e) {
+              console.error('解析SSE数据失败:', e, line);
+            }
+          }
+        }
+      }
+
+      // 处理剩余的缓冲区数据
+      if (buffer.trim()) {
+        const lines = buffer.split('\n\n');
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const jsonStr = line.slice(6);
+              const chunk = JSON.parse(jsonStr);
+              onChunk(chunk);
+            } catch (e) {
+              console.error('解析SSE数据失败:', e, line);
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error('流式查询失败:', error);
+      onChunk({
+        type: 'error',
+        data: {
+          message: error instanceof Error ? error.message : '未知错误',
+        },
+      });
+      throw error;
+    }
+  }
+
   async getRAGStats(): Promise<RAGStatsResponse> {
     return this.handleRequest(
       this.client.get<RAGStatsResponse>('/rag/stats')

@@ -2,8 +2,10 @@
 RAG相关 API 端点
 """
 import logging
+import json
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
 from fastapi.exceptions import RequestValidationError
 from sqlalchemy.orm import Session
 from backend.app.core.paths import setup_python_path
@@ -201,6 +203,85 @@ async def query_articles(
         import traceback
         logger.error(f"完整堆栈跟踪:\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"问答失败: {str(e)}")
+
+
+@router.post("/query/stream")
+async def query_articles_stream(
+    request: RAGQueryRequest,
+    rag_service: RAGService = Depends(get_rag_service),
+):
+    """
+    智能问答（流式）：基于文章内容回答问题，支持流式输出
+
+    Args:
+        request: 问答请求
+        rag_service: RAG服务实例
+
+    Returns:
+        流式响应（Server-Sent Events格式）
+    """
+    async def generate_stream():
+        try:
+            logger.info(f"收到流式问答请求: question={request.question[:100]}, top_k={request.top_k}")
+            
+            # 处理文章格式转换
+            def process_article(article):
+                processed = article.copy()
+                if "topics" in processed:
+                    if isinstance(processed["topics"], str):
+                        try:
+                            processed["topics"] = json.loads(processed["topics"])
+                        except (json.JSONDecodeError, TypeError):
+                            logger.warning(f"无法解析 topics JSON: {processed['topics']}")
+                            processed["topics"] = []
+                    elif not isinstance(processed["topics"], list):
+                        processed["topics"] = processed["topics"] if processed["topics"] else []
+                
+                if "tags" in processed:
+                    if isinstance(processed["tags"], str):
+                        try:
+                            processed["tags"] = json.loads(processed["tags"])
+                        except (json.JSONDecodeError, TypeError):
+                            logger.warning(f"无法解析 tags JSON: {processed['tags']}")
+                            processed["tags"] = []
+                    elif not isinstance(processed["tags"], list):
+                        processed["tags"] = processed["tags"] if processed["tags"] else []
+                
+                return processed
+            
+            # 调用流式查询
+            for chunk in rag_service.query_articles_stream(
+                question=request.question,
+                top_k=request.top_k
+            ):
+                chunk_type = chunk.get("type")
+                chunk_data = chunk.get("data", {})
+                
+                # 处理文章数据
+                if chunk_type == "articles" and "articles" in chunk_data:
+                    processed_articles = [process_article(article) for article in chunk_data["articles"]]
+                    chunk_data["articles"] = processed_articles
+                
+                # 发送SSE格式的数据
+                yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
+            
+        except Exception as e:
+            logger.error(f"流式问答失败: {e}", exc_info=True)
+            error_chunk = {
+                "type": "error",
+                "data": {"message": f"流式问答失败: {str(e)}"}
+            }
+            yield f"data: {json.dumps(error_chunk, ensure_ascii=False)}\n\n"
+    
+    return StreamingResponse(
+        generate_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # 禁用Nginx缓冲
+        }
+    )
 
 
 @router.post("/index/batch", response_model=RAGBatchIndexResponse)

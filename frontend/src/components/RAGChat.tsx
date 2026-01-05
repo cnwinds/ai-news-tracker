@@ -42,9 +42,10 @@ export default function RAGChat() {
   const [topK, setTopK] = useState(5);
   const [chatHistories, setChatHistories] = useState<ChatHistory[]>([]);
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
+  const [isStreaming, setIsStreaming] = useState(false);
   const { theme } = useTheme();
 
-  // 问答mutation
+  // 问答mutation（保留用于非流式查询，作为后备）
   const queryMutation = useMutation({
     mutationFn: (request: RAGQueryRequest) => apiService.queryArticles(request),
   });
@@ -120,7 +121,7 @@ export default function RAGChat() {
   }, [messages]);
 
   const handleSend = () => {
-    if (!inputValue.trim() || queryMutation.isPending) {
+    if (!inputValue.trim() || queryMutation.isPending || isStreaming) {
       return;
     }
 
@@ -155,30 +156,80 @@ export default function RAGChat() {
       saveChatHistory(updatedHistories);
     }
 
-    // 发送请求
+    // 创建初始的AI消息（用于流式更新）
+    const assistantMessageId = (Date.now() + 1).toString();
+    const initialAssistantMessage: Message = {
+      id: assistantMessageId,
+      type: 'assistant',
+      content: '',
+      timestamp: new Date(),
+      articles: [],
+      sources: [],
+    };
+    setMessages([...newMessages, initialAssistantMessage]);
+    setIsStreaming(true);
+
+    // 发送流式请求
     const request: RAGQueryRequest = {
       question,
       top_k: topK,
     };
 
-    queryMutation.mutate(request, {
-      onSuccess: (response: RAGQueryResponse) => {
-        // 添加AI回复
-        const assistantMessage: Message = {
-          id: (Date.now() + 1).toString(),
-          type: 'assistant',
-          content: response.answer,
-          timestamp: new Date(),
-          articles: response.articles,
-          sources: response.sources,
-        };
-        const finalMessages = [...newMessages, assistantMessage];
-        setMessages(finalMessages);
+    let accumulatedContent = '';
+    let receivedArticles: ArticleSearchResult[] = [];
+    let receivedSources: string[] = [];
 
-        // 更新聊天历史（使用函数式更新确保使用最新状态）
+    apiService.queryArticlesStream(request, (chunk) => {
+      if (chunk.type === 'articles') {
+        // 收到文章信息
+        receivedArticles = chunk.data.articles || [];
+        receivedSources = chunk.data.sources || [];
+        
+        // 更新消息，添加文章信息
+        setMessages((prevMessages) => {
+          const updated = prevMessages.map((msg) => {
+            if (msg.id === assistantMessageId) {
+              return {
+                ...msg,
+                articles: receivedArticles,
+                sources: receivedSources,
+              };
+            }
+            return msg;
+          });
+          return updated;
+        });
+      } else if (chunk.type === 'content') {
+        // 收到内容块，累积并更新
+        accumulatedContent += chunk.data.content || '';
+        
+        // 实时更新消息内容
+        setMessages((prevMessages) => {
+          const updated = prevMessages.map((msg) => {
+            if (msg.id === assistantMessageId) {
+              return {
+                ...msg,
+                content: accumulatedContent,
+              };
+            }
+            return msg;
+          });
+          return updated;
+        });
+      } else if (chunk.type === 'done') {
+        // 流式输出完成
+        setIsStreaming(false);
+        
+        // 更新聊天历史
         setChatHistories((prevHistories) => {
           const updatedHistories = prevHistories.map((h) => {
             if (h.id === chatId) {
+              const finalMessages = [...newMessages, {
+                ...initialAssistantMessage,
+                content: accumulatedContent,
+                articles: receivedArticles,
+                sources: receivedSources,
+              }];
               return {
                 ...h,
                 messages: finalMessages,
@@ -192,7 +243,12 @@ export default function RAGChat() {
             updatedHistories.unshift({
               id: chatId!,
               title: updateChatTitle(question),
-              messages: finalMessages,
+              messages: [...newMessages, {
+                ...initialAssistantMessage,
+                content: accumulatedContent,
+                articles: receivedArticles,
+                sources: receivedSources,
+              }],
               createdAt: new Date(),
               updatedAt: new Date(),
             });
@@ -200,22 +256,32 @@ export default function RAGChat() {
           saveChatHistory(updatedHistories);
           return updatedHistories;
         });
-      },
-      onError: (error) => {
-        // 添加错误消息
-        const errorMessage: Message = {
-          id: (Date.now() + 1).toString(),
-          type: 'assistant',
-          content: `抱歉，处理您的问题时出现错误：${error instanceof Error ? error.message : '未知错误'}`,
-          timestamp: new Date(),
-        };
-        const finalMessages = [...newMessages, errorMessage];
-        setMessages(finalMessages);
+      } else if (chunk.type === 'error') {
+        // 处理错误
+        setIsStreaming(false);
+        const errorMessage = chunk.data.message || '未知错误';
+        
+        setMessages((prevMessages) => {
+          const updated = prevMessages.map((msg) => {
+            if (msg.id === assistantMessageId) {
+              return {
+                ...msg,
+                content: `抱歉，处理您的问题时出现错误：${errorMessage}`,
+              };
+            }
+            return msg;
+          });
+          return updated;
+        });
 
-        // 更新聊天历史（使用函数式更新确保使用最新状态）
+        // 更新聊天历史
         setChatHistories((prevHistories) => {
           const updatedHistories = prevHistories.map((h) => {
             if (h.id === chatId) {
+              const finalMessages = [...newMessages, {
+                ...initialAssistantMessage,
+                content: `抱歉，处理您的问题时出现错误：${errorMessage}`,
+              }];
               return {
                 ...h,
                 messages: finalMessages,
@@ -224,12 +290,14 @@ export default function RAGChat() {
             }
             return h;
           });
-          // 如果找不到对应的历史记录（新对话），添加它
           if (!updatedHistories.find((h) => h.id === chatId)) {
             updatedHistories.unshift({
               id: chatId!,
               title: updateChatTitle(question),
-              messages: finalMessages,
+              messages: [...newMessages, {
+                ...initialAssistantMessage,
+                content: `抱歉，处理您的问题时出现错误：${errorMessage}`,
+              }],
               createdAt: new Date(),
               updatedAt: new Date(),
             });
@@ -237,7 +305,56 @@ export default function RAGChat() {
           saveChatHistory(updatedHistories);
           return updatedHistories;
         });
-      },
+      }
+    }).catch((error) => {
+      // 处理流式请求失败
+      setIsStreaming(false);
+      const errorMessage = error instanceof Error ? error.message : '未知错误';
+      
+      setMessages((prevMessages) => {
+        const updated = prevMessages.map((msg) => {
+          if (msg.id === assistantMessageId) {
+            return {
+              ...msg,
+              content: `抱歉，处理您的问题时出现错误：${errorMessage}`,
+            };
+          }
+          return msg;
+        });
+        return updated;
+      });
+
+      // 更新聊天历史
+      setChatHistories((prevHistories) => {
+        const updatedHistories = prevHistories.map((h) => {
+          if (h.id === chatId) {
+            const finalMessages = [...newMessages, {
+              ...initialAssistantMessage,
+              content: `抱歉，处理您的问题时出现错误：${errorMessage}`,
+            }];
+            return {
+              ...h,
+              messages: finalMessages,
+              updatedAt: new Date(),
+            };
+          }
+          return h;
+        });
+        if (!updatedHistories.find((h) => h.id === chatId)) {
+          updatedHistories.unshift({
+            id: chatId!,
+            title: updateChatTitle(question),
+            messages: [...newMessages, {
+              ...initialAssistantMessage,
+              content: `抱歉，处理您的问题时出现错误：${errorMessage}`,
+            }],
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          });
+        }
+        saveChatHistory(updatedHistories);
+        return updatedHistories;
+      });
     });
   };
 
@@ -352,6 +469,19 @@ export default function RAGChat() {
                             <ReactMarkdown components={createMarkdownComponents(theme)}>
                               {processAnswerText(message.content)}
                             </ReactMarkdown>
+                            {isStreaming && message.id === messages[messages.length - 1]?.id && (
+                              <span
+                                style={{
+                                  display: 'inline-block',
+                                  width: '2px',
+                                  height: '1em',
+                                  backgroundColor: getThemeColor(theme, 'assistantMessageText'),
+                                  marginLeft: '2px',
+                                  verticalAlign: 'baseline',
+                                  animation: 'blink 1s step-end infinite',
+                                }}
+                              />
+                            )}
                           </div>
                         ) : (
                           <Text style={{ color: getThemeColor(theme, 'userMessageText') }}>
@@ -362,72 +492,69 @@ export default function RAGChat() {
 
                       {/* 引用来源 */}
                       {message.type === 'assistant' && message.articles && message.articles.length > 0 && (
-                        <div style={{ marginTop: 12, width: '100%' }}>
+                        <div style={{ marginTop: 8, width: '100%' }}>
                           <Text
                             type="secondary"
                             style={{
                               fontSize: 12,
-                              marginBottom: 8,
-                              display: 'block',
+                              marginBottom: 4,
+                              display: 'inline',
                               color: getThemeColor(theme, 'textSecondary'),
+                              marginRight: 8,
                             }}
                           >
                             参考来源：
                           </Text>
-                          <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                          <Space size={[8, 4]} wrap style={{ display: 'inline-flex' }}>
                             {message.articles.map((article, idx) => {
                               const articleNumber = idx + 1;
                               const primaryColor = getThemeColor(theme, 'primary');
                               return (
-                                <div
-                                  key={idx}
-                                  style={{
-                                    padding: '8px 12px',
-                                    ...getReferenceStyle(theme),
-                                    borderRadius: '4px',
-                                  }}
-                                >
-                                  <Space wrap>
-                                    <a
-                                      href={article.url}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      style={{
-                                        color: primaryColor,
-                                        textDecoration: 'none',
-                                        fontWeight: 500,
-                                        fontSize: 14,
-                                      }}
-                                      onMouseEnter={(e) => {
-                                        e.currentTarget.style.textDecoration = 'underline';
-                                      }}
-                                      onMouseLeave={(e) => {
-                                        e.currentTarget.style.textDecoration = 'none';
-                                      }}
-                                    >
-                                      [{articleNumber}]
-                                    </a>
-                                    {article.title_zh ? (
-                                      <Tooltip title={article.title} placement="top">
-                                        <Text style={{
-                                          fontSize: 14,
-                                          color: getThemeColor(theme, 'text'),
-                                          cursor: 'help',
-                                        }}>
-                                          {article.title_zh}
-                                        </Text>
-                                      </Tooltip>
-                                    ) : (
+                                <span key={idx} style={{ display: 'inline-flex', alignItems: 'center' }}>
+                                  <a
+                                    href={article.url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    style={{
+                                      color: primaryColor,
+                                      textDecoration: 'none',
+                                      fontWeight: 500,
+                                      fontSize: 12,
+                                      marginRight: 4,
+                                    }}
+                                    onMouseEnter={(e) => {
+                                      e.currentTarget.style.textDecoration = 'underline';
+                                    }}
+                                    onMouseLeave={(e) => {
+                                      e.currentTarget.style.textDecoration = 'none';
+                                    }}
+                                  >
+                                    [{articleNumber}]
+                                  </a>
+                                  {article.title_zh ? (
+                                    <Tooltip title={article.title} placement="top">
                                       <Text style={{
-                                        fontSize: 14,
-                                        color: getThemeColor(theme, 'text'),
+                                        fontSize: 12,
+                                        color: getThemeColor(theme, 'textSecondary'),
+                                        cursor: 'help',
+                                        marginRight: 4,
                                       }}>
-                                        {article.title}
+                                        {article.title_zh}
                                       </Text>
-                                    )}
-                                    <Tag color="blue">{article.source}</Tag>
-                                  </Space>
-                                </div>
+                                    </Tooltip>
+                                  ) : (
+                                    <Text style={{
+                                      fontSize: 12,
+                                      color: getThemeColor(theme, 'textSecondary'),
+                                      marginRight: 4,
+                                    }}>
+                                      {article.title}
+                                    </Text>
+                                  )}
+                                  <Tag color="blue" style={{ fontSize: 11, padding: '0 4px', margin: 0, lineHeight: '18px' }}>
+                                    {article.source}
+                                  </Tag>
+                                </span>
                               );
                             })}
                           </Space>
@@ -450,7 +577,7 @@ export default function RAGChat() {
               )}
             />
           )}
-          {queryMutation.isPending && (
+          {(queryMutation.isPending || (isStreaming && messages.length > 0 && messages[messages.length - 1]?.type === 'assistant' && !messages[messages.length - 1]?.content)) && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 0' }}>
               <Avatar icon={<RobotOutlined />} style={{ backgroundColor: getThemeColor(theme, 'assistantAvatarBg'), flexShrink: 0 }} />
               <div style={{
@@ -463,7 +590,7 @@ export default function RAGChat() {
                   marginLeft: 8,
                   color: getThemeColor(theme, 'assistantMessageText'),
                 }}>
-                  正在思考...
+                  {isStreaming ? '正在生成回答...' : '正在思考...'}
                 </Text>
               </div>
             </div>
@@ -489,14 +616,14 @@ export default function RAGChat() {
               onPressEnter={handleKeyPress}
               placeholder="输入您的问题，例如：最近有哪些关于大语言模型的重要突破？"
               autoSize={{ minRows: 2, maxRows: 4 }}
-              disabled={queryMutation.isPending}
+              disabled={queryMutation.isPending || isStreaming}
             />
             <Button
               type="primary"
               icon={<SendOutlined />}
               onClick={handleSend}
-              loading={queryMutation.isPending}
-              disabled={!inputValue.trim()}
+              loading={queryMutation.isPending || isStreaming}
+              disabled={!inputValue.trim() || queryMutation.isPending || isStreaming}
               style={{ height: 'auto' }}
             >
               发送

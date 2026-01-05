@@ -786,6 +786,165 @@ class RAGService:
                 "articles": []
             }
 
+    def query_articles_stream(self, question: str, top_k: int = 5):
+        """
+        RAG问答（流式）：基于检索到的文章回答问题，支持流式输出
+
+        Args:
+            question: 问题文本
+            top_k: 检索的文章数量
+
+        Yields:
+            流式数据块，包含类型和内容
+        """
+        try:
+            logger.info(f"🔍 开始流式问答流程: question={question[:100]}, top_k={top_k}")
+            
+            # 检索相关文章
+            try:
+                relevant_articles = self.search_articles(question, top_k=top_k)
+                logger.info(f"✅ 检索到 {len(relevant_articles)} 篇相关文章")
+                
+                # 先发送文章信息
+                yield {
+                    "type": "articles",
+                    "data": {
+                        "articles": relevant_articles,
+                        "sources": [article.get("source", "N/A") for article in relevant_articles]
+                    }
+                }
+            except Exception as e:
+                logger.error(f"❌ 检索文章失败: {e}", exc_info=True)
+                yield {
+                    "type": "error",
+                    "data": {"message": f"检索文章失败: {str(e)}"}
+                }
+                return
+            
+            if not relevant_articles:
+                logger.warning("⚠️  没有找到相关文章")
+                yield {
+                    "type": "error",
+                    "data": {"message": "抱歉，没有找到相关的文章来回答您的问题。"}
+                }
+                return
+            
+            # 构建上下文
+            try:
+                context_parts = []
+                for i, article_info in enumerate(relevant_articles, 1):
+                    try:
+                        article_text = f"""
+文章 {i}:
+标题: {article_info.get('title', 'N/A')}
+"""
+                        if article_info.get('title_zh'):
+                            article_text += f"中文标题: {article_info['title_zh']}\n"
+                        if article_info.get('summary'):
+                            article_text += f"摘要: {article_info['summary']}\n"
+                        if article_info.get('topics'):
+                            topics = article_info['topics']
+                            if isinstance(topics, list):
+                                article_text += f"主题: {', '.join(topics)}\n"
+                            else:
+                                article_text += f"主题: {topics}\n"
+                        article_text += f"来源: {article_info.get('source', 'N/A')}\n"
+                        article_text += f"相似度: {article_info.get('similarity', 0):.3f}\n"
+                        
+                        context_parts.append(article_text)
+                    except Exception as e:
+                        logger.error(f"❌ 构建文章 {i} 上下文失败: {e}", exc_info=True)
+                        logger.error(f"文章信息: {article_info}")
+                        continue
+                
+                context = "\n---\n".join(context_parts)
+                logger.info(f"✅ 构建上下文完成，长度: {len(context)} 字符")
+            except Exception as e:
+                logger.error(f"❌ 构建上下文失败: {e}", exc_info=True)
+                yield {
+                    "type": "error",
+                    "data": {"message": f"构建上下文失败: {str(e)}"}
+                }
+                return
+            
+            # 构建提示词
+            try:
+                prompt = f"""基于以下文章内容，回答用户的问题。请使用中文回答，并引用具体的文章。
+
+相关文章：
+{context}
+
+用户问题：{question}
+
+请提供详细、准确的答案，并在回答中引用相关的文章。引用格式要求：
+1. 使用 [文章编号] 的格式引用，例如：[1] 提到："..." 或 [2] 指出：...
+2. 不要在引用中包含文章标题和来源名称，只使用编号引用
+3. 如果文章中没有足够的信息来回答问题，请说明。"""
+                logger.info(f"✅ 提示词构建完成，长度: {len(prompt)} 字符")
+            except Exception as e:
+                logger.error(f"❌ 构建提示词失败: {e}", exc_info=True)
+                yield {
+                    "type": "error",
+                    "data": {"message": f"构建提示词失败: {str(e)}"}
+                }
+                return
+            
+            # 调用LLM生成答案（流式）
+            try:
+                logger.info(f"🤖 正在调用LLM生成答案（流式）...")
+                logger.debug(f"使用模型: {self.ai_analyzer.model}")
+                
+                stream = self.ai_analyzer.client.chat.completions.create(
+                    model=self.ai_analyzer.model,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "你是一个专业的AI新闻助手，擅长基于提供的文章内容回答问题。请使用中文回答，并准确引用文章来源。"
+                        },
+                        {
+                            "role": "user",
+                            "content": prompt
+                        }
+                    ],
+                    temperature=0.3,
+                    max_tokens=2000,
+                    stream=True,  # 启用流式输出
+                )
+                
+                # 流式返回内容
+                for chunk in stream:
+                    if chunk.choices and len(chunk.choices) > 0:
+                        delta = chunk.choices[0].delta
+                        if delta.content:
+                            yield {
+                                "type": "content",
+                                "data": {"content": delta.content}
+                            }
+                
+                # 发送完成信号
+                yield {
+                    "type": "done",
+                    "data": {}
+                }
+                logger.info(f"✅ 流式答案生成完成")
+                
+            except Exception as e:
+                logger.error(f"❌ 调用LLM失败: {e}", exc_info=True)
+                yield {
+                    "type": "error",
+                    "data": {"message": f"生成答案时出现错误: {str(e)}"}
+                }
+                return
+            
+        except Exception as e:
+            logger.error(f"❌ 流式问答失败: {e}", exc_info=True)
+            import traceback
+            logger.error(f"流式问答完整堆栈跟踪:\n{traceback.format_exc()}")
+            yield {
+                "type": "error",
+                "data": {"message": f"抱歉，生成答案时出现错误: {str(e)}"}
+            }
+
     def get_index_stats(self) -> Dict[str, Any]:
         """
         获取索引统计信息
