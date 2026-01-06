@@ -128,7 +128,7 @@
   ],
   "api_sources": [
     {
-      "name": "arXiv CS.AI",
+      "name": "arXiv CS.AI 人工智能：搜索、规划、知识表示、推理等",
       "url": "http://export.arxiv.org/api/query",
       "category": "paper",
       "enabled": true,
@@ -141,7 +141,7 @@
       }
     },
     {
-      "name": "arXiv CS.LG",
+      "name": "arXiv CS.LG 机器学习：监督/无监督学习、强化学习、深度学习等",
       "url": "http://export.arxiv.org/api/query",
       "category": "paper",
       "enabled": true,
@@ -154,7 +154,7 @@
       }
     },
     {
-      "name": "arXiv CS.CL",
+      "name": "arXiv CS.CL 计算语言学：NLP、文本处理、语言模型等",
       "url": "http://export.arxiv.org/api/query",
       "category": "paper",
       "enabled": true,
@@ -167,7 +167,7 @@
       }
     },
     {
-      "name": "arXiv CS.CV",
+      "name": "arXiv CS.CV 计算机视觉：图像识别、目标检测、图像生成等",
       "url": "http://export.arxiv.org/api/query",
       "category": "paper",
       "enabled": true,
@@ -218,10 +218,13 @@
       "description": "国内影响力最广泛的人工智能社交资讯平台",
       "extra_config": {
         "max_articles": 20,
-        "article_selector": "article.entry-card",
-        "title_selector": "h2.entry-title a",
-        "link_selector": "a",
-        "date_selector": ".entry-meta"
+        "article_selector": "article",
+        "title_selector": "h2 a",
+        "link_selector": "h2 a",
+        "date_selector": "time",
+        "fetch_full_content": true,
+        "content_selector": "article .entry-content, article > div",
+        "author_selector": "ul li a[href*='/author/']"
       }
     },
     {

@@ -167,7 +167,9 @@ ai-news-tracker/
 │   ├── package.json
 │   ├── tsconfig.json
 │   └── vite.config.ts
-├── requirements.txt            # Python依赖
+├── backend/
+│   └── app/
+│       └── requirements.txt    # Python依赖
 ├── logs/                       # 日志目录
 └── README.md                   # 项目文档
 ```
@@ -191,7 +193,7 @@ git clone <repository-url>
 cd ai-news-tracker
 
 # 安装Python依赖
-pip install -r requirements.txt
+pip install -r backend/app/requirements.txt
 ```
 
 #### 前端依赖
@@ -224,31 +226,34 @@ LOG_FILE=logs/app.log
 
 ### 4. 启动服务
 
-#### 方式一：使用启动脚本（推荐）
+#### 方式一：使用 Docker 部署（推荐）
 
-项目提供了便捷的启动脚本，支持 Linux/macOS：
+项目提供了完整的 Docker 部署方案，最简单快捷：
 
 ```bash
-# 给脚本添加执行权限（首次使用）
-chmod +x start*.sh stop.sh
+# 进入 docker 目录
+cd docker
 
-# 同时启动前后端服务（后台运行）
+# 启动所有服务
 ./start.sh
-
-# 或者分别启动（前台运行，适合开发调试）
-# 终端1 - 启动后端
-./start-backend.sh
-
-# 终端2 - 启动前端
-./start-frontend.sh
 
 # 停止所有服务
 ./stop.sh
 ```
 
-**详细说明请查看 [启动脚本使用说明](./README-SCRIPTS.md)**
+或者直接使用 Docker Compose：
 
-#### 方式二：手动启动
+```bash
+# 在项目根目录下执行
+docker compose -f docker/docker-compose.yml up -d --build
+
+# 停止服务
+docker compose -f docker/docker-compose.yml down
+```
+
+**详细说明请查看 [Docker 部署指南](./docker/README.md)**
+
+#### 方式二：手动启动（开发模式）
 
 **启动后端API服务：**
 
@@ -424,8 +429,8 @@ FROM python:3.9-slim
 WORKDIR /app
 
 # 安装依赖
-COPY requirements.txt .
-RUN pip install -r requirements.txt
+COPY backend/app/requirements.txt /app/requirements.txt
+RUN pip install -r /app/requirements.txt
 
 # 复制代码
 COPY . .

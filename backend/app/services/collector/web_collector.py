@@ -62,6 +62,16 @@ class WebCollector:
             for i, element in enumerate(article_elements[:max_articles]):
                 article = self._parse_article_element(element, config, name)
                 if article:
+                    # 如果配置了从详情页获取完整内容，则访问详情页
+                    if config.get("fetch_full_content") and article.get("url"):
+                        full_data = self._fetch_article_details(article["url"], config)
+                        if full_data:
+                            if full_data.get("content"):
+                                article["content"] = full_data["content"]
+                            if full_data.get("author") and not article.get("author"):
+                                article["author"] = full_data["author"]
+                            if full_data.get("published_at") and not article.get("published_at"):
+                                article["published_at"] = full_data["published_at"]
                     articles.append(article)
 
             logger.info(f"✅ {name}: 成功获取 {len(articles)} 篇文章")
@@ -198,7 +208,7 @@ class WebCollector:
             (r"(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s+\d{4}", "month_day_year"),
             r"\d{4}-\d{2}-\d{2}",
             r"\d{4}/\d{2}/\d{2}",
-            r"\d{4}年\d{2}月\d{2}日",
+            r"\d{4}年\d{1,2}月\d{1,2}日",
             r"\d{2}-\d{2}-\d{4}",
             r"\d{2}/\d{2}/\d{4}",
         ]
@@ -240,9 +250,100 @@ class WebCollector:
 
         return None
 
+    def _fetch_article_details(self, url: str, config: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        从详情页获取文章的完整内容、作者和日期
+
+        Args:
+            url: 文章URL
+            config: 配置字典
+
+        Returns:
+            包含 content, author, published_at 的字典
+        """
+        try:
+            logger.debug(f"📄 正在获取详情页内容: {url}")
+            headers = {"User-Agent": self.user_agent}
+            response = requests.get(url, headers=headers, timeout=self.timeout)
+            response.raise_for_status()
+
+            soup = BeautifulSoup(response.content, "html.parser")
+
+            result = {}
+
+            # 获取内容
+            content_selector = config.get("content_selector")
+            if content_selector:
+                content_elem = soup.select_one(content_selector)
+                if content_elem:
+                    result["content"] = content_elem.get_text(separator=" ", strip=True)
+            else:
+                # 使用默认选择器
+                content_selectors = [
+                    'article .entry-content',
+                    'article',
+                    '.article-content',
+                    '.post-content',
+                    '.entry-content',
+                    '.content',
+                    'main article',
+                    '[role="article"]',
+                    '.blog-post-content',
+                ]
+
+                for selector in content_selectors:
+                    elements = soup.select(selector)
+                    if elements:
+                        result["content"] = elements[0].get_text(separator=" ", strip=True)
+                        if len(result["content"]) > 500:
+                            break
+
+                if not result.get("content") or len(result.get("content", "")) < 500:
+                    for tag in soup.find_all(['nav', 'header', 'footer', 'aside', 'script', 'style']):
+                        tag.decompose()
+                    result["content"] = soup.get_text(separator=" ", strip=True)
+
+            if result.get("content"):
+                result["content"] = " ".join(result["content"].split())
+
+            # 获取作者
+            author_selector = config.get("author_selector")
+            if author_selector:
+                author_elem = soup.select_one(author_selector)
+                if author_elem:
+                    result["author"] = author_elem.get_text(strip=True)
+
+            # 获取日期（如果列表页没有获取到）
+            date_selector = config.get("date_selector")
+            if date_selector:
+                date_elem = soup.select_one(date_selector)
+                if date_elem:
+                    date_text = date_elem.get_text(strip=True)
+                    if date_text:
+                        result["published_at"] = self._parse_date(date_text)
+                # 也尝试从 time 标签的 datetime 属性获取
+                if not result.get("published_at"):
+                    time_elem = soup.select_one("time[datetime]")
+                    if time_elem:
+                        datetime_attr = time_elem.get("datetime")
+                        if datetime_attr:
+                            try:
+                                result["published_at"] = datetime.fromisoformat(datetime_attr.replace("Z", "+00:00"))
+                            except:
+                                pass
+
+            return result
+
+        except requests.RequestException as e:
+            logger.warning(f"⚠️  获取详情页内容失败 {url}: {e}")
+            return {}
+        except Exception as e:
+            logger.warning(f"⚠️  解析详情页内容失败 {url}: {e}")
+            return {}
+
     def fetch_full_content(self, url: str) -> str:
         """
-        获取文章的完整内容
+        获取文章的完整内容（兼容旧接口）
 
         Args:
             url: 文章URL
@@ -251,46 +352,9 @@ class WebCollector:
             完整内容文本
         """
         try:
-            logger.info(f"📄 正在获取完整内容: {url}")
-            headers = {"User-Agent": self.user_agent}
-            response = requests.get(url, headers=headers, timeout=self.timeout)
-            response.raise_for_status()
-
-            soup = BeautifulSoup(response.content, "html.parser")
-
-            content_selectors = [
-                'article',
-                '.article-content',
-                '.post-content',
-                '.entry-content',
-                '.content',
-                'main article',
-                '[role="article"]',
-                '.blog-post-content',
-            ]
-
-            content = ""
-            for selector in content_selectors:
-                elements = soup.select(selector)
-                if elements:
-                    content = elements[0].get_text(separator=" ", strip=True)
-                    if len(content) > 500:
-                        break
-
-            if not content or len(content) < 500:
-                for tag in soup.find_all(['nav', 'header', 'footer', 'aside', 'script', 'style']):
-                    tag.decompose()
-                content = soup.get_text(separator=" ", strip=True)
-
-            content = " ".join(content.split())
-
-            logger.info(f"✅ 成功获取完整内容，长度: {len(content)} 字符")
-            return content
-
-        except requests.RequestException as e:
-            logger.warning(f"⚠️  获取完整内容失败 {url}: {e}")
-            return ""
+            result = self._fetch_article_details(url, {})
+            return result.get("content", "")
         except Exception as e:
-            logger.warning(f"⚠️  解析完整内容失败 {url}: {e}")
+            logger.warning(f"⚠️  获取完整内容失败 {url}: {e}")
             return ""
 

@@ -22,6 +22,7 @@ interface ArticleCardProps {
 
 export default function ArticleCard({ article }: ArticleCardProps) {
   const [expanded, setExpanded] = useState(false);
+  const [isContentExpanded, setIsContentExpanded] = useState(false);
   const [isEditingNotes, setIsEditingNotes] = useState(false);
   const [notesValue, setNotesValue] = useState(article.user_notes || '');
   const analyzeMutation = useAnalyzeArticle();
@@ -248,6 +249,54 @@ export default function ArticleCard({ article }: ArticleCardProps) {
               </div>
             ) : null}
 
+            {/* 文章内容（默认折叠） */}
+            {article.content ? (
+              <div style={{ marginBottom: 12 }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    cursor: 'pointer',
+                    marginBottom: 8,
+                  }}
+                  onClick={() => setIsContentExpanded(!isContentExpanded)}
+                >
+                  <Text strong style={{ fontSize: 14, color: getThemeColor(theme, 'text'), margin: 0 }}>
+                    文章内容
+                  </Text>
+                  <Button
+                    type="text"
+                    icon={isContentExpanded ? <UpOutlined /> : <DownOutlined />}
+                    size="small"
+                    style={{ color: getThemeColor(theme, 'textSecondary'), marginLeft: 8, padding: 0 }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIsContentExpanded(!isContentExpanded);
+                    }}
+                  />
+                </div>
+                {isContentExpanded && (
+                  <div
+                    style={{
+                      padding: '12px',
+                      backgroundColor: getThemeColor(theme, 'bgSecondary'),
+                      borderRadius: '6px',
+                      border: `1px solid ${getThemeColor(theme, 'border')}`,
+                      color: getThemeColor(theme, 'text'),
+                      lineHeight: '1.8',
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-word',
+                      fontSize: 13,
+                      maxHeight: '400px',
+                      overflowY: 'auto',
+                    }}
+                  >
+                    {article.content}
+                  </div>
+                )}
+              </div>
+            ) : null}
+
             {/* 查看原文按钮 */}
             <div style={{ marginBottom: 12 }}>
               <Button
@@ -261,14 +310,57 @@ export default function ArticleCard({ article }: ArticleCardProps) {
               </Button>
             </div>
 
-            {/* 标签区域（文章标签） */}
-            {article.tags && article.tags.length > 0 && (
-              <div style={{ marginBottom: 12 }}>
-                <Space size="small" wrap>
-                  {article.tags.map((tag, index) => (
-                    <Tag key={index}>{tag}</Tag>
+            {/* 主题区域 */}
+            {article.topics && article.topics.length > 0 && (
+              <div style={{ marginBottom: 12, display: 'flex', alignItems: 'flex-start', gap: 8, flexWrap: 'wrap' }}>
+                <Text strong style={{ fontSize: 13, color: getThemeColor(theme, 'text'), flexShrink: 0, lineHeight: '28px' }}>
+                  主题
+                </Text>
+                <Space size={[8, 8]} wrap style={{ flex: 1, minWidth: 0 }}>
+                  {article.topics.map((topic, idx) => (
+                    <Tag key={idx} color="blue">
+                      {topic}
+                    </Tag>
                   ))}
                 </Space>
+              </div>
+            )}
+
+            {/* 标签区域 */}
+            {article.tags && article.tags.length > 0 && (
+              <div style={{ marginBottom: 12, display: 'flex', alignItems: 'flex-start', gap: 8, flexWrap: 'wrap' }}>
+                <Text strong style={{ fontSize: 13, color: getThemeColor(theme, 'text'), flexShrink: 0, lineHeight: '28px' }}>
+                  标签
+                </Text>
+                <Space size={[8, 8]} wrap style={{ flex: 1, minWidth: 0 }}>
+                  {article.tags.map((tag, idx) => (
+                    <Tag key={idx}>
+                      {tag}
+                    </Tag>
+                  ))}
+                </Space>
+              </div>
+            )}
+
+            {/* 关键点区域 */}
+            {article.key_points && article.key_points.length > 0 && (
+              <div style={{ marginBottom: 12 }}>
+                <Text strong style={{ fontSize: 13, color: getThemeColor(theme, 'text'), marginBottom: 8, display: 'block' }}>
+                  关键点
+                </Text>
+                <ul style={{ 
+                  paddingLeft: 20,
+                  margin: 0,
+                  color: getThemeColor(theme, 'text'),
+                  lineHeight: '1.8',
+                  fontSize: 13,
+                }}>
+                  {article.key_points.map((point, idx) => (
+                    <li key={idx} style={{ marginBottom: 8 }}>
+                      {point}
+                    </li>
+                  ))}
+                </ul>
               </div>
             )}
 
