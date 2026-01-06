@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ConfigProvider } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import { ThemeProvider, useTheme } from '@/contexts/ThemeContext';
+import { AIConversationProvider } from '@/contexts/AIConversationContext';
 import Dashboard from '@/pages/Dashboard';
 import './App.css';
 
@@ -41,7 +42,9 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
-        <AppContent />
+        <AIConversationProvider>
+          <AppContent />
+        </AIConversationProvider>
       </ThemeProvider>
     </QueryClientProvider>
   );

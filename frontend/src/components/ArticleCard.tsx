@@ -120,7 +120,13 @@ export default function ArticleCard({ article }: ArticleCardProps) {
             cursor: 'pointer',
             padding: '2px 0',
           }}
-          onClick={() => setExpanded(!expanded)}
+          onClick={(e) => {
+            // 如果点击的是标题链接，不阻止默认行为
+            if ((e.target as HTMLElement).closest('a')) {
+              return;
+            }
+            setExpanded(!expanded);
+          }}
         >
           {/* 日期Tag（最前面） */}
           <Tag color="default" style={{ flexShrink: 0 }}>
@@ -140,12 +146,42 @@ export default function ArticleCard({ article }: ArticleCardProps) {
           <div style={{ flex: '1 1 auto', minWidth: 0, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
             {article.title_zh ? (
               <Tooltip title={article.title} placement="top">
-                <Title level={5} style={{ marginBottom: 0, display: 'inline', cursor: 'help' }}>
+                <Title 
+                  level={5} 
+                  style={{ marginBottom: 0, display: 'inline', cursor: 'pointer' }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (article.url) {
+                      window.open(article.url, '_blank');
+                    }
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.color = getThemeColor(theme, 'primary');
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.color = getThemeColor(theme, 'text');
+                  }}
+                >
                   {article.title_zh}
                 </Title>
               </Tooltip>
             ) : (
-              <Title level={5} style={{ marginBottom: 0, display: 'inline' }}>
+              <Title 
+                level={5} 
+                style={{ marginBottom: 0, display: 'inline', cursor: 'pointer' }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (article.url) {
+                    window.open(article.url, '_blank');
+                  }
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = getThemeColor(theme, 'primary');
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = getThemeColor(theme, 'text');
+                }}
+              >
                 {article.title}
               </Title>
             )}
