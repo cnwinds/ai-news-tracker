@@ -13,7 +13,11 @@ import { getThemeColor } from '@/utils/theme';
 
 const { Header } = Layout;
 
-export default function GlobalNavigation() {
+interface GlobalNavigationProps {
+  onSettingsClick?: () => void;
+}
+
+export default function GlobalNavigation({ onSettingsClick }: GlobalNavigationProps) {
   const { theme, toggleTheme } = useTheme();
   const { openModal, setSearchQuery, searchQuery } = useAIConversation();
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -204,6 +208,7 @@ export default function GlobalNavigation() {
             icon={<SettingOutlined />}
             style={{ color: '#fff' }}
             title="设置"
+            onClick={onSettingsClick}
           />
         </Space>
       </div>

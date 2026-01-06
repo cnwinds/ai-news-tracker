@@ -11,7 +11,6 @@ import {
   Space,
   Alert,
   Spin,
-  Typography,
   Tabs,
   Select,
   Switch,
@@ -26,8 +25,6 @@ import SourceManagement from '@/components/SourceManagement';
 import DataCleanup from '@/components/DataCleanup';
 import CollectionHistory from '@/components/CollectionHistory';
 import type { LLMSettings, NotificationSettings, LLMProvider, LLMProviderCreate, LLMProviderUpdate } from '@/types';
-
-const { Title } = Typography;
 
 export default function SystemSettings() {
   const queryClient = useQueryClient();
@@ -190,12 +187,6 @@ export default function SystemSettings() {
     updateNotificationMutation.mutate(values);
   };
 
-  const handleRefresh = () => {
-    queryClient.invalidateQueries({ queryKey: ['llm-settings'] });
-    queryClient.invalidateQueries({ queryKey: ['llm-providers'] });
-    message.success('配置已刷新');
-  };
-
   const handleProviderCreate = () => {
     setEditingProvider(null);
     providerForm.resetFields();
@@ -259,12 +250,6 @@ export default function SystemSettings() {
                     title: '名称',
                     dataIndex: 'name',
                     key: 'name',
-                  },
-                  {
-                    title: 'API基础URL',
-                    dataIndex: 'api_base',
-                    key: 'api_base',
-                    ellipsis: true,
                   },
                   {
                     title: '大模型',
@@ -603,24 +588,7 @@ export default function SystemSettings() {
 
   return (
     <div>
-      <Card
-        title={
-          <Space>
-            <Title level={4} style={{ margin: 0 }}>
-              ⚙️ 系统功能
-            </Title>
-            <Button
-              icon={<ReloadOutlined />}
-              onClick={handleRefresh}
-              size="small"
-            >
-              刷新
-            </Button>
-          </Space>
-        }
-      >
-        <Tabs items={tabItems} />
-      </Card>
+      <Tabs items={tabItems} />
     </div>
   );
 }

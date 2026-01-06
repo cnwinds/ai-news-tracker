@@ -21,7 +21,7 @@ import {
   Spin,
   Switch,
 } from 'antd';
-import { PlayCircleOutlined, ReloadOutlined, EyeOutlined, SettingOutlined, StopOutlined } from '@ant-design/icons';
+import { PlayCircleOutlined, ReloadOutlined, SettingOutlined, StopOutlined } from '@ant-design/icons';
 import { CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons';
 
 const { Text, Paragraph } = Typography;
@@ -35,6 +35,7 @@ export default function CollectionHistory() {
   const [autoCollectionModalVisible, setAutoCollectionModalVisible] = useState(false);
   const [detailModalVisible, setDetailModalVisible] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
+  const [activeTab, setActiveTab] = useState<string>('summary');
   const [autoCollectionForm] = Form.useForm();
   const queryClient = useQueryClient();
   const { subscribe } = useWebSocket();
@@ -120,6 +121,12 @@ export default function CollectionHistory() {
     return unsubscribe;
   }, [subscribe, queryClient]);
 
+  const handleOpenDetail = (taskId: number, tab: string = 'summary') => {
+    setSelectedTaskId(taskId);
+    setActiveTab(tab);
+    setDetailModalVisible(true);
+  };
+
   const columns = [
     {
       title: 'ID',
@@ -146,48 +153,62 @@ export default function CollectionHistory() {
       dataIndex: 'new_articles_count',
       key: 'new_articles_count',
       width: 100,
+      render: (count: number, record: CollectionTask) => (
+        <a
+          onClick={() => handleOpenDetail(record.id, 'articles')}
+          style={{ cursor: 'pointer', color: '#1890ff' }}
+        >
+          {count}
+        </a>
+      ),
     },
     {
       title: '成功源',
       dataIndex: 'success_sources',
       key: 'success_sources',
       width: 100,
+      render: (count: number, record: CollectionTask) => (
+        <a
+          onClick={() => handleOpenDetail(record.id, 'success')}
+          style={{ cursor: 'pointer', color: '#1890ff' }}
+        >
+          {count}
+        </a>
+      ),
     },
     {
       title: '失败源',
       dataIndex: 'failed_sources',
       key: 'failed_sources',
       width: 100,
+      render: (count: number, record: CollectionTask) => (
+        <a
+          onClick={() => handleOpenDetail(record.id, 'failed')}
+          style={{ cursor: 'pointer', color: '#1890ff' }}
+        >
+          {count}
+        </a>
+      ),
     },
     {
       title: '耗时',
       dataIndex: 'duration',
       key: 'duration',
       width: 100,
-      render: (duration: number) => (duration ? `${duration.toFixed(1)}秒` : '-'),
+      render: (duration: number, record: CollectionTask) => (
+        <a
+          onClick={() => handleOpenDetail(record.id, 'summary')}
+          style={{ cursor: 'pointer', color: '#1890ff' }}
+        >
+          {duration ? `${duration.toFixed(1)}秒` : '-'}
+        </a>
+      ),
     },
     {
       title: '开始时间',
       dataIndex: 'started_at',
       key: 'started_at',
       render: (time: string) => dayjs(time).format('YYYY-MM-DD HH:mm:ss'),
-    },
-    {
-      title: '操作',
-      key: 'action',
-      width: 100,
-      render: (_: any, record: CollectionTask) => (
-        <Button
-          type="link"
-          icon={<EyeOutlined />}
-          onClick={() => {
-            setSelectedTaskId(record.id);
-            setDetailModalVisible(true);
-          }}
-        >
-          查看详情
-        </Button>
-      ),
     },
   ];
 
@@ -278,6 +299,7 @@ export default function CollectionHistory() {
         onCancel={() => {
           setDetailModalVisible(false);
           setSelectedTaskId(null);
+          setActiveTab('summary');
         }}
         footer={null}
         width={900}
@@ -288,7 +310,8 @@ export default function CollectionHistory() {
           </div>
         ) : taskDetail ? (
           <Tabs
-            defaultActiveKey="summary"
+            activeKey={activeTab}
+            onChange={setActiveTab}
             items={[
               {
                 key: 'summary',

@@ -252,11 +252,19 @@ export default function SourceManagement() {
         key={source.id}
         hoverable
         style={{
-          height: '100%',
           borderRadius: 8,
           border: `1px solid ${source.enabled ? '#d9d9d9' : '#ffccc7'}`,
+          display: 'flex',
+          flexDirection: 'column',
+          height: '100%',
         }}
-        bodyStyle={{ padding: 16 }}
+        bodyStyle={{ 
+          padding: 16,
+          flex: 1,
+          display: 'flex',
+          flexDirection: 'column',
+          minHeight: 0,
+        }}
         actions={[
           <Button
             key="edit"
@@ -264,6 +272,7 @@ export default function SourceManagement() {
             icon={<EditOutlined />}
             onClick={() => handleEdit(source)}
             size="small"
+            style={{ height: 'auto' }}
           >
             编辑
           </Button>,
@@ -274,14 +283,14 @@ export default function SourceManagement() {
             okText="确定"
             cancelText="取消"
           >
-            <Button type="link" danger icon={<DeleteOutlined />} size="small">
+            <Button type="link" danger icon={<DeleteOutlined />} size="small" style={{ height: 'auto' }}>
               删除
             </Button>
           </Popconfirm>,
         ]}
       >
-        <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-          <div style={{ marginBottom: 12 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+          <div style={{ marginBottom: 12, flexShrink: 0 }}>
             <div style={{ fontSize: 16, fontWeight: 'bold', marginBottom: 8, lineHeight: 1.4 }}>
               {source.name}
             </div>
@@ -297,12 +306,22 @@ export default function SourceManagement() {
             )}
           </div>
           
-          <div style={{ flex: 1, fontSize: 12, color: '#666', marginBottom: 8 }}>
+          <div style={{ 
+            flex: 1,
+            minHeight: 0,
+            fontSize: 12, 
+            color: '#666', 
+            marginBottom: 8,
+            overflow: 'hidden',
+            display: 'flex',
+            flexDirection: 'column',
+          }}>
             <div style={{ 
               overflow: 'hidden', 
               textOverflow: 'ellipsis', 
               whiteSpace: 'nowrap',
-              marginBottom: 4
+              marginBottom: 4,
+              flexShrink: 0,
             }}>
               {source.url}
             </div>
@@ -313,9 +332,11 @@ export default function SourceManagement() {
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
                 display: '-webkit-box',
-                WebkitLineClamp: 2,
+                WebkitLineClamp: 3,
                 WebkitBoxOrient: 'vertical',
                 lineHeight: 1.4,
+                flex: 1,
+                minHeight: 0,
               }}>
                 {source.description}
               </div>
@@ -325,9 +346,9 @@ export default function SourceManagement() {
           <div style={{ 
             fontSize: 12, 
             color: '#666', 
-            marginTop: 'auto',
             paddingTop: 8,
-            borderTop: '1px solid #f0f0f0'
+            borderTop: '1px solid #f0f0f0',
+            flexShrink: 0,
           }}>
             <div style={{ color: '#999', marginBottom: 4 }}>最后更新</div>
             <div>
@@ -380,7 +401,7 @@ export default function SourceManagement() {
                     {groupedSources.rss?.length > 0 ? (
                       <Row gutter={[16, 16]}>
                         {groupedSources.rss.map((source: RSSSource) => (
-                          <Col key={source.id} xs={24} sm={12} md={8} lg={6}>
+                          <Col key={source.id} xs={24} sm={12} md={8} lg={8}>
                             {renderSourceItem(source)}
                           </Col>
                         ))}
@@ -399,7 +420,7 @@ export default function SourceManagement() {
                     {groupedSources.api?.length > 0 ? (
                       <Row gutter={[16, 16]}>
                         {groupedSources.api.map((source: RSSSource) => (
-                          <Col key={source.id} xs={24} sm={12} md={8} lg={6}>
+                          <Col key={source.id} xs={24} sm={12} md={8} lg={8}>
                             {renderSourceItem(source)}
                           </Col>
                         ))}
@@ -418,7 +439,7 @@ export default function SourceManagement() {
                     {groupedSources.web?.length > 0 ? (
                       <Row gutter={[16, 16]}>
                         {groupedSources.web.map((source: RSSSource) => (
-                          <Col key={source.id} xs={24} sm={12} md={8} lg={6}>
+                          <Col key={source.id} xs={24} sm={12} md={8} lg={8}>
                             {renderSourceItem(source)}
                           </Col>
                         ))}
@@ -437,7 +458,7 @@ export default function SourceManagement() {
                     {groupedSources.social?.length > 0 ? (
                       <Row gutter={[16, 16]}>
                         {groupedSources.social.map((source: RSSSource) => (
-                          <Col key={source.id} xs={24} sm={12} md={8} lg={6}>
+                          <Col key={source.id} xs={24} sm={12} md={8} lg={8}>
                             {renderSourceItem(source)}
                           </Col>
                         ))}

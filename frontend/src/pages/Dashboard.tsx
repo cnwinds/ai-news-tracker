@@ -1,13 +1,12 @@
 /**
  * Dashboard 主页面
  */
-import { useState } from 'react';
-import { Layout, Tabs } from 'antd';
+import { useState, useEffect } from 'react';
+import { Layout, Tabs, Drawer } from 'antd';
 import {
   FileTextOutlined,
   BarChartOutlined,
   ReadOutlined,
-  ToolOutlined,
 } from '@ant-design/icons';
 import ArticleList from '@/components/ArticleList';
 import DailySummary from '@/components/DailySummary';
@@ -16,12 +15,24 @@ import SystemSettings from '@/components/SystemSettings';
 import GlobalNavigation from '@/components/GlobalNavigation';
 import AIConversationModal from '@/components/AIConversationModal';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useQueryClient } from '@tanstack/react-query';
 
 const { Content } = Layout;
 
 export default function Dashboard() {
   const [selectedTab, setSelectedTab] = useState('articles');
+  const [settingsDrawerOpen, setSettingsDrawerOpen] = useState(false);
   const { theme } = useTheme();
+  const queryClient = useQueryClient();
+
+  // 当打开设置页面时，自动刷新数据
+  useEffect(() => {
+    if (settingsDrawerOpen) {
+      queryClient.invalidateQueries({ queryKey: ['llm-settings'] });
+      queryClient.invalidateQueries({ queryKey: ['llm-providers'] });
+      queryClient.invalidateQueries({ queryKey: ['notification-settings'] });
+    }
+  }, [settingsDrawerOpen, queryClient]);
 
   const tabs = [
     {
@@ -54,16 +65,6 @@ export default function Dashboard() {
       ),
       children: <Statistics />,
     },
-    {
-      key: 'system',
-      label: (
-        <span>
-          <ToolOutlined />
-          系统功能
-        </span>
-      ),
-      children: <SystemSettings />,
-    },
   ];
 
   // 根据主题设置 Content 背景色
@@ -75,7 +76,7 @@ export default function Dashboard() {
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
-      <GlobalNavigation />
+      <GlobalNavigation onSettingsClick={() => setSettingsDrawerOpen(true)} />
       <Layout>
         <Content style={contentStyle}>
           <Tabs
@@ -87,6 +88,22 @@ export default function Dashboard() {
         </Content>
       </Layout>
       <AIConversationModal />
+      <Drawer
+        title="系统设置"
+        placement="right"
+        width={800}
+        open={settingsDrawerOpen}
+        onClose={() => setSettingsDrawerOpen(false)}
+        styles={{
+          body: {
+            padding: 0,
+          },
+        }}
+      >
+        <div style={{ padding: '24px' }}>
+          <SystemSettings />
+        </div>
+      </Drawer>
     </Layout>
   );
 }
