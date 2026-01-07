@@ -12,12 +12,13 @@ from typing import List, Dict, Any, Optional
 import logging
 import os
 
+from backend.app.services.collector.base_collector import BaseCollector
 from backend.app.services.collector.rss_collector import RSSCollector
 
 logger = logging.getLogger(__name__)
 
 
-class TwitterCollector:
+class TwitterCollector(BaseCollector):
     """Twitter/X 采集器"""
 
     def __init__(self, timeout: int = 30, user_agent: str = None):
@@ -49,6 +50,40 @@ class TwitterCollector:
         except Exception as e:
             logger.warning(f"⚠️  时间转换失败: {utc_time_str}, 错误: {e}")
             return None
+    
+    def fetch_articles(self, config: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        从 Twitter/X 获取推文（实现BaseCollector接口）
+
+        Args:
+            config: 采集配置字典，包含：
+                - url: Twitter 用户 URL
+                - name: 源名称
+                - method: 采集方法（可选）
+                - max_tweets: 最大推文数（可选，默认20）
+
+        Returns:
+            推文列表（格式化为文章格式）
+        """
+        # 将max_tweets映射到max_articles（如果存在）
+        if "max_articles" in config and "max_tweets" not in config:
+            config["max_tweets"] = config["max_articles"]
+        
+        return self.fetch_tweets(config)
+    
+    def validate_config(self, config: Dict[str, Any]) -> tuple[bool, Optional[str]]:
+        """
+        验证Twitter配置是否有效
+
+        Args:
+            config: 采集配置字典
+
+        Returns:
+            (is_valid, error_message) 元组
+        """
+        if not config.get("url"):
+            return False, "Twitter配置中缺少url字段"
+        return True, None
 
     def fetch_tweets(self, config: Dict[str, Any]) -> List[Dict[str, Any]]:
         """

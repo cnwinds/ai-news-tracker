@@ -112,6 +112,9 @@ class DatabaseManager:
             # 迁移：添加 user_notes 字段（如果不存在）
             self._migrate_add_user_notes()
             
+            # 迁移：添加采集源自定义字段（如果不存在）
+            self._migrate_add_source_customization()
+            
             logger.info("✅ 数据库基础表初始化成功")
         except Exception as e:
             logger.error(f"❌ 数据库初始化失败: {e}")
@@ -157,6 +160,38 @@ class DatabaseManager:
         except Exception as e:
             # 如果字段已存在或其他错误，记录但不中断
             logger.debug(f"user_notes 字段迁移检查: {e}")
+
+    def _migrate_add_source_customization(self):
+        """迁移：为 rss_sources 表添加 analysis_prompt 和 parse_fix_history 字段（如果不存在）"""
+        try:
+            from sqlalchemy import inspect, text
+            inspector = inspect(self.engine)
+            columns = [col['name'] for col in inspector.get_columns('rss_sources')]
+            
+            # 添加 analysis_prompt 字段
+            if 'analysis_prompt' not in columns:
+                logger.info("🔄 检测到缺少 analysis_prompt 字段，正在添加...")
+                with self.engine.connect() as conn:
+                    conn.execute(text("""
+                        ALTER TABLE rss_sources 
+                        ADD COLUMN analysis_prompt TEXT
+                    """))
+                    conn.commit()
+                logger.info("✅ analysis_prompt 字段添加成功")
+            
+            # 添加 parse_fix_history 字段
+            if 'parse_fix_history' not in columns:
+                logger.info("🔄 检测到缺少 parse_fix_history 字段，正在添加...")
+                with self.engine.connect() as conn:
+                    conn.execute(text("""
+                        ALTER TABLE rss_sources 
+                        ADD COLUMN parse_fix_history TEXT
+                    """))
+                    conn.commit()
+                logger.info("✅ parse_fix_history 字段添加成功")
+        except Exception as e:
+            # 如果字段已存在或其他错误，记录但不中断
+            logger.debug(f"采集源自定义字段迁移检查: {e}")
 
     def init_sqlite_vec_table(self, embedding_model: str = None):
         """

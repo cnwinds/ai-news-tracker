@@ -10,6 +10,8 @@ from bs4 import BeautifulSoup
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import re
 
+from backend.app.services.collector.base_collector import BaseCollector
+
 logger = logging.getLogger(__name__)
 
 
@@ -55,7 +57,7 @@ def _get_author_from_source(source_name: str = None, url: str = None) -> str:
     return ""
 
 
-class RSSCollector:
+class RSSCollector(BaseCollector):
     """RSS采集器"""
 
     def __init__(self, timeout: int = 30, user_agent: str = None):
@@ -72,9 +74,45 @@ class RSSCollector:
             "Upgrade-Insecure-Requests": "1",
         }
 
+    def fetch_articles(self, config: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        从RSS源获取文章（实现BaseCollector接口）
+
+        Args:
+            config: 采集配置字典，包含：
+                - url: RSS feed URL
+                - name: 源名称
+                - max_articles: 最大文章数（可选，默认20）
+
+        Returns:
+            文章列表
+        """
+        url = config.get("url")
+        source_name = config.get("name")
+        max_articles = config.get("max_articles", 20)
+        
+        if not url:
+            raise ValueError("RSS配置中缺少url字段")
+        
+        return self.fetch_feed(url, max_articles, source_name)
+    
+    def validate_config(self, config: Dict[str, Any]) -> tuple[bool, Optional[str]]:
+        """
+        验证RSS配置是否有效
+
+        Args:
+            config: 采集配置字典
+
+        Returns:
+            (is_valid, error_message) 元组
+        """
+        if not config.get("url"):
+            return False, "RSS配置中缺少url字段"
+        return True, None
+    
     def fetch_feed(self, url: str, max_articles: int = 20, source_name: str = None) -> List[Dict[str, Any]]:
         """
-        从RSS源获取文章
+        从RSS源获取文章（保留原有接口以保持向后兼容）
 
         Args:
             url: RSS feed URL

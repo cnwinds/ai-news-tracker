@@ -19,6 +19,8 @@ class RSSSourceBase(BaseModel):
     priority: int = 1
     note: Optional[str] = None
     extra_config: Optional[str] = None
+    analysis_prompt: Optional[str] = None  # 自定义AI分析提示词
+    parse_fix_history: Optional[str] = None  # 解析修复历史（JSON格式）
 
 
 class RSSSourceCreate(RSSSourceBase):
@@ -37,6 +39,8 @@ class RSSSourceUpdate(BaseModel):
     priority: Optional[int] = None
     note: Optional[str] = None
     extra_config: Optional[str] = None
+    analysis_prompt: Optional[str] = None
+    parse_fix_history: Optional[str] = None
 
 
 class RSSSource(RSSSourceBase):

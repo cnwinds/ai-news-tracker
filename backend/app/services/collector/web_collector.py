@@ -9,10 +9,12 @@ from typing import List, Dict, Any, Optional
 import logging
 import re
 
+from backend.app.services.collector.base_collector import BaseCollector
+
 logger = logging.getLogger(__name__)
 
 
-class WebCollector:
+class WebCollector(BaseCollector):
     """通用网页采集器"""
 
     def __init__(self, timeout: int = 30, user_agent: str = None):
@@ -85,6 +87,22 @@ class WebCollector:
             import traceback
             traceback.print_exc()
             return []
+    
+    def validate_config(self, config: Dict[str, Any]) -> tuple[bool, Optional[str]]:
+        """
+        验证Web配置是否有效
+
+        Args:
+            config: 采集配置字典
+
+        Returns:
+            (is_valid, error_message) 元组
+        """
+        if not config.get("url"):
+            return False, "Web配置中缺少url字段"
+        if not config.get("article_selector"):
+            return False, "Web配置中缺少article_selector字段"
+        return True, None
 
     def _parse_article_element(self, element: Any, config: Dict[str, Any], source_name: str) -> Dict[str, Any]:
         """

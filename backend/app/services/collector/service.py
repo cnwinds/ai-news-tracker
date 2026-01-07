@@ -12,6 +12,7 @@ from backend.app.services.collector.rss_collector import RSSCollector
 from backend.app.services.collector.api_collector import ArXivCollector, HuggingFaceCollector, PapersWithCodeCollector
 from backend.app.services.collector.web_collector import WebCollector
 from backend.app.services.collector.twitter_collector import TwitterCollector
+from backend.app.services.collector.email_collector import EmailCollector
 from backend.app.db import get_db
 from backend.app.db.models import Article, CollectionLog, RSSSource
 from backend.app.services.analyzer.ai_analyzer import AIAnalyzer
@@ -34,6 +35,7 @@ class CollectionService:
         self.pwc_collector = PapersWithCodeCollector()
         self.web_collector = WebCollector()
         self.twitter_collector = TwitterCollector()
+        self.email_collector = EmailCollector()
 
         # 初始化总结生成器
         if ai_analyzer:
@@ -171,7 +173,7 @@ class CollectionService:
         if task_id:
             self._update_task_progress(db, task_id, stats)
 
-        # 5. 可选：自动索引新文章到RAG库
+        # 6. 可选：自动索引新文章到RAG库
         if enable_ai_analysis and self.ai_analyzer:
             try:
                 logger.info("\n🔍 开始自动索引新文章到RAG库...")
@@ -1221,6 +1223,132 @@ class CollectionService:
 
         return stats
 
+    def _collect_email_sources(self, db, task_id: int = None, enable_ai_analysis: bool = False) -> Dict[str, Any]:
+        """
+        采集邮件源
+
+        Args:
+            db: 数据库管理器
+            task_id: 任务ID
+            enable_ai_analysis: 是否启用AI分析
+
+        Returns:
+            采集统计信息
+        """
+        stats = {"sources_success": 0, "sources_error": 0, "new_articles": 0, "total_articles": 0, "ai_analyzed_count": 0}
+
+        # 从数据库读取邮件源
+        email_configs = []
+        with db.get_session() as session:
+            db_sources = session.query(RSSSource).filter(
+                RSSSource.enabled == True,
+                RSSSource.source_type == "email"
+            ).order_by(RSSSource.priority.asc()).all()
+
+            for source in db_sources:
+                config = {
+                    "name": source.name,
+                    "url": source.url,
+                    "enabled": source.enabled,
+                }
+
+                if source.extra_config:
+                    try:
+                        import json
+                        extra_config = json.loads(source.extra_config)
+                        if isinstance(extra_config, dict):
+                            config.update(extra_config)
+                    except:
+                        pass
+
+                email_configs.append(config)
+                _ = source.id
+                _ = source.name
+                _ = source.url
+                _ = source.enabled
+            session.expunge_all()
+
+        # 只从数据库读取源，如果数据库中没有源则不采集
+        if not email_configs:
+            logger.info("  ℹ️  数据库中没有启用的邮件源，跳过采集")
+            return stats
+
+        logger.info(f"  🚀 开始采集 {len(email_configs)} 个邮件源")
+
+        for config in email_configs:
+            if not config.get("enabled", True):
+                continue
+
+            # 合并 extra_config 到主配置
+            config = self._merge_extra_config(config)
+            source_name = config.get("name", "Unknown")
+
+            try:
+                logger.info(f"  📧 开始采集邮件: {source_name}")
+
+                # 验证配置
+                is_valid, error_msg = self.email_collector.validate_config(config)
+                if not is_valid:
+                    logger.warning(f"  ⚠️  {source_name}: {error_msg}")
+                    stats["sources_error"] += 1
+                    self._log_collection(db, source_name, "email", "error", 0, error_msg, task_id=task_id)
+                    continue
+
+                # 采集文章
+                articles = self.email_collector.fetch_articles(config)
+
+                if not articles:
+                    logger.info(f"  ⚠️  {source_name}: 未获取到文章")
+                    stats["sources_error"] += 1
+                    self._log_collection(db, source_name, "email", "error", 0, "未获取到文章", task_id=task_id)
+                    continue
+
+                process_result = self._process_articles_from_source(db, articles, source_name, "email", enable_ai_analysis, task_id=task_id)
+
+                # 更新邮件源的统计信息
+                with db.get_session() as session:
+                    source_obj = session.query(RSSSource).filter(RSSSource.name == source_name).first()
+                    if source_obj:
+                        source_obj.last_collected_at = datetime.now()
+                        source_obj.articles_count += len(articles)
+                        source_obj.last_error = None
+
+                        # 更新最新文章发布时间
+                        latest_article = session.query(Article).filter(
+                            Article.source == source_name,
+                            Article.published_at.isnot(None)
+                        ).order_by(Article.published_at.desc()).first()
+
+                        if latest_article:
+                            source_obj.latest_article_published_at = latest_article.published_at
+
+                        session.commit()
+
+                self._log_collection(db, source_name, "email", "success", process_result["total"], task_id=task_id)
+                stats["sources_success"] += 1
+                stats["new_articles"] += process_result["new"]
+                stats["total_articles"] += process_result["total"]
+                stats["ai_analyzed_count"] += process_result["ai_analyzed"]
+
+                logger.info(f"  ✅ {source_name}: {process_result['total']} 篇, 新增 {process_result['new']} 篇, AI分析 {process_result['ai_analyzed']} 篇")
+
+            except Exception as e:
+                logger.error(f"  ❌ {source_name}: {e}")
+                stats["sources_error"] += 1
+                self._log_collection(db, source_name, "email", "error", 0, str(e), task_id=task_id)
+                
+                # 更新错误信息
+                with db.get_session() as session:
+                    source_obj = session.query(RSSSource).filter(RSSSource.name == source_name).first()
+                    if source_obj:
+                        source_obj.last_error = str(e)
+                        session.commit()
+
+        logger.info(f"  ✅ 邮件源采集完成: 成功 {stats['sources_success']} 个源, 失败 {stats['sources_error']} 个源")
+        logger.info(f"     总文章: {stats['total_articles']} 篇, 新增: {stats['new_articles']} 篇, AI分析: {stats['ai_analyzed_count']} 篇")
+
+        return stats
+
     def _save_or_update_article_and_get_id(self, db, article: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
         保存或更新文章到数据库并返回文章ID和信息
@@ -1395,8 +1523,20 @@ class CollectionService:
                             "published_at": article_obj.published_at,
                         }
 
+                        # 获取自定义提示词（如果源配置了）
+                        custom_prompt = None
+                        if article_obj.source:
+                            source_obj = session.query(RSSSource).filter(
+                                RSSSource.name == article_obj.source
+                            ).first()
+                            if source_obj and source_obj.analysis_prompt:
+                                custom_prompt = source_obj.analysis_prompt
+
                         # AI分析（使用线程独立的AI分析器）
-                        result = thread_ai_analyzer.analyze_article(article_dict)
+                        result = thread_ai_analyzer.analyze_article(
+                            article_dict, 
+                            custom_prompt=custom_prompt
+                        )
 
                         # 更新文章
                         # 确保 summary 是字符串类型（AI可能返回dict）
@@ -1503,8 +1643,20 @@ class CollectionService:
                         "published_at": article_obj.published_at,
                     }
 
+                    # 获取自定义提示词（如果源配置了）
+                    custom_prompt = None
+                    if article_obj.source:
+                        source_obj = session.query(RSSSource).filter(
+                            RSSSource.name == article_obj.source
+                        ).first()
+                        if source_obj and source_obj.analysis_prompt:
+                            custom_prompt = source_obj.analysis_prompt
+
                     # AI分析（使用线程独立的AI分析器）
-                    result = thread_ai_analyzer.analyze_article(article_dict)
+                    result = thread_ai_analyzer.analyze_article(
+                        article_dict,
+                        custom_prompt=custom_prompt
+                    )
 
                     # 更新文章
                     # 确保 summary 是字符串类型（AI可能返回dict）

@@ -170,33 +170,44 @@ async def analyze_article(
             "is_processed": True,
         }
     
-    # 创建AI分析器
-    ai_analyzer = create_ai_analyzer()
-    if not ai_analyzer:
-        raise HTTPException(status_code=400, detail="未配置AI分析器")
-    
-    try:
-        # 执行AI分析
-        analysis_result = ai_analyzer.analyze_article(
-            title=article.title,
-            content=article.content or "",
-            url=article.url,
-        )
+        # 创建AI分析器
+        ai_analyzer = create_ai_analyzer()
+        if not ai_analyzer:
+            raise HTTPException(status_code=400, detail="未配置AI分析器")
         
-        # 更新文章分析结果
-        _update_article_analysis(article, analysis_result)
-        
-        db.commit()
-        
-        return {
-            "message": "重新分析完成" if was_processed else "分析完成",
-            "article_id": article_id,
-            "analysis": analysis_result,
-            "is_processed": True,
-        }
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=f"分析失败: {str(e)}")
+        try:
+            # 获取自定义提示词（如果源配置了）
+            custom_prompt = None
+            if article.source:
+                from backend.app.db.models import RSSSource
+                source_obj = db.query(RSSSource).filter(
+                    RSSSource.name == article.source
+                ).first()
+                if source_obj and source_obj.analysis_prompt:
+                    custom_prompt = source_obj.analysis_prompt
+            
+            # 执行AI分析
+            analysis_result = ai_analyzer.analyze_article(
+                title=article.title,
+                content=article.content or "",
+                url=article.url,
+                custom_prompt=custom_prompt,
+            )
+            
+            # 更新文章分析结果
+            _update_article_analysis(article, analysis_result)
+            
+            db.commit()
+            
+            return {
+                "message": "重新分析完成" if was_processed else "分析完成",
+                "article_id": article_id,
+                "analysis": analysis_result,
+                "is_processed": True,
+            }
+        except Exception as e:
+            db.rollback()
+            raise HTTPException(status_code=500, detail=f"分析失败: {str(e)}")
 
 
 @router.delete("/{article_id}")
@@ -324,10 +335,21 @@ async def collect_article_from_url(
         ai_analyzer = create_ai_analyzer()
         if ai_analyzer:
             try:
+                # 获取自定义提示词（如果源配置了）
+                custom_prompt = None
+                if new_article.source:
+                    from backend.app.db.models import RSSSource
+                    source_obj = db.query(RSSSource).filter(
+                        RSSSource.name == new_article.source
+                    ).first()
+                    if source_obj and source_obj.analysis_prompt:
+                        custom_prompt = source_obj.analysis_prompt
+                
                 analysis_result = ai_analyzer.analyze_article(
                     title=new_article.title,
                     content=new_article.content or "",
                     url=new_article.url,
+                    custom_prompt=custom_prompt,
                 )
                 
                 # 更新文章分析结果

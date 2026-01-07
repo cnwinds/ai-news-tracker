@@ -52,13 +52,15 @@ class AIAnalyzer:
             logger.error(f"❌ AI分析器初始化失败: {e}")
             raise
 
-    def analyze_article(self, article: Dict[str, Any] = None, **kwargs) -> Dict[str, Any]:
+    def analyze_article(self, article: Dict[str, Any] = None, custom_prompt: str = None, **kwargs) -> Dict[str, Any]:
         """
         分析文章，生成总结和标签
 
         Args:
             article: 文章字典（包含 title, content, source, published_at）
             或者使用关键字参数: title, content, url
+            custom_prompt: 自定义提示词模板（可选），如果提供则使用自定义提示词，否则使用默认提示词
+                         支持变量替换：{title}, {content}, {source}, {url}
 
         Returns:
             分析结果
@@ -77,8 +79,11 @@ class AIAnalyzer:
             
             logger.info(f"🤖 正在分析文章: {title[:50]}...")
             
-            # 构建提示词
-            prompt = self._build_analysis_prompt(title, content, url, source)
+            # 构建提示词（如果提供了自定义提示词，使用自定义提示词）
+            if custom_prompt:
+                prompt = self._build_custom_prompt(custom_prompt, title, content, url, source)
+            else:
+                prompt = self._build_analysis_prompt(title, content, url, source)
             
             # 最多尝试3次（初始1次 + 重试2次）
             max_retries = 3
@@ -342,8 +347,41 @@ class AIAnalyzer:
         # 如果英文字符占比超过70%，认为是英文标题
         return english_ratio > 0.7
 
+    def _build_custom_prompt(self, template: str, title: str, content: str, url: str = "", source: str = "") -> str:
+        """
+        使用自定义模板构建提示词
+        
+        Args:
+            template: 提示词模板，支持变量：{title}, {content}, {source}, {url}
+            title: 文章标题
+            content: 文章内容
+            url: 文章URL
+            source: 来源名称
+        
+        Returns:
+            替换变量后的提示词
+        """
+        # 限制内容长度（避免超出token限制）
+        content_preview = content[:8000] if content else "无内容"
+        
+        # 使用str.format进行变量替换
+        try:
+            prompt = template.format(
+                title=title,
+                content=content_preview,
+                source=source,
+                url=url
+            )
+            return prompt
+        except KeyError as e:
+            logger.warning(f"⚠️  提示词模板包含未知变量: {e}，使用默认提示词")
+            return self._build_analysis_prompt(title, content, url, source)
+        except Exception as e:
+            logger.warning(f"⚠️  构建自定义提示词失败: {e}，使用默认提示词")
+            return self._build_analysis_prompt(title, content, url, source)
+
     def _build_analysis_prompt(self, title: str, content: str, url: str = "", source: str = "") -> str:
-        """构建分析提示词"""
+        """构建分析提示词（默认）"""
         content_preview = content[:8000] if content else "无内容"
         
         prompt = f"""将作者写的长篇文章，改写成一篇**结构完整、信息齐全、逻辑严密**的精简短文。想象一下，这是为那些时间极其宝贵但又必须掌握你思想精华的核心读者（比如投资人、合作伙伴、高级决策者）准备的"浓缩精华版"。它本身就是一篇独立、完整、且有说服力的作品。

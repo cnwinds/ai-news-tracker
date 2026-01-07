@@ -315,3 +315,116 @@ async def import_default_sources(
         db.rollback()
         raise HTTPException(status_code=500, detail=f"导入失败: {str(e)}")
 
+
+@router.post("/{source_id}/fix-parse")
+async def fix_source_parse(
+    source_id: int,
+    db: Session = Depends(get_database),
+    current_user: str = Depends(require_auth),
+):
+    """手动触发AI修复解析配置"""
+    source = db.query(RSSSource).filter(RSSSource.id == source_id).first()
+    if not source:
+        raise HTTPException(status_code=404, detail="订阅源不存在")
+    
+    # 检查源类型是否支持修复
+    if source.source_type not in ["web", "rss"]:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"源类型 {source.source_type} 暂不支持AI修复"
+        )
+    
+    try:
+        # 创建AI分析器和解析器
+        from backend.app.utils import create_ai_analyzer
+        from backend.app.services.collector.ai_parser import AIParser
+        
+        ai_analyzer = create_ai_analyzer()
+        if not ai_analyzer:
+            raise HTTPException(status_code=400, detail="未配置AI分析器")
+        
+        ai_parser = AIParser(ai_analyzer)
+        
+        # 准备源配置
+        source_config = {
+            "name": source.name,
+            "url": source.url,
+            "source_type": source.source_type,
+            "extra_config": source.extra_config,
+        }
+        
+        # 执行修复
+        result = ai_parser.analyze_and_fix_config(
+            source_config,
+            error_message=source.last_error
+        )
+        
+        if result["success"]:
+            # 更新配置
+            from backend.app.db import get_db
+            db_manager = get_db()
+            success = ai_parser.update_source_config(
+                db_manager,
+                source_id,
+                result["new_config"],
+                result["fix_history_entry"]
+            )
+            
+            if success:
+                return {
+                    "message": "修复成功",
+                    "source_id": source_id,
+                    "new_config": result["new_config"],
+                    "fix_history": result["fix_history_entry"]
+                }
+            else:
+                raise HTTPException(status_code=500, detail="更新配置失败")
+        else:
+            # 即使修复失败，也记录历史
+            from backend.app.db import get_db
+            db_manager = get_db()
+            ai_parser.update_source_config(
+                db_manager,
+                source_id,
+                source_config.get("extra_config", {}),
+                result["fix_history_entry"]
+            )
+            
+            raise HTTPException(
+                status_code=500, 
+                detail=f"修复失败: {result.get('error', '未知错误')}"
+            )
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"修复源配置失败: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"修复失败: {str(e)}")
+
+
+@router.get("/{source_id}/fix-history")
+async def get_fix_history(
+    source_id: int,
+    db: Session = Depends(get_database),
+    current_user: str = Depends(require_auth),
+):
+    """获取源的修复历史"""
+    source = db.query(RSSSource).filter(RSSSource.id == source_id).first()
+    if not source:
+        raise HTTPException(status_code=404, detail="订阅源不存在")
+    
+    try:
+        import json
+        history = []
+        if source.parse_fix_history:
+            history = json.loads(source.parse_fix_history)
+        
+        return {
+            "source_id": source_id,
+            "source_name": source.name,
+            "fix_history": history
+        }
+    except Exception as e:
+        logger.error(f"获取修复历史失败: {e}")
+        raise HTTPException(status_code=500, detail=f"获取修复历史失败: {str(e)}")
+

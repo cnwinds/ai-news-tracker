@@ -4,19 +4,55 @@ API数据采集器（arXiv, Hugging Face等）
 import requests
 import feedparser
 from datetime import datetime, timezone, timedelta
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import logging
 import time
+
+from backend.app.services.collector.base_collector import BaseCollector
 
 logger = logging.getLogger(__name__)
 
 
-class ArXivCollector:
+class ArXivCollector(BaseCollector):
     """arXiv论文采集器"""
 
     def __init__(self, timeout: int = 30):
         self.timeout = timeout
         self.base_url = "http://export.arxiv.org/api/query"
+    
+    def fetch_articles(self, config: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        从arXiv获取论文（实现BaseCollector接口）
+
+        Args:
+            config: 采集配置字典，包含：
+                - query: 查询条件 (如: cat:cs.AI)
+                - max_results: 最大结果数（可选，默认20）
+
+        Returns:
+            论文列表
+        """
+        query = config.get("query")
+        max_results = config.get("max_results", 20)
+        
+        if not query:
+            raise ValueError("ArXiv配置中缺少query字段")
+        
+        return self.fetch_papers(query, max_results)
+    
+    def validate_config(self, config: Dict[str, Any]) -> tuple[bool, Optional[str]]:
+        """
+        验证ArXiv配置是否有效
+
+        Args:
+            config: 采集配置字典
+
+        Returns:
+            (is_valid, error_message) 元组
+        """
+        if not config.get("query"):
+            return False, "ArXiv配置中缺少query字段"
+        return True, None
 
     def fetch_papers(self, query: str, max_results: int = 20) -> List[Dict[str, Any]]:
         """
@@ -105,12 +141,38 @@ class ArXivCollector:
             return None
 
 
-class HuggingFaceCollector:
+class HuggingFaceCollector(BaseCollector):
     """Hugging Face论文采集器"""
 
     def __init__(self, timeout: int = 30):
         self.timeout = timeout
         self.base_url = "https://huggingface.co/api/papers"
+    
+    def fetch_articles(self, config: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        获取趋势论文（实现BaseCollector接口）
+
+        Args:
+            config: 采集配置字典，包含：
+                - max_results: 最大数量（可选，默认20）
+
+        Returns:
+            论文列表
+        """
+        limit = config.get("max_results", 20)
+        return self.fetch_trending_papers(limit)
+    
+    def validate_config(self, config: Dict[str, Any]) -> tuple[bool, Optional[str]]:
+        """
+        验证HuggingFace配置是否有效
+
+        Args:
+            config: 采集配置字典
+
+        Returns:
+            (is_valid, error_message) 元组
+        """
+        return True, None
 
     def fetch_trending_papers(self, limit: int = 20) -> List[Dict[str, Any]]:
         """
@@ -186,12 +248,38 @@ class HuggingFaceCollector:
             return None
 
 
-class PapersWithCodeCollector:
+class PapersWithCodeCollector(BaseCollector):
     """Papers with Code采集器"""
 
     def __init__(self, timeout: int = 30):
         self.timeout = timeout
         self.base_url = "https://paperswithcode.com/api/v1"
+    
+    def fetch_articles(self, config: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        获取趋势论文（实现BaseCollector接口）
+
+        Args:
+            config: 采集配置字典，包含：
+                - max_results: 最大数量（可选，默认20）
+
+        Returns:
+            论文列表
+        """
+        limit = config.get("max_results", 20)
+        return self.fetch_trending_papers(limit)
+    
+    def validate_config(self, config: Dict[str, Any]) -> tuple[bool, Optional[str]]:
+        """
+        验证PapersWithCode配置是否有效
+
+        Args:
+            config: 采集配置字典
+
+        Returns:
+            (is_valid, error_message) 元组
+        """
+        return True, None
 
     def fetch_trending_papers(self, limit: int = 20) -> List[Dict[str, Any]]:
         """获取趋势论文"""
