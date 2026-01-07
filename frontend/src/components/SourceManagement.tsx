@@ -23,7 +23,7 @@ import {
   Row,
   Col,
 } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, ImportOutlined, ToolOutlined, HistoryOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, DeleteOutlined, ImportOutlined } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiService } from '@/services/api';
 import { useAuth } from '@/contexts/AuthContext';
@@ -115,9 +115,11 @@ export default function SourceManagement() {
     },
   });
 
+  // fixParseMutation 可能在未来使用，暂时保留
+  // @ts-expect-error - 暂时未使用，但保留以备将来使用
   const fixParseMutation = useMutation({
     mutationFn: (id: number) => apiService.fixSourceParse(id),
-    onSuccess: (data) => {
+    onSuccess: () => {
       message.success('AI修复成功！新配置已自动更新');
       setFixingSourceId(null);
       queryClient.invalidateQueries({ queryKey: ['sources'] });
@@ -128,7 +130,7 @@ export default function SourceManagement() {
     },
   });
 
-  const { data: fixHistory, refetch: refetchFixHistory } = useQuery({
+  const { data: fixHistory } = useQuery({
     queryKey: ['fix-history', fixingSourceId],
     queryFn: () => apiService.getFixHistory(fixingSourceId!),
     enabled: fixHistoryModalVisible && fixingSourceId !== null,
@@ -233,15 +235,16 @@ export default function SourceManagement() {
     importMutation.mutate(selectedSources);
   };
 
-  const handleFixParse = (sourceId: number) => {
-    setFixingSourceId(sourceId);
-    fixParseMutation.mutate(sourceId);
-  };
+  // 这些函数可能在未来使用，暂时保留但标记为未使用
+  // const handleFixParse = (sourceId: number) => {
+  //   setFixingSourceId(sourceId);
+  //   fixParseMutation.mutate(sourceId);
+  // };
 
-  const handleViewFixHistory = (sourceId: number) => {
-    setFixingSourceId(sourceId);
-    setFixHistoryModalVisible(true);
-  };
+  // const handleViewFixHistory = (sourceId: number) => {
+  //   setFixingSourceId(sourceId);
+  //   setFixHistoryModalVisible(true);
+  // };
 
   // 订阅源排序函数
   const sortSources = (sources: RSSSource[]): RSSSource[] => {

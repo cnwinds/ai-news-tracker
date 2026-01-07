@@ -2,8 +2,8 @@
  * 文章列表组件
  */
 import { useState, useMemo } from 'react';
-import { Card, Select, Radio, Space, Pagination, Spin, Empty, Alert, Button, Switch } from 'antd';
-import { ReloadOutlined, CheckOutlined, CloseOutlined } from '@ant-design/icons';
+import { Card, Select, Radio, Space, Pagination, Spin, Empty, Alert, Button } from 'antd';
+import { ReloadOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { useArticles } from '@/hooks/useArticles';
 import ArticleCard from './ArticleCard';
@@ -107,7 +107,7 @@ export default function ArticleList() {
                 justifyContent: 'center',
                 padding: '0 12px',
                 height: '32px',
-                backgroundColor: getThemeColor(theme, 'inputBg', theme === 'dark' ? '#141414' : '#ffffff'),
+                backgroundColor: getThemeColor(theme, 'bgElevated'),
                 border: `1px solid ${getThemeColor(theme, 'border')}`,
                 borderRight: 'none',
                 borderTopLeftRadius: '6px',
