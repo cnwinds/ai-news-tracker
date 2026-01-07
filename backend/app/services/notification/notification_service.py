@@ -99,13 +99,13 @@ class NotificationService:
                 
                 # 处理跨天的情况（例如22:00-08:00）
                 if start_minutes > end_minutes:
-                    # 跨天时段：从start到24:00，或从00:00到end
-                    if current_minutes >= start_minutes or current_minutes < end_minutes:
+                    # 跨天时段：从start到24:00，或从00:00到end（包含end时间点）
+                    if current_minutes >= start_minutes or current_minutes <= end_minutes:
                         logger.info(f"⏰ 当前时间 {current_time.strftime('%H:%M')} 在勿扰时段 {start_time_str}-{end_time_str} 内")
                         return True
                 else:
-                    # 同一天时段
-                    if start_minutes <= current_minutes < end_minutes:
+                    # 同一天时段（包含end时间点）
+                    if start_minutes <= current_minutes <= end_minutes:
                         logger.info(f"⏰ 当前时间 {current_time.strftime('%H:%M')} 在勿扰时段 {start_time_str}-{end_time_str} 内")
                         return True
             except (ValueError, KeyError, IndexError) as e:
