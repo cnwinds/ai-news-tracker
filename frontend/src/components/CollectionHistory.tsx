@@ -34,7 +34,7 @@ import { apiService } from '@/services/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import dayjs from 'dayjs';
-import type { CollectionTask, AutoCollectionSettings } from '@/types';
+import type { CollectionTask, CollectionTaskStatus, AutoCollectionSettings } from '@/types';
 
 const { Text, Paragraph } = Typography;
 
@@ -56,8 +56,32 @@ export default function CollectionHistory() {
   const { data: status } = useQuery({
     queryKey: ['collection-status'],
     queryFn: () => apiService.getCollectionStatus(),
-    refetchInterval: 2000, // 每2秒刷新一次
+    // 只在有运行中任务时才轮询
+    refetchInterval: (query) => {
+      const currentStatus = query.state.data as CollectionTaskStatus | undefined;
+      // 如果有运行中的任务，每2秒刷新一次；否则不轮询
+      return currentStatus?.status === 'running' ? 2000 : false;
+    },
   });
+
+  // 监听状态变化，当任务完成时刷新任务列表
+  useEffect(() => {
+    if (status?.status === 'completed' || status?.status === 'error') {
+      // 任务已完成或出错，刷新任务列表以更新UI
+      queryClient.invalidateQueries({ queryKey: ['collection-tasks'] });
+    }
+  }, [status?.status, queryClient]);
+
+  // 当有运行中任务时，也轮询任务列表
+  useEffect(() => {
+    if (status?.status === 'running') {
+      // 如果有运行中的任务，设置定时刷新任务列表
+      const interval = setInterval(() => {
+        queryClient.invalidateQueries({ queryKey: ['collection-tasks'] });
+      }, 2000);
+      return () => clearInterval(interval);
+    }
+  }, [status?.status, queryClient]);
 
   // 获取任务详情
   const { data: taskDetail, isLoading: detailLoading } = useQuery({
