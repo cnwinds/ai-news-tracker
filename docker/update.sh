@@ -34,10 +34,26 @@ DOCKER_COMPOSE_CMD="docker compose"
 echo ""
 echo "📥 步骤 1/3: 更新代码 (git pull)..."
 cd "$PROJECT_ROOT" || exit 1
+
+# 获取当前 commit hash（在 pull 之前）
+CURRENT_COMMIT=$(git rev-parse HEAD)
+
+# 执行 git pull
 if ! git pull; then
     echo "❌ 错误: git pull 失败"
     exit 1
 fi
+
+# 获取 pull 后的 commit hash
+NEW_COMMIT=$(git rev-parse HEAD)
+
+# 检查是否有更新
+if [ "$CURRENT_COMMIT" = "$NEW_COMMIT" ]; then
+    echo "ℹ️  代码已是最新版本，无需更新"
+    echo "✅ 脚本结束（未执行后续步骤）"
+    exit 0
+fi
+
 echo "✅ 代码更新成功"
 
 # 步骤 2: 编译 Docker 镜像
