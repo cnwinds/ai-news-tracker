@@ -69,26 +69,28 @@
   ],
   "api_sources": [
     {
-      "name": "arXiv CS.AI 人工智能：搜索、规划、知识表示、推理等",
+      "name": "arXiv CS.AI",
       "url": "http://export.arxiv.org/api/query",
       "category": "paper",
       "enabled": true,
       "language": "en",
       "priority": 1,
       "source_type": "api",
+      "description": "人工智能：搜索、规划、知识表示、推理等",
       "extra_config": {
         "query": "cat:cs.AI",
         "max_results": 20
       }
     },
     {
-      "name": "arXiv CS.LG 机器学习：监督/无监督学习、强化学习、深度学习等",
+      "name": "arXiv CS.LG",
       "url": "http://export.arxiv.org/api/query",
       "category": "paper",
       "enabled": true,
       "language": "en",
       "priority": 1,
       "source_type": "api",
+      "description": "机器学习：监督/无监督学习、强化学习、深度学习等",
       "extra_config": {
         "query": "cat:cs.LG",
         "max_results": 20
@@ -102,19 +104,21 @@
       "language": "en",
       "priority": 2,
       "source_type": "api",
+      "description": "计算语言学：NLP、文本处理、语言模型等",
       "extra_config": {
         "query": "cat:cs.CL",
         "max_results": 15
       }
     },
     {
-      "name": "arXiv CS.CV 计算机视觉：图像识别、目标检测、图像生成等",
+      "name": "arXiv CS.CV",
       "url": "http://export.arxiv.org/api/query",
       "category": "paper",
       "enabled": true,
       "language": "en",
       "priority": 2,
       "source_type": "api",
+      "description": "计算机视觉：图像识别、目标检测、图像生成等",
       "extra_config": {
         "query": "cat:cs.CV",
         "max_results": 15
