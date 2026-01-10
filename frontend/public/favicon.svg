@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1890ff;stop-opacity:0.15" />
+      <stop offset="100%" style="stop-color:#096dd9;stop-opacity:0.1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Background circle -->
+  <circle cx="32" cy="32" r="30" fill="url(#bgGradient)"/>
+  
+  <!-- News document icon -->
+  <rect x="14" y="10" width="26" height="34" rx="2.5" fill="#1890ff"/>
+  <rect x="14" y="10" width="26" height="8" rx="2.5" fill="#096dd9"/>
+  
+  <!-- Document content lines -->
+  <line x1="18" y1="22" x2="36" y2="22" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
+  <line x1="18" y1="28" x2="36" y2="28" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
+  <line x1="18" y1="34" x2="32" y2="34" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
+  <line x1="18" y1="38" x2="30" y2="38" stroke="white" stroke-width="2" stroke-linecap="round" opacity="0.8"/>
+  
+  <!-- AI intelligence nodes (representing tracking and analysis) -->
+  <circle cx="46" cy="18" r="3.5" fill="#ff4d4f"/>
+  <circle cx="50" cy="30" r="3" fill="#52c41a"/>
+  <circle cx="46" cy="40" r="3" fill="#faad14"/>
+  
+  <!-- Connection lines representing AI tracking data flow -->
+  <path d="M 38 22 L 42.5 18" stroke="#ff4d4f" stroke-width="2" fill="none" stroke-linecap="round"/>
+  <path d="M 38 26 L 47 30" stroke="#52c41a" stroke-width="2" fill="none" stroke-linecap="round"/>
+  <path d="M 38 30 L 43 40" stroke="#faad14" stroke-width="2" fill="none" stroke-linecap="round"/>
+  
+  <!-- Tracking arrow (representing tracking functionality) -->
+  <path d="M 18 42 L 28 42" stroke="#1890ff" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+  <path d="M 26 38 L 28 42 L 26 46" stroke="#1890ff" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
