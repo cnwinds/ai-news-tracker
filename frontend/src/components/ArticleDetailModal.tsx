@@ -3,10 +3,11 @@
  * 显示文章的完整内容、摘要等信息
  */
 import { useState, useEffect } from 'react';
-import { Modal, Typography, Spin, Tag, Space, Button, Divider, Empty } from 'antd';
+import { Modal, Typography, Spin, Tag, Space, Button, Divider, Empty, message } from 'antd';
 import {
   CloseOutlined,
   LinkOutlined,
+  ShareAltOutlined,
   StarOutlined,
   StarFilled,
   DownOutlined,
@@ -88,6 +89,39 @@ export default function ArticleDetailModal({
     maxHeight: '80vh',
     overflowY: 'auto',
     background: getThemeColor(theme, 'bgElevated'),
+  };
+
+  const copyToClipboard = async (text: string) => {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        message.success('分享链接已复制');
+        return;
+      }
+    } catch (err) {
+      // Fallback to manual copy.
+    }
+
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.left = '-9999px';
+    document.body.appendChild(textarea);
+    textarea.select();
+    try {
+      document.execCommand('copy');
+      message.success('分享链接已复制');
+    } catch (err) {
+      message.info(`分享链接: ${text}`);
+    } finally {
+      document.body.removeChild(textarea);
+    }
+  };
+
+  const handleCopyShareLink = () => {
+    if (!article) return;
+    const shareUrl = `${window.location.origin}/share/${article.id}`;
+    void copyToClipboard(shareUrl);
   };
 
   return (
@@ -294,6 +328,12 @@ export default function ArticleDetailModal({
                   }}
                 >
                   查看原文
+                </Button>
+                <Button
+                  icon={<ShareAltOutlined />}
+                  onClick={handleCopyShareLink}
+                >
+                  分享链接
                 </Button>
                 <Button
                   icon={article.is_favorited ? <StarFilled /> : <StarOutlined />}

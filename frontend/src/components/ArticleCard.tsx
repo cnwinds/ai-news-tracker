@@ -2,8 +2,8 @@
  * 文章卡片组件
  */
 import { useState, useEffect } from 'react';
-import { Card, Tag, Button, Space, Typography, Popconfirm, Tooltip, Input, Spin } from 'antd';
-import { LinkOutlined, DeleteOutlined, RobotOutlined, UpOutlined, DownOutlined, StarOutlined, StarFilled, EditOutlined, SaveOutlined } from '@ant-design/icons';
+import { Card, Tag, Button, Space, Typography, Popconfirm, Tooltip, Input, Spin, message, Divider } from 'antd';
+import { LinkOutlined, DeleteOutlined, RobotOutlined, UpOutlined, DownOutlined, StarOutlined, StarFilled, EditOutlined, SaveOutlined, ShareAltOutlined } from '@ant-design/icons';
 import ReactMarkdown from 'react-markdown';
 import dayjs from 'dayjs';
 import type { Article } from '@/types';
@@ -95,6 +95,38 @@ export default function ArticleCard({ article }: ArticleCardProps) {
   const handleCancelEditNotes = () => {
     setNotesValue(articleWithLoadedData.user_notes || '');
     setIsEditingNotes(false);
+  };
+
+  const copyToClipboard = async (text: string) => {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        message.success('分享链接已复制');
+        return;
+      }
+    } catch (err) {
+      // Fallback to manual copy.
+    }
+
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.left = '-9999px';
+    document.body.appendChild(textarea);
+    textarea.select();
+    try {
+      document.execCommand('copy');
+      message.success('分享链接已复制');
+    } catch (err) {
+      message.info(`分享链接: ${text}`);
+    } finally {
+      document.body.removeChild(textarea);
+    }
+  };
+
+  const handleShareLink = () => {
+    const shareUrl = `${window.location.origin}/share/${article.id}`;
+    void copyToClipboard(shareUrl);
   };
 
   return (
@@ -309,19 +341,6 @@ export default function ArticleCard({ article }: ArticleCardProps) {
               )}
             </div>
 
-            {/* 查看原文按钮 */}
-            <div style={{ marginBottom: 12 }}>
-              <Button
-                type="link"
-                icon={<LinkOutlined />}
-                href={article.url}
-                target="_blank"
-                size="small"
-              >
-                查看原文
-              </Button>
-            </div>
-
             {/* 标签区域 */}
             {articleWithLoadedData.tags && articleWithLoadedData.tags.length > 0 && (
               <div style={{ marginBottom: 12, display: 'flex', alignItems: 'flex-start', gap: 8, flexWrap: 'wrap' }}>
@@ -355,7 +374,7 @@ export default function ArticleCard({ article }: ArticleCardProps) {
                   <Space>
                     <Button
                       type="primary"
-                      size="small"
+                      size="middle"
                       icon={<SaveOutlined />}
                       onClick={handleSaveNotes}
                       loading={updateMutation.isPending}
@@ -364,7 +383,7 @@ export default function ArticleCard({ article }: ArticleCardProps) {
                       保存
                     </Button>
                     <Button
-                      size="small"
+                      size="middle"
                       onClick={handleCancelEditNotes}
                     >
                       取消
@@ -374,11 +393,11 @@ export default function ArticleCard({ article }: ArticleCardProps) {
               </div>
             ) : articleWithLoadedData.user_notes ? (
               <div style={{ marginBottom: 12 }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
                   <Text strong style={{ fontSize: 14 }}>我的笔记</Text>
                   <Button
                     type="text"
-                    size="small"
+                    size="middle"
                     icon={<EditOutlined />}
                     onClick={() => setIsEditingNotes(true)}
                     disabled={!isAuthenticated}
@@ -402,65 +421,98 @@ export default function ArticleCard({ article }: ArticleCardProps) {
                   {articleWithLoadedData.user_notes}
                 </div>
               </div>
-            ) : (
-              <div style={{ marginBottom: 12 }}>
+            ) : null}
+
+            {/* 分割线 */}
+            <Divider style={{ margin: '12px 0' }} />
+
+            {/* 查看原文按钮 */}
+            <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              {/* 第一组：文章交互操作 */}
+              <Space size="small" wrap>
                 <Button
-                  type="dashed"
-                  size="small"
+                  type="default"
+                  icon={<LinkOutlined />}
+                  href={article.url}
+                  target="_blank"
+                  size="middle"
+                >
+                  查看原文
+                </Button>
+                <Button
+                  type="default"
+                  icon={<ShareAltOutlined />}
+                  onClick={handleShareLink}
+                  size="middle"
+                >
+                  分享
+                </Button>
+                <Button
+                  type={article.is_favorited ? "primary" : "default"}
+                  icon={article.is_favorited ? <StarFilled /> : <StarOutlined />}
+                  onClick={handleFavorite}
+                  loading={favoriteMutation.isPending || unfavoriteMutation.isPending}
+                  disabled={!isAuthenticated}
+                  size="middle"
+                >
+                  {article.is_favorited ? '已收藏' : '收藏'}
+                </Button>
+              </Space>
+              
+              {/* 第二组：笔记操作 */}
+              <Space size="small" wrap style={{ marginLeft: 8 }}>
+                <Button
+                  type="default"
                   icon={<EditOutlined />}
                   onClick={() => setIsEditingNotes(true)}
                   disabled={!isAuthenticated}
-                  style={{ width: '100%' }}
+                  size="middle"
                 >
-                  增加笔记
+                  笔记
                 </Button>
-              </div>
-            )}
-            
-            {/* 功能按钮 */}
-            <div style={{ marginTop: '16px', display: 'flex', gap: '8px' }}>
-              <Button
-                type={article.is_favorited ? "primary" : "default"}
-                icon={article.is_favorited ? <StarFilled /> : <StarOutlined />}
-                onClick={handleFavorite}
-                loading={favoriteMutation.isPending || unfavoriteMutation.isPending}
-                disabled={!isAuthenticated}
-              >
-                {article.is_favorited ? '已收藏' : '收藏'}
-              </Button>
-              <Button
-                type="default"
-                icon={<RobotOutlined />}
-                onClick={handleAnalyze}
-                loading={analyzeMutation.isPending}
-                disabled={!isAuthenticated}
-              >
-                {article.is_processed ? '重新分析' : 'AI分析'}
-              </Button>
-              <Popconfirm
-                title="确定要删除这篇文章吗？"
-                onConfirm={handleDelete}
-                okText="确定"
-                cancelText="取消"
-                disabled={!isAuthenticated}
-              >
-                <Button
-                  type="primary"
-                  danger
-                  icon={<DeleteOutlined />}
-                  loading={deleteMutation.isPending}
-                  disabled={!isAuthenticated}
-                >
-                  删除
-                </Button>
-              </Popconfirm>
-              <Button
-                type="default"
-                icon={<UpOutlined />}
-                onClick={() => setExpanded(false)}
-              >
-                收起
-              </Button>
+              </Space>
+              
+              {/* 第三组：管理操作 */}
+              {!isEditingNotes && (
+                <Space size="small" wrap style={{ marginLeft: 8 }}>
+                  <Button
+                    type="default"
+                    size="middle"
+                    icon={<RobotOutlined />}
+                    onClick={handleAnalyze}
+                    loading={analyzeMutation.isPending}
+                    disabled={!isAuthenticated}
+                  >
+                    {article.is_processed ? '重新分析' : 'AI分析'}
+                  </Button>
+                  <Popconfirm
+                    title="确定要删除这篇文章吗？"
+                    onConfirm={handleDelete}
+                    okText="确定"
+                    cancelText="取消"
+                    disabled={!isAuthenticated}
+                  >
+                    <Button
+                      type="primary"
+                      danger
+                      size="middle"
+                      icon={<DeleteOutlined />}
+                      loading={deleteMutation.isPending}
+                      disabled={!isAuthenticated}
+                    >
+                      删除
+                    </Button>
+                  </Popconfirm>
+                  <Button
+                    type="default"
+                    size="middle"
+                    icon={<UpOutlined />}
+                    onClick={() => setExpanded(false)}
+                  >
+                    收起
+                  </Button>
+                </Space>
+              )}
             </div>
           </div>
         )}

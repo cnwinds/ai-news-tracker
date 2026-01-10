@@ -10,6 +10,7 @@ import { AIConversationProvider } from '@/contexts/AIConversationContext';
 import { AuthProvider } from '@/contexts/AuthContext';
 import Dashboard from '@/pages/Dashboard';
 import Login from '@/pages/Login';
+import ShareArticle from '@/pages/ShareArticle';
 import './App.css';
 
 // 创建 QueryClient 实例（单例模式）
@@ -37,6 +38,7 @@ function AppContent() {
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/" element={<Dashboard />} />
+          <Route path="/share/:id" element={<ShareArticle />} />
         </Routes>
       </BrowserRouter>
     </ConfigProvider>
