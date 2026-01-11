@@ -134,8 +134,44 @@ class RSSCollector(BaseCollector):
             response = requests.get(url, headers=headers, timeout=self.timeout)
             response.raise_for_status()
 
+            # 处理响应内容（确保正确解压）
+            content = response.content
+            content_encoding = response.headers.get('Content-Encoding', '').lower()
+            
+            # 如果响应是Brotli压缩但requests没有自动解压，手动解压
+            if content_encoding == 'br':
+                # 检查内容是否真的是压缩的（前几个字节是Brotli魔数）
+                if content[:2] == b'\x81\x16' or content[:2] == b'\xce\xb2' or content[:1] == b'\xce':
+                    try:
+                        import brotli
+                        content = brotli.decompress(content)
+                        logger.debug("手动解压Brotli压缩内容")
+                    except ImportError:
+                        logger.warning("检测到Brotli压缩但未安装brotli库，请运行: pip install brotli")
+                        # 尝试移除br从Accept-Encoding重新请求
+                        headers_no_br = headers.copy()
+                        if 'br' in headers_no_br.get('Accept-Encoding', ''):
+                            accept_encoding = headers_no_br.get('Accept-Encoding', '')
+                            accept_encoding = accept_encoding.replace('br', '').replace(',,', ',').strip(', ')
+                            headers_no_br['Accept-Encoding'] = accept_encoding
+                            logger.info("重新请求（不使用Brotli压缩）...")
+                            response = requests.get(url, headers=headers_no_br, timeout=self.timeout)
+                            response.raise_for_status()
+                            content = response.content
+                    except Exception as e:
+                        logger.warning(f"Brotli解压失败: {e}，尝试重新请求（不使用Brotli）...")
+                        # 尝试移除br从Accept-Encoding重新请求
+                        headers_no_br = headers.copy()
+                        if 'br' in headers_no_br.get('Accept-Encoding', ''):
+                            accept_encoding = headers_no_br.get('Accept-Encoding', '')
+                            accept_encoding = accept_encoding.replace('br', '').replace(',,', ',').strip(', ')
+                            headers_no_br['Accept-Encoding'] = accept_encoding
+                            response = requests.get(url, headers=headers_no_br, timeout=self.timeout)
+                            response.raise_for_status()
+                            content = response.content
+
             # 解析RSS
-            feed = feedparser.parse(response.content)
+            feed = feedparser.parse(content)
 
             if feed.bozo:
                 logger.warning(f"⚠️  RSS解析警告: {feed.bozo_exception}")
@@ -387,8 +423,44 @@ class RSSCollector(BaseCollector):
             response = requests.get(url, headers=headers, timeout=self.timeout)
             response.raise_for_status()
 
+            # 处理响应内容（确保正确解压）
+            content = response.content
+            content_encoding = response.headers.get('Content-Encoding', '').lower()
+            
+            # 如果响应是Brotli压缩但requests没有自动解压，手动解压
+            if content_encoding == 'br':
+                # 检查内容是否真的是压缩的（前几个字节是Brotli魔数）
+                if content[:2] == b'\x81\x16' or content[:2] == b'\xce\xb2' or content[:1] == b'\xce':
+                    try:
+                        import brotli
+                        content = brotli.decompress(content)
+                        logger.debug("手动解压Brotli压缩内容")
+                    except ImportError:
+                        logger.warning("检测到Brotli压缩但未安装brotli库，请运行: pip install brotli")
+                        # 尝试移除br从Accept-Encoding重新请求
+                        headers_no_br = headers.copy()
+                        if 'br' in headers_no_br.get('Accept-Encoding', ''):
+                            accept_encoding = headers_no_br.get('Accept-Encoding', '')
+                            accept_encoding = accept_encoding.replace('br', '').replace(',,', ',').strip(', ')
+                            headers_no_br['Accept-Encoding'] = accept_encoding
+                            logger.info("重新请求（不使用Brotli压缩）...")
+                            response = requests.get(url, headers=headers_no_br, timeout=self.timeout)
+                            response.raise_for_status()
+                            content = response.content
+                    except Exception as e:
+                        logger.warning(f"Brotli解压失败: {e}，尝试重新请求（不使用Brotli）...")
+                        # 尝试移除br从Accept-Encoding重新请求
+                        headers_no_br = headers.copy()
+                        if 'br' in headers_no_br.get('Accept-Encoding', ''):
+                            accept_encoding = headers_no_br.get('Accept-Encoding', '')
+                            accept_encoding = accept_encoding.replace('br', '').replace(',,', ',').strip(', ')
+                            headers_no_br['Accept-Encoding'] = accept_encoding
+                            response = requests.get(url, headers=headers_no_br, timeout=self.timeout)
+                            response.raise_for_status()
+                            content = response.content
+
             # 解析RSS
-            feed = feedparser.parse(response.content)
+            feed = feedparser.parse(content)
 
             if feed.bozo:
                 logger.warning(f"⚠️  RSS解析警告: {feed.bozo_exception}")
