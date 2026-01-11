@@ -44,6 +44,31 @@ class DailySummary(DailySummaryBase):
     )
 
 
+class DailySummaryListItem(BaseModel):
+    """摘要列表项（简化版，不包含详细内容）"""
+    id: int
+    summary_type: str = Field(..., description="摘要类型: daily/weekly")
+    summary_date: datetime
+    start_date: datetime
+    end_date: datetime
+    total_articles: int = 0
+    high_importance_count: int = 0
+    medium_importance_count: int = 0
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(
+        from_attributes=True,
+    )
+
+
+class SummaryFieldsResponse(BaseModel):
+    """摘要字段响应（按需加载）"""
+    summary_content: Optional[str] = None
+    key_topics: Optional[List[str]] = None
+    recommended_articles: Optional[List[Dict]] = None
+
+
 class SummaryGenerateRequest(BaseModel):
     """生成摘要请求"""
     summary_type: str = Field("daily", description="摘要类型: daily/weekly")

@@ -20,7 +20,7 @@ import {
 import { PlusOutlined, ReloadOutlined, DeleteOutlined, DownOutlined, UpOutlined } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiService } from '@/services/api';
-import type { SummaryGenerateRequest, Article } from '@/types';
+import type { SummaryGenerateRequest, Article, DailySummaryListItem, SummaryFieldsResponse } from '@/types';
 import ReactMarkdown from 'react-markdown';
 import dayjs from 'dayjs';
 import weekOfYear from 'dayjs/plugin/weekOfYear';
@@ -85,6 +85,9 @@ export default function DailySummary() {
     queryKey: ['summaries'],
     queryFn: () => apiService.getSummaries(50),
   });
+  
+  // 存储已加载的摘要详情
+  const [loadedDetails, setLoadedDetails] = useState<Map<number, SummaryFieldsResponse>>(new Map());
 
   const generateMutation = useMutation({
     mutationFn: (data: SummaryGenerateRequest) =>
@@ -125,7 +128,7 @@ export default function DailySummary() {
     },
   });
 
-  const handleRegenerate = (summary: any) => {
+  const handleRegenerate = (summary: DailySummaryListItem) => {
     const requestData: { summary_type: 'daily' | 'weekly'; date?: string; week?: string } = {
       summary_type: summary.summary_type as 'daily' | 'weekly',
     };
@@ -177,7 +180,7 @@ export default function DailySummary() {
   };
 
   // 加载推荐文章
-  const loadRecommendedArticles = async (summary: any) => {
+  const loadRecommendedArticles = async (summary: DailySummaryListItem & { recommended_articles?: Array<{ id: number; title: string; reason: string }> }) => {
     if (!summary.recommended_articles || summary.recommended_articles.length === 0) {
       return;
     }
@@ -194,7 +197,7 @@ export default function DailySummary() {
 
     try {
       // 并行获取所有推荐文章
-      const articlePromises = summary.recommended_articles.map((rec: any) =>
+      const articlePromises = summary.recommended_articles.map((rec) =>
         apiService.getArticle(rec.id)
       );
       const articles = await Promise.all(articlePromises);
@@ -217,7 +220,40 @@ export default function DailySummary() {
     }
   };
 
-  const toggleExpand = (summary: any) => {
+  // 按需加载摘要详情
+  const loadSummaryDetails = async (summaryId: number) => {
+    // 如果已经加载过，直接返回
+    if (loadedDetails.has(summaryId)) {
+      return;
+    }
+
+    try {
+      const details = await apiService.getSummaryFields(summaryId, 'all');
+      setLoadedDetails((prev) => {
+        const newMap = new Map(prev);
+        newMap.set(summaryId, details);
+        return newMap;
+      });
+      
+      // 如果有推荐文章，加载推荐文章
+      if (details.recommended_articles && details.recommended_articles.length > 0) {
+        const summary = summaries?.find(s => s.id === summaryId);
+        if (summary) {
+          // 使用加载的推荐文章信息
+          const summaryWithDetails: DailySummaryListItem & { recommended_articles?: Array<{ id: number; title: string; reason: string }> } = {
+            ...summary,
+            recommended_articles: details.recommended_articles,
+          };
+          loadRecommendedArticles(summaryWithDetails);
+        }
+      }
+    } catch (error) {
+      console.error('加载摘要详情失败:', error);
+      message.error('加载摘要详情失败');
+    }
+  };
+
+  const toggleExpand = (summary: DailySummaryListItem) => {
     const summaryId = summary.id;
     setExpandedSummaries((prev) => {
       const newSet = new Set(prev);
@@ -225,8 +261,8 @@ export default function DailySummary() {
         newSet.delete(summaryId);
       } else {
         newSet.add(summaryId);
-        // 展开时加载推荐文章
-        loadRecommendedArticles(summary);
+        // 展开时加载摘要详情
+        loadSummaryDetails(summaryId);
       }
       return newSet;
     });
@@ -299,50 +335,66 @@ export default function DailySummary() {
                     </div>
                     {expandedSummaries.has(summary.id) && (
                       <>
-                        <div
-                          style={{
-                            padding: '16px',
-                            backgroundColor: getThemeColor(theme, 'bgSecondary'),
-                            borderRadius: '4px',
-                            border: `1px solid ${getThemeColor(theme, 'border')}`,
-                            color: getThemeColor(theme, 'text'),
-                          }}
-                        >
-                          <ReactMarkdown components={createMarkdownComponents(theme)}>
-                            {summary.summary_content}
-                          </ReactMarkdown>
-                        </div>
-                        {summary.key_topics && summary.key_topics.length > 0 && (
-                          <div>
-                            <strong style={{ color: getThemeColor(theme, 'text') }}>
-                              关键主题：
-                            </strong>
-                            {summary.key_topics.map((topic, index) => (
-                              <Tag key={index} style={{ marginBottom: 4 }}>
-                                {topic}
-                              </Tag>
-                            ))}
-                          </div>
-                        )}
-                        {/* 推荐文章列表 */}
-                        {summary.recommended_articles && summary.recommended_articles.length > 0 && (
-                          <div style={{ marginTop: '16px' }}>
-                            <Title level={5} style={{ marginBottom: '12px', color: getThemeColor(theme, 'text') }}>
-                              推荐文章 ({summary.recommended_articles.length})
-                            </Title>
-                            {loadingArticles.has(summary.id) ? (
+                        {(() => {
+                          const details = loadedDetails.get(summary.id);
+                          if (!details) {
+                            // 正在加载详情
+                            return (
                               <div style={{ textAlign: 'center', padding: '20px 0' }}>
-                                <Spin />
+                                <Spin tip="加载摘要内容..." />
                               </div>
-                            ) : recommendedArticles.has(summary.id) ? (
-                              <div>
-                                {recommendedArticles.get(summary.id)?.map((article) => (
-                                  <ArticleCard key={article.id} article={article} />
-                                ))}
+                            );
+                          }
+                          
+                          return (
+                            <>
+                              <div
+                                style={{
+                                  padding: '16px',
+                                  backgroundColor: getThemeColor(theme, 'bgSecondary'),
+                                  borderRadius: '4px',
+                                  border: `1px solid ${getThemeColor(theme, 'border')}`,
+                                  color: getThemeColor(theme, 'text'),
+                                }}
+                              >
+                                <ReactMarkdown components={createMarkdownComponents(theme)}>
+                                  {details.summary_content || ''}
+                                </ReactMarkdown>
                               </div>
-                            ) : null}
-                          </div>
-                        )}
+                              {details.key_topics && details.key_topics.length > 0 && (
+                                <div>
+                                  <strong style={{ color: getThemeColor(theme, 'text') }}>
+                                    关键主题：
+                                  </strong>
+                                  {details.key_topics.map((topic, index) => (
+                                    <Tag key={index} style={{ marginBottom: 4 }}>
+                                      {topic}
+                                    </Tag>
+                                  ))}
+                                </div>
+                              )}
+                              {/* 推荐文章列表 */}
+                              {details.recommended_articles && details.recommended_articles.length > 0 && (
+                                <div style={{ marginTop: '16px' }}>
+                                  <Title level={5} style={{ marginBottom: '12px', color: getThemeColor(theme, 'text') }}>
+                                    推荐文章 ({details.recommended_articles.length})
+                                  </Title>
+                                  {loadingArticles.has(summary.id) ? (
+                                    <div style={{ textAlign: 'center', padding: '20px 0' }}>
+                                      <Spin />
+                                    </div>
+                                  ) : recommendedArticles.has(summary.id) ? (
+                                    <div>
+                                      {recommendedArticles.get(summary.id)?.map((article) => (
+                                        <ArticleCard key={article.id} article={article} />
+                                      ))}
+                                    </div>
+                                  ) : null}
+                                </div>
+                              )}
+                            </>
+                          );
+                        })()}
                         <div style={{ marginTop: '16px', display: 'flex', gap: '8px' }}>
                           <Button
                             type="default"
@@ -443,11 +495,11 @@ export default function DailySummary() {
                               return <div>{current.date()}</div>;
                             }
                             const dateStr = current.format('YYYY-MM-DD');
-                            const isSummarized = summaries.some(
+                            const isSummarized = summaries?.some(
                               (s) =>
                                 s.summary_type === 'daily' &&
                                 dayjs(s.summary_date).format('YYYY-MM-DD') === dateStr
-                            );
+                            ) ?? false;
                             const backgroundColor = isSummarized
                               ? getThemeColor(theme, 'bgElevated')
                               : 'transparent';

@@ -14,6 +14,8 @@ from backend.app.core.dependencies import get_database, get_collection_service
 from backend.app.api.v1.endpoints.settings import require_auth
 from backend.app.schemas.summary import (
     DailySummary as DailySummarySchema,
+    DailySummaryListItem,
+    SummaryFieldsResponse,
     SummaryGenerateRequest,
 )
 from backend.app.services.collector import CollectionService
@@ -23,19 +25,19 @@ from backend.app.db import get_db
 router = APIRouter()
 
 
-@router.get("", response_model=List[DailySummarySchema])
+@router.get("", response_model=List[DailySummaryListItem])
 async def get_summaries(
     limit: int = 50,
     db: Session = Depends(get_database),
 ):
-    """获取历史摘要列表"""
+    """获取历史摘要列表（只返回基本字段，节省流量）"""
     summaries = (
         db.query(DailySummary)
         .order_by(DailySummary.summary_date.desc())
         .limit(limit)
         .all()
     )
-    return [DailySummarySchema.model_validate(s) for s in summaries]
+    return [DailySummaryListItem.model_validate(s) for s in summaries]
 
 
 @router.get("/{summary_id}", response_model=DailySummarySchema)
@@ -43,11 +45,46 @@ async def get_summary(
     summary_id: int,
     db: Session = Depends(get_database),
 ):
-    """获取摘要详情"""
+    """获取摘要详情（完整信息）"""
     summary = db.query(DailySummary).filter(DailySummary.id == summary_id).first()
     if not summary:
         raise HTTPException(status_code=404, detail="摘要不存在")
     return DailySummarySchema.model_validate(summary)
+
+
+@router.get("/{summary_id}/fields", response_model=SummaryFieldsResponse)
+async def get_summary_fields(
+    summary_id: int,
+    fields: str = "all",
+    db: Session = Depends(get_database),
+):
+    """
+    获取摘要的特定字段（用于按需加载）
+    
+    Args:
+        summary_id: 摘要ID
+        fields: 要获取的字段，如：'summary_content' 或 'summary_content,key_topics,recommended_articles'，或 'all' 获取所有详细字段
+    """
+    summary = db.query(DailySummary).filter(DailySummary.id == summary_id).first()
+    if not summary:
+        raise HTTPException(status_code=404, detail="摘要不存在")
+    
+    # 解析字段列表
+    if fields == "all":
+        field_list = ["summary_content", "key_topics", "recommended_articles"]
+    else:
+        field_list = [f.strip() for f in fields.split(",")]
+    
+    # 构建响应
+    response_data = {}
+    if "summary_content" in field_list:
+        response_data["summary_content"] = summary.summary_content
+    if "key_topics" in field_list:
+        response_data["key_topics"] = summary.key_topics
+    if "recommended_articles" in field_list:
+        response_data["recommended_articles"] = summary.recommended_articles
+    
+    return SummaryFieldsResponse(**response_data)
 
 
 @router.delete("/{summary_id}")

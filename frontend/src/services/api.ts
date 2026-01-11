@@ -9,6 +9,8 @@ import type {
   CollectionTask,
   CollectionTaskStatus,
   DailySummary,
+  DailySummaryListItem,
+  SummaryFieldsResponse,
   SummaryGenerateRequest,
   RSSSource,
   RSSSourceCreate,
@@ -261,15 +263,32 @@ class ApiService {
   }
 
   // 摘要相关
-  async getSummaries(limit: number = 50): Promise<DailySummary[]> {
+  async getSummaries(limit: number = 50): Promise<DailySummaryListItem[]> {
     return this.handleRequest(
-      this.client.get<DailySummary[]>(`/summary?limit=${limit}`)
+      this.client.get<DailySummaryListItem[]>(`/summary?limit=${limit}`)
     );
   }
 
   async getSummary(id: number): Promise<DailySummary> {
     return this.handleRequest(
       this.client.get<DailySummary>(`/summary/${id}`)
+    );
+  }
+
+  /**
+   * 获取摘要的特定字段（用于按需加载）
+   * @param id 摘要ID
+   * @param fields 要获取的字段，如：'summary_content' 或 'summary_content,key_topics,recommended_articles'，或 'all' 获取所有详细字段
+   * @returns 包含请求字段的对象
+   */
+  async getSummaryFields(
+    id: number,
+    fields: string = 'all'
+  ): Promise<SummaryFieldsResponse> {
+    return this.handleRequest(
+      this.client.get<SummaryFieldsResponse>(`/summary/${id}/fields`, {
+        params: { fields },
+      })
     );
   }
 

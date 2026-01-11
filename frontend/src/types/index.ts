@@ -76,6 +76,21 @@ export interface CollectionTaskStatus {
   };
 }
 
+// 摘要列表项（简化版，不包含详细内容）
+export interface DailySummaryListItem {
+  id: number;
+  summary_type: 'daily' | 'weekly';
+  summary_date: string;
+  start_date: string;
+  end_date: string;
+  total_articles: number;
+  high_importance_count: number;
+  medium_importance_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+// 摘要详情（完整版）
 export interface DailySummary {
   id: number;
   summary_type: 'daily' | 'weekly';
@@ -96,6 +111,17 @@ export interface DailySummary {
   generation_time?: number;
   created_at: string;
   updated_at: string;
+}
+
+// 摘要字段响应（按需加载）
+export interface SummaryFieldsResponse {
+  summary_content?: string;
+  key_topics?: string[];
+  recommended_articles?: Array<{
+    id: number;
+    title: string;
+    reason: string;
+  }>;
 }
 
 export interface RSSSource {
