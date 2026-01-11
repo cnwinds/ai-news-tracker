@@ -162,6 +162,17 @@ class ApiService {
   }
 
   /**
+   * 批量获取文章的基本信息（不包含详细字段，节省流量）
+   * @param articleIds 文章ID列表
+   * @returns 文章列表（只包含基本字段）
+   */
+  async getArticlesBasic(articleIds: number[]): Promise<Article[]> {
+    return this.handleRequest(
+      this.client.post<Article[]>(`/articles/batch/basic`, articleIds)
+    );
+  }
+
+  /**
    * 获取文章的特定字段（用于按需加载）
    * @param id 文章ID
    * @param fields 要获取的字段，如：'summary' 或 'summary,content,tags'，或 'all' 获取所有详细字段
@@ -238,16 +249,17 @@ class ApiService {
     );
   }
 
-  async getCollectionTask(id: number): Promise<CollectionTask> {
+  async getCollectionTask(id: number, includeDetail: boolean = false): Promise<CollectionTask | any> {
     return this.handleRequest(
-      this.client.get<CollectionTask>(`/collection/tasks/${id}`)
+      this.client.get<CollectionTask | any>(`/collection/tasks/${id}`, {
+        params: { include_detail: includeDetail },
+      })
     );
   }
 
+  // 兼容旧接口（已废弃，使用 getCollectionTask(id, true) 替代）
   async getCollectionTaskDetail(id: number): Promise<any> {
-    return this.handleRequest(
-      this.client.get(`/collection/tasks/${id}/detail`)
-    );
+    return this.getCollectionTask(id, true);
   }
 
   async getCollectionStatus(): Promise<CollectionTaskStatus> {
@@ -615,8 +627,12 @@ class ApiService {
   }
 
   async indexAllUnindexedArticles(batchSize: number = 10): Promise<RAGBatchIndexResponse> {
+    // 使用批量索引接口，article_ids为空时自动索引所有未索引的文章
     return this.handleRequest(
-      this.client.post<RAGBatchIndexResponse>(`/rag/index/all?batch_size=${batchSize}`)
+      this.client.post<RAGBatchIndexResponse>(`/rag/index/batch`, {
+        article_ids: null, // 为空时索引所有未索引的文章
+        batch_size: batchSize,
+      })
     );
   }
 

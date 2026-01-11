@@ -443,62 +443,6 @@ async def rebuild_all_indexes(
         raise HTTPException(status_code=500, detail=f"强制重建索引失败: {str(e)}")
 
 
-@router.post("/index/all", response_model=RAGBatchIndexResponse)
-async def index_all_articles(
-    batch_size: int = Query(10, ge=1, le=100, description="批处理大小"),
-    rag_service: RAGService = Depends(get_rag_service),
-    db: Session = Depends(get_database),
-    current_user: str = Depends(require_auth),
-):
-    """
-    索引所有未索引的文章
-
-    Args:
-        batch_size: 批处理大小（查询参数）
-        rag_service: RAG服务实例
-        db: 数据库会话
-
-    Returns:
-        批量索引结果
-    """
-    try:
-        logger.info(f"收到索引所有文章的请求: batch_size={batch_size}")
-        # 获取所有未索引的文章
-        indexed_ids = db.query(ArticleEmbedding.article_id).subquery()
-        articles = db.query(Article).filter(
-            ~Article.id.in_(indexed_ids)
-        ).all()
-        
-        if not articles:
-            return RAGBatchIndexResponse(
-                total=0,
-                success=0,
-                failed=0,
-                message="所有文章已索引"
-            )
-        
-        # 执行批量索引
-        result = rag_service.index_articles_batch(
-            articles=articles,
-            batch_size=batch_size
-        )
-        
-        return RAGBatchIndexResponse(
-            total=result["total"],
-            success=result["success"],
-            failed=result["failed"],
-            message=f"批量索引完成: 总计 {result['total']}, 成功 {result['success']}, 失败 {result['failed']}"
-        )
-    except HTTPException:
-        raise
-    except ValueError as e:
-        logger.error(f"参数验证失败: {e}", exc_info=True)
-        raise HTTPException(status_code=422, detail=f"参数验证失败: {str(e)}")
-    except Exception as e:
-        logger.error(f"批量索引失败: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"批量索引失败: {str(e)}")
-
-
 @router.post("/index/{article_id}", response_model=RAGIndexResponse)
 async def index_article(
     article_id: int,

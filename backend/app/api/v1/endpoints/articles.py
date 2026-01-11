@@ -4,9 +4,9 @@
 import json
 import logging
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, List
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from sqlalchemy.orm import Session
 
 from backend.app.db.repositories import ArticleRepository
@@ -173,6 +173,44 @@ async def get_article(
     """获取文章详情"""
     article = _get_article_or_404(db, article_id)
     return ArticleSchema.model_validate(article)
+
+
+@router.post("/batch/basic", response_model=List[ArticleSchema])
+async def get_articles_basic(
+    article_ids: List[int] = Body(..., description="文章ID列表"),
+    db: Session = Depends(get_database),
+):
+    """
+    批量获取文章的基本信息（不包含详细字段，节省流量）
+    
+    只返回基本字段：id, title, title_zh, url, source, source_id, category, 
+    published_at, collected_at, importance, is_processed, is_sent, is_favorited, 
+    created_at, updated_at
+    
+    不返回详细字段：content, summary, author, tags, user_notes, target_audience等
+    """
+    if not article_ids:
+        return []
+    
+    articles = db.query(Article).filter(Article.id.in_(article_ids)).all()
+    
+    # 转换为 Pydantic 模型，但清空详细字段
+    article_schemas = []
+    for article in articles:
+        article_data = ArticleSchema.model_validate(article)
+        # 清空所有详细字段
+        update_data = {
+            'content': None,
+            'summary': None,
+            'author': None,
+            'tags': None,
+            'user_notes': None,
+            'target_audience': None,
+        }
+        article_data = article_data.model_copy(update=update_data)
+        article_schemas.append(article_data)
+    
+    return article_schemas
 
 
 @router.get("/{article_id}/fields")

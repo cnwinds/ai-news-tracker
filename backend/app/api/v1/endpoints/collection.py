@@ -7,7 +7,7 @@ import threading
 from datetime import datetime, timedelta
 from typing import List
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from backend.app.api.v1.endpoints.settings import require_auth
@@ -274,16 +274,137 @@ async def get_collection_tasks(
     return [CollectionTaskSchema.model_validate(task) for task in tasks]
 
 
-@router.get("/tasks/{task_id}", response_model=CollectionTaskSchema)
+@router.get("/tasks/{task_id}")
 async def get_collection_task(
     task_id: int,
+    include_detail: bool = Query(False, description="是否包含详细信息（日志和新增文章）"),
     db: Session = Depends(get_database),
 ):
-    """获取采集任务详情"""
+    """
+    获取采集任务信息
+    
+    Args:
+        task_id: 任务ID
+        include_detail: 是否包含详细信息（日志和新增文章），默认False只返回基本信息
+    """
     task = db.query(CollectionTask).filter(CollectionTask.id == task_id).first()
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
-    return CollectionTaskSchema.model_validate(task)
+    
+    # 如果只需要基本信息，直接返回
+    if not include_detail:
+        return CollectionTaskSchema.model_validate(task)
+    
+    # 如果需要详细信息，返回包含日志和文章的完整信息
+    # 获取采集日志
+    logs = CollectionLogRepository.get_logs_for_task(db, task)
+    
+    # 获取新增的文章（根据任务时间范围）
+    articles_query = db.query(Article).filter(
+        Article.collected_at >= task.started_at
+    )
+    if task.completed_at:
+        articles_query = articles_query.filter(Article.collected_at <= task.completed_at)
+    else:
+        # 如果任务未完成，只获取开始时间后1小时内的文章（避免获取过多）
+        from datetime import timedelta
+        end_time = task.started_at + timedelta(hours=1)
+        articles_query = articles_query.filter(Article.collected_at <= end_time)
+    
+    # 先统计总数
+    total_articles_count = articles_query.count()
+    
+    # 然后获取文章列表（用于显示）
+    articles = articles_query.order_by(Article.collected_at.desc()).limit(100).all()
+    
+    # 分离成功和失败的日志（去重，每个源只保留一条日志）
+    # 重要：一个源不应该同时出现在成功和失败列表中
+    # 优先保留成功日志（如果源有成功日志，就不显示失败日志）
+    # 使用字典去重，保留最新的日志（按 started_at 降序排序后取第一条）
+    sorted_logs = sorted(logs, key=lambda x: x.started_at if x.started_at else datetime.min, reverse=True)
+    
+    # 先处理所有日志，按源名称分组，每个源只保留一条最新的日志
+    source_logs_dict = {}
+    for log in sorted_logs:
+        source_name = log.source_name
+        # 如果该源还没有日志，或者当前日志更新，则更新
+        if source_name not in source_logs_dict:
+            source_logs_dict[source_name] = log
+        elif log.started_at and source_logs_dict[source_name].started_at:
+            if log.started_at > source_logs_dict[source_name].started_at:
+                source_logs_dict[source_name] = log
+    
+    # 然后分离成功和失败的日志
+    # 优先保留成功日志：如果源有成功日志，就不显示失败日志
+    success_logs = []
+    failed_logs = []
+    processed_sources = set()
+    
+    # 先收集所有成功日志
+    for log in source_logs_dict.values():
+        if log.status == 'success':
+            success_logs.append(log)
+            processed_sources.add(log.source_name)
+    
+    # 再收集失败日志（排除已有成功日志的源）
+    for log in source_logs_dict.values():
+        if log.status == 'error' and log.source_name not in processed_sources:
+            failed_logs.append(log)
+    
+    return {
+        "task": CollectionTaskSchema.model_validate(task),
+        "logs": [
+            {
+                "id": log.id,
+                "source_name": log.source_name,
+                "source_type": log.source_type,
+                "status": log.status,
+                "articles_count": log.articles_count,
+                "error_message": log.error_message,
+                "started_at": log.started_at.isoformat() if log.started_at else None,
+                "completed_at": log.completed_at.isoformat() if log.completed_at else None,
+            }
+            for log in logs
+        ],
+        "success_logs": [
+            {
+                "id": log.id,
+                "source_name": log.source_name,
+                "source_type": log.source_type,
+                "articles_count": log.articles_count,
+                "started_at": log.started_at.isoformat() if log.started_at else None,
+                "completed_at": log.completed_at.isoformat() if log.completed_at else None,
+            }
+            for log in success_logs
+        ],
+        "failed_logs": [
+            {
+                "id": log.id,
+                "source_name": log.source_name,
+                "source_type": log.source_type,
+                "error_message": log.error_message,
+                "started_at": log.started_at.isoformat() if log.started_at else None,
+                "completed_at": log.completed_at.isoformat() if log.completed_at else None,
+            }
+            for log in failed_logs
+        ],
+        "new_articles": [
+            {
+                "id": article.id,
+                "title": article.title,
+                "url": article.url,
+                "source": article.source,
+                "published_at": article.published_at.isoformat() if article.published_at else None,
+                "collected_at": article.collected_at.isoformat() if article.collected_at else None,
+            }
+            for article in articles
+        ],
+        # 使用任务表中的统计数据，确保与列表显示一致
+        "success_sources_count": task.success_sources,
+        "failed_sources_count": task.failed_sources,
+        "new_articles_count": task.new_articles_count,
+        "total_articles_count": total_articles_count,  # 实际查询到的文章总数
+    }
 
 
 @router.post("/tasks/recover-stuck")
@@ -341,130 +462,6 @@ async def recover_stuck_tasks(
         raise HTTPException(status_code=500, detail=f"恢复挂起任务失败: {str(e)}")
 
 
-@router.get("/tasks/{task_id}/detail")
-async def get_collection_task_detail(
-    task_id: int,
-    db: Session = Depends(get_database),
-):
-    """获取采集任务详细信息（包括日志和新增文章）"""
-    task = db.query(CollectionTask).filter(CollectionTask.id == task_id).first()
-    if not task:
-        raise HTTPException(status_code=404, detail="任务不存在")
-    
-    # 获取采集日志
-    logs = CollectionLogRepository.get_logs_for_task(db, task)
-    
-    # 获取新增的文章（根据任务时间范围）
-    articles_query = db.query(Article).filter(
-        Article.collected_at >= task.started_at
-    )
-    if task.completed_at:
-        articles_query = articles_query.filter(Article.collected_at <= task.completed_at)
-    else:
-        # 如果任务未完成，只获取开始时间后1小时内的文章（避免获取过多）
-        from datetime import timedelta
-        end_time = task.started_at + timedelta(hours=1)
-        articles_query = articles_query.filter(Article.collected_at <= end_time)
-    
-    # 先统计总数
-    total_articles_count = articles_query.count()
-    
-    # 然后获取文章列表（用于显示）
-    articles = articles_query.order_by(Article.collected_at.desc()).limit(100).all()
-    
-    # 分离成功和失败的日志（去重，每个源只保留一条日志）
-    # 重要：一个源不应该同时出现在成功和失败列表中
-    # 优先保留成功日志（如果源有成功日志，就不显示失败日志）
-    # 使用字典去重，保留最新的日志（按 started_at 降序排序后取第一条）
-    sorted_logs = sorted(logs, key=lambda x: x.started_at if x.started_at else datetime.min, reverse=True)
-    
-    # 先处理所有日志，按源名称分组，每个源只保留一条最新的日志
-    source_logs_dict = {}
-    for log in sorted_logs:
-        source_name = log.source_name
-        # 如果该源还没有日志，或者当前日志更新，则更新
-        if source_name not in source_logs_dict:
-            source_logs_dict[source_name] = log
-        elif log.started_at and source_logs_dict[source_name].started_at:
-            if log.started_at > source_logs_dict[source_name].started_at:
-                source_logs_dict[source_name] = log
-    
-    # 然后分离成功和失败的日志
-    # 优先保留成功日志：如果源有成功日志，就不显示失败日志
-    success_logs = []
-    failed_logs = []
-    processed_sources = set()
-    
-    # 先收集所有成功日志
-    for log in source_logs_dict.values():
-        if log.status == 'success':
-            success_logs.append(log)
-            processed_sources.add(log.source_name)
-    
-    # 再收集失败日志（排除已有成功日志的源）
-    for log in source_logs_dict.values():
-        if log.status == 'error' and log.source_name not in processed_sources:
-            failed_logs.append(log)
-    
-    # 重要：使用任务表中的统计数据作为标准（因为它是准确的）
-    # 如果日志去重后的数量与任务表不一致，说明日志记录有问题
-    # 但我们仍然显示所有去重后的日志，让用户能看到实际情况
-    # 标签页的数量显示使用任务表中的统计数据
-    
-    return {
-        "task": CollectionTaskSchema.model_validate(task),
-        "logs": [
-            {
-                "id": log.id,
-                "source_name": log.source_name,
-                "source_type": log.source_type,
-                "status": log.status,
-                "articles_count": log.articles_count,
-                "error_message": log.error_message,
-                "started_at": log.started_at.isoformat() if log.started_at else None,
-                "completed_at": log.completed_at.isoformat() if log.completed_at else None,
-            }
-            for log in logs
-        ],
-        "success_logs": [
-            {
-                "id": log.id,
-                "source_name": log.source_name,
-                "source_type": log.source_type,
-                "articles_count": log.articles_count,
-                "started_at": log.started_at.isoformat() if log.started_at else None,
-                "completed_at": log.completed_at.isoformat() if log.completed_at else None,
-            }
-            for log in success_logs
-        ],
-        "failed_logs": [
-            {
-                "id": log.id,
-                "source_name": log.source_name,
-                "source_type": log.source_type,
-                "error_message": log.error_message,
-                "started_at": log.started_at.isoformat() if log.started_at else None,
-                "completed_at": log.completed_at.isoformat() if log.completed_at else None,
-            }
-            for log in failed_logs
-        ],
-        "new_articles": [
-            {
-                "id": article.id,
-                "title": article.title,
-                "url": article.url,
-                "source": article.source,
-                "published_at": article.published_at.isoformat() if article.published_at else None,
-                "collected_at": article.collected_at.isoformat() if article.collected_at else None,
-            }
-            for article in articles
-        ],
-        # 使用任务表中的统计数据，确保与列表显示一致
-        "success_sources_count": task.success_sources,
-        "failed_sources_count": task.failed_sources,
-        "new_articles_count": task.new_articles_count,
-        "total_articles_count": total_articles_count,  # 实际查询到的文章总数
-    }
 
 
 @router.get("/status", response_model=CollectionTaskStatus)

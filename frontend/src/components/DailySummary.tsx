@@ -179,7 +179,7 @@ export default function DailySummary() {
     generateMutation.mutate(requestData);
   };
 
-  // 加载推荐文章
+  // 加载推荐文章（只获取基本字段，详细字段由ArticleCard按需加载）
   const loadRecommendedArticles = async (summary: DailySummaryListItem & { recommended_articles?: Array<{ id: number; title: string; reason: string }> }) => {
     if (!summary.recommended_articles || summary.recommended_articles.length === 0) {
       return;
@@ -196,11 +196,10 @@ export default function DailySummary() {
     setLoadingArticles((prev) => new Set(prev).add(summaryId));
 
     try {
-      // 并行获取所有推荐文章
-      const articlePromises = summary.recommended_articles.map((rec) =>
-        apiService.getArticle(rec.id)
-      );
-      const articles = await Promise.all(articlePromises);
+      // 批量获取文章的基本字段（不包含content、summary等大字段）
+      // ArticleCard会自己按需加载详细字段
+      const articleIds = summary.recommended_articles.map(rec => rec.id);
+      const articles = await apiService.getArticlesBasic(articleIds);
 
       // 保存到状态
       setRecommendedArticles((prev) => {
