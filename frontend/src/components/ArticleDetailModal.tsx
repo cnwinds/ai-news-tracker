@@ -3,7 +3,7 @@
  * 显示文章的完整内容、摘要等信息
  */
 import { useState, useEffect } from 'react';
-import { Modal, Typography, Spin, Tag, Space, Button, Divider, Empty, message } from 'antd';
+import { Modal, Typography, Spin, Tag, Space, Button, Divider, Empty, message, Popconfirm } from 'antd';
 import {
   CloseOutlined,
   LinkOutlined,
@@ -11,12 +11,14 @@ import {
   StarOutlined,
   StarFilled,
   DownOutlined,
-  UpOutlined
+  UpOutlined,
+  DeleteOutlined
 } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiService } from '@/services/api';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { useDeleteArticle } from '@/hooks/useArticles';
 import { getThemeColor } from '@/utils/theme';
 import { createMarkdownComponents } from '@/utils/markdown';
 import ReactMarkdown from 'react-markdown';
@@ -77,6 +79,19 @@ export default function ArticleDetailModal({
   const handleFavorite = async () => {
     if (!article) return;
     favoriteMutation.mutate();
+  };
+
+  // 删除文章
+  const deleteMutation = useDeleteArticle();
+
+  const handleDelete = () => {
+    if (!article) return;
+    deleteMutation.mutate(article.id, {
+      onSuccess: () => {
+        // 删除成功后关闭模态框
+        onClose();
+      },
+    });
   };
 
   const modalStyle: React.CSSProperties = {
@@ -342,6 +357,24 @@ export default function ArticleDetailModal({
                 >
                   {article.is_favorited ? '已收藏' : '收藏'}
                 </Button>
+                <Popconfirm
+                  title="确定要删除这篇文章吗？"
+                  description="删除后无法恢复"
+                  onConfirm={handleDelete}
+                  okText="确定"
+                  cancelText="取消"
+                  disabled={!isAuthenticated}
+                >
+                  <Button
+                    type="primary"
+                    danger
+                    icon={<DeleteOutlined />}
+                    loading={deleteMutation.isPending}
+                    disabled={!isAuthenticated}
+                  >
+                    删除
+                  </Button>
+                </Popconfirm>
               </Space>
               <Text type="secondary" style={{ fontSize: '12px' }}>
                 采集时间：{dayjs(article.collected_at).format('YYYY-MM-DD HH:mm:ss')}
