@@ -30,6 +30,7 @@ class SummarySettings(BaseModel):
 class LLMProviderBase(BaseModel):
     """LLM提供商基础模型"""
     name: str = Field(..., description="提供商名称")
+    provider_type: str = Field(default="大模型(OpenAI)", description="提供商类型：大模型(OpenAI)")
     api_key: str = Field(..., description="API密钥")
     api_base: str = Field(..., description="API基础URL")
     llm_model: str = Field(..., description="大模型名称")
@@ -45,6 +46,7 @@ class LLMProviderCreate(LLMProviderBase):
 class LLMProviderUpdate(BaseModel):
     """更新LLM提供商模型"""
     name: Optional[str] = Field(None, description="提供商名称")
+    provider_type: Optional[str] = Field(None, description="提供商类型：大模型(OpenAI)")
     api_key: Optional[str] = Field(None, description="API密钥")
     api_base: Optional[str] = Field(None, description="API基础URL")
     llm_model: Optional[str] = Field(None, description="大模型名称")
@@ -88,5 +90,44 @@ class NotificationSettings(BaseModel):
     secret: str = Field(default="", description="钉钉加签密钥（可选，仅钉钉需要）")
     instant_notification_enabled: bool = Field(default=True, description="是否启用即时通知")
     quiet_hours: Optional[List[QuietHours]] = Field(default=[], description="勿扰时段列表")
+
+
+class ImageProviderBase(BaseModel):
+    """图片生成提供商基础模型"""
+    name: str = Field(..., description="提供商名称")
+    provider_type: str = Field(default="文生图(BaiLian)", description="提供商类型：文生图(BaiLian)")
+    api_key: str = Field(..., description="API密钥")
+    api_base: str = Field(..., description="API基础URL")
+    image_model: str = Field(..., description="图片生成模型名称")
+    enabled: bool = Field(default=True, description="是否启用")
+
+
+class ImageProviderCreate(ImageProviderBase):
+    """创建图片生成提供商模型"""
+    pass
+
+
+class ImageProviderUpdate(BaseModel):
+    """更新图片生成提供商模型"""
+    name: Optional[str] = Field(None, description="提供商名称")
+    provider_type: Optional[str] = Field(None, description="提供商类型：文生图(BaiLian)")
+    api_key: Optional[str] = Field(None, description="API密钥")
+    api_base: Optional[str] = Field(None, description="API基础URL")
+    image_model: Optional[str] = Field(None, description="图片生成模型名称")
+    enabled: Optional[bool] = Field(None, description="是否启用")
+
+
+class ImageProvider(ImageProviderBase):
+    """图片生成提供商模型"""
+    id: int = Field(..., description="提供商ID")
+    
+    class Config:
+        from_attributes = True
+
+
+class ImageSettings(BaseModel):
+    """图片生成配置模型"""
+    selected_image_provider_id: Optional[int] = Field(None, description="选定的图片生成提供商ID")
+    selected_image_models: Optional[List[str]] = Field(None, description="选定的图片生成模型列表")
 
 

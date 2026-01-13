@@ -1,3 +1,5 @@
+name: ai-news-tracker
+
 services:
   # 后端服务
   backend:

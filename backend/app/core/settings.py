@@ -75,6 +75,7 @@ class Settings:
         self._collection_settings_loaded = False
         self._summary_settings_loaded = False
         self._llm_settings_loaded = False
+        self._image_settings_loaded = False
         self._collector_settings_loaded = False
         self._notification_settings_loaded = False
         
@@ -92,6 +93,10 @@ class Settings:
         self.SELECTED_EMBEDDING_PROVIDER_ID: Optional[int] = None
         self.SELECTED_LLM_MODELS: List[str] = []  # 选定的模型列表
         self.SELECTED_EMBEDDING_MODELS: List[str] = []  # 选定的向量模型列表
+        
+        # 图片生成提供商选择配置（从数据库加载）
+        self.SELECTED_IMAGE_PROVIDER_ID: Optional[int] = None
+        self.SELECTED_IMAGE_MODELS: List[str] = []  # 选定的图片生成模型列表
 
     def is_ai_enabled(self) -> bool:
         """检查AI分析是否启用"""
@@ -116,12 +121,14 @@ class Settings:
             self._collection_settings_loaded = False
             self._summary_settings_loaded = False
             self._llm_settings_loaded = False
+            self._image_settings_loaded = False
             self._collector_settings_loaded = False
             self._notification_settings_loaded = False
         
         self._load_collection_settings()
         self._load_summary_settings()
         self._load_llm_settings()
+        self._load_image_settings()
         self._load_collector_settings()
         self._load_notification_settings()
     
@@ -623,6 +630,122 @@ class Settings:
                     }
         except Exception as e:
             logger.error(f"获取向量模型提供商配置失败: {e}")
+        
+        return None
+    
+    def _load_image_settings(self):
+        """加载图片生成配置（从数据库读取，支持运行时修改）"""
+        if self._image_settings_loaded:
+            return
+        
+        try:
+            from backend.app.db import get_db
+            from backend.app.db.repositories import AppSettingsRepository, ImageProviderRepository
+            
+            db = get_db()
+            # 确保数据库已初始化
+            if not hasattr(db, 'engine'):
+                return
+            
+            with db.get_session() as session:
+                # 加载提供商选择配置
+                selected_image_provider_id = AppSettingsRepository.get_setting(
+                    session, "selected_image_provider_id", None
+                )
+                selected_image_models_str = AppSettingsRepository.get_setting(
+                    session, "selected_image_models", ""
+                )
+                
+                # 解析选定的模型列表
+                if selected_image_models_str:
+                    self.SELECTED_IMAGE_MODELS = [m.strip() for m in str(selected_image_models_str).split(",") if m.strip()]
+                else:
+                    self.SELECTED_IMAGE_MODELS = []
+                
+                # 从选定的提供商加载配置
+                if selected_image_provider_id:
+                    try:
+                        provider = ImageProviderRepository.get_by_id(session, selected_image_provider_id)
+                        if provider and provider.enabled:
+                            self.SELECTED_IMAGE_PROVIDER_ID = selected_image_provider_id
+                        else:
+                            logger.warning(f"选定的图片生成提供商 {selected_image_provider_id} 不存在或未启用")
+                    except Exception as e:
+                        logger.warning(f"加载选定的图片生成提供商失败: {e}")
+            
+            logger.debug(f"图片生成配置加载完成: PROVIDER_ID={self.SELECTED_IMAGE_PROVIDER_ID}, "
+                        f"MODELS={self.SELECTED_IMAGE_MODELS}")
+            
+            self._image_settings_loaded = True
+        except Exception as e:
+            # 如果数据库未初始化或读取失败，使用默认值
+            logger.debug(f"从数据库加载图片生成配置失败: {e}")
+    
+    def load_image_settings(self):
+        """公共方法：强制重新加载图片生成配置（从数据库读取最新值）"""
+        self._image_settings_loaded = False
+        self._load_image_settings()
+    
+    def save_image_settings(self, selected_image_provider_id: Optional[int] = None,
+                            selected_image_models: Optional[List[str]] = None):
+        """保存图片生成配置到数据库（只保存提供商选择）"""
+        try:
+            from backend.app.db import get_db
+            from backend.app.db.repositories import AppSettingsRepository
+            
+            db = get_db()
+            with db.get_session() as session:
+                # 保存提供商选择
+                if selected_image_provider_id is not None:
+                    AppSettingsRepository.set_setting(
+                        session, "selected_image_provider_id", selected_image_provider_id, "int",
+                        "选定的图片生成提供商ID"
+                    )
+                    self.SELECTED_IMAGE_PROVIDER_ID = selected_image_provider_id
+                
+                # 保存选定的模型列表
+                if selected_image_models is not None:
+                    models_str = ",".join(selected_image_models)
+                    AppSettingsRepository.set_setting(
+                        session, "selected_image_models", models_str, "string",
+                        "选定的图片生成模型列表（逗号分隔）"
+                    )
+                    self.SELECTED_IMAGE_MODELS = selected_image_models
+            
+            # 重新加载配置以从提供商获取最新值
+            self._load_image_settings()
+            
+            return True
+        except Exception as e:
+            logger.error(f"保存图片生成配置失败: {e}")
+            return False
+    
+    def get_image_provider_config(self) -> Optional[dict]:
+        """获取当前选定的图片生成提供商配置"""
+        if not self.SELECTED_IMAGE_PROVIDER_ID:
+            return None
+        
+        try:
+            from backend.app.db import get_db
+            from backend.app.db.repositories import ImageProviderRepository
+            
+            db = get_db()
+            if not hasattr(db, 'engine'):
+                return None
+            
+            with db.get_session() as session:
+                provider = ImageProviderRepository.get_by_id(session, self.SELECTED_IMAGE_PROVIDER_ID)
+                if provider and provider.enabled:
+                    return {
+                        "id": provider.id,
+                        "name": provider.name,
+                        "api_key": provider.api_key,
+                        "api_base": provider.api_base,
+                        "image_model": provider.image_model,
+                        "image_models": [m.strip() for m in provider.image_model.split(",") if m.strip()],  # 解析为列表
+                    }
+        except Exception as e:
+            logger.error(f"获取图片生成提供商配置失败: {e}")
         
         return None
     

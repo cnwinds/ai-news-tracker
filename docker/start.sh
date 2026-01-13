@@ -28,7 +28,24 @@ mkdir -p ./data
 mkdir -p ./logs
 
 # 使用 docker compose (Docker Compose V2)
-DOCKER_COMPOSE_CMD="docker compose"
+# 指定项目名称，确保只管理自己的容器
+PROJECT_NAME="ai-news-tracker"
+DOCKER_COMPOSE_CMD="docker compose -p $PROJECT_NAME"
+
+echo "📋 项目名称: $PROJECT_NAME"
+echo "💡 提示: 只管理项目 '$PROJECT_NAME' 的容器，不会影响其他容器"
+echo ""
+
+# 检查是否已有容器在运行
+EXISTING_CONTAINERS=$(docker ps --filter "name=ai-news-tracker" --format "{{.Names}}")
+if [ -n "$EXISTING_CONTAINERS" ]; then
+    echo "⚠️  检测到已有容器在运行:"
+    echo "$EXISTING_CONTAINERS" | while read -r container; do
+        echo "   - $container"
+    done
+    echo "   将使用现有容器或重新创建"
+    echo ""
+fi
 
 # 构建并启动服务
 echo "🔨 构建 Docker 镜像..."
@@ -41,7 +58,7 @@ $DOCKER_COMPOSE_CMD -f docker-compose.yml up -d
 echo "⏳ 等待服务启动..."
 sleep 5
 
-# 检查服务状态
+# 检查服务状态（只显示本项目的容器）
 echo ""
 echo "📊 服务状态:"
 $DOCKER_COMPOSE_CMD -f docker-compose.yml ps
@@ -59,4 +76,6 @@ echo "   $DOCKER_COMPOSE_CMD -f docker-compose.yml logs -f"
 echo ""
 echo "🛑 停止服务:"
 echo "   $DOCKER_COMPOSE_CMD -f docker-compose.yml down"
+echo ""
+echo "💡 提示: 使用项目名称 '$PROJECT_NAME' 确保只管理本项目的容器"
 echo ""

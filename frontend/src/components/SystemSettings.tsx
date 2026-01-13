@@ -28,7 +28,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import SourceManagement from '@/components/SourceManagement';
 import DataCleanup from '@/components/DataCleanup';
 import CollectionHistory from '@/components/CollectionHistory';
-import type { LLMSettings, NotificationSettings, SummarySettings, LLMProvider, LLMProviderCreate, LLMProviderUpdate } from '@/types';
+import type { LLMSettings, NotificationSettings, SummarySettings, LLMProvider, LLMProviderCreate, LLMProviderUpdate, ImageSettings, ImageProvider, ImageProviderCreate, ImageProviderUpdate } from '@/types';
 
 export default function SystemSettings() {
   const queryClient = useQueryClient();
@@ -37,9 +37,13 @@ export default function SystemSettings() {
   const [notificationForm] = Form.useForm();
   const [summaryForm] = Form.useForm();
   const [providerForm] = Form.useForm();
+  const [imageForm] = Form.useForm();
+  const [imageProviderForm] = Form.useForm();
   const [passwordForm] = Form.useForm();
   const [providerModalVisible, setProviderModalVisible] = useState(false);
   const [editingProvider, setEditingProvider] = useState<LLMProvider | null>(null);
+  const [imageProviderModalVisible, setImageProviderModalVisible] = useState(false);
+  const [editingImageProvider, setEditingImageProvider] = useState<ImageProvider | null>(null);
   const [isIndexing, setIsIndexing] = useState(false);
   const [batchSize, setBatchSize] = useState(10);
 
@@ -53,6 +57,18 @@ export default function SystemSettings() {
   const { data: providers = [], isLoading: providersLoading } = useQuery({
     queryKey: ['llm-providers'],
     queryFn: () => apiService.getProviders(false),
+  });
+
+  // 获取图片生成配置
+  const { data: imageSettings, isLoading: imageLoading } = useQuery({
+    queryKey: ['image-settings'],
+    queryFn: () => apiService.getImageSettings(),
+  });
+
+  // 获取图片生成提供商列表
+  const { data: imageProviders = [], isLoading: imageProvidersLoading } = useQuery({
+    queryKey: ['image-providers'],
+    queryFn: () => apiService.getImageProviders(false),
   });
 
   // 获取 RAG 索引统计
@@ -181,6 +197,77 @@ export default function SystemSettings() {
     },
   });
 
+  // 更新图片生成配置
+  const updateImageMutation = useMutation({
+    mutationFn: (data: ImageSettings) => apiService.updateImageSettings(data),
+    onSuccess: () => {
+      message.success('图片生成配置已保存');
+      queryClient.invalidateQueries({ queryKey: ['image-settings'] });
+    },
+    onError: (error: any) => {
+      if (error.status === 401) {
+        message.error('需要登录才能保存图片生成配置');
+      } else {
+        message.error('保存图片生成配置失败');
+      }
+    },
+  });
+
+  // 创建图片生成提供商
+  const createImageProviderMutation = useMutation({
+    mutationFn: (data: ImageProviderCreate) => apiService.createImageProvider(data),
+    onSuccess: () => {
+      message.success('图片生成提供商创建成功');
+      queryClient.invalidateQueries({ queryKey: ['image-providers'] });
+      setImageProviderModalVisible(false);
+      imageProviderForm.resetFields();
+    },
+    onError: (error: any) => {
+      if (error.status === 401) {
+        message.error('需要登录才能创建图片生成提供商');
+      } else {
+        message.error(`创建图片生成提供商失败: ${error.response?.data?.detail || error.message}`);
+      }
+    },
+  });
+
+  // 更新图片生成提供商
+  const updateImageProviderMutation = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: ImageProviderUpdate }) => apiService.updateImageProvider(id, data),
+    onSuccess: () => {
+      message.success('图片生成提供商更新成功');
+      queryClient.invalidateQueries({ queryKey: ['image-providers'] });
+      queryClient.invalidateQueries({ queryKey: ['image-settings'] });
+      setImageProviderModalVisible(false);
+      setEditingImageProvider(null);
+      imageProviderForm.resetFields();
+    },
+    onError: (error: any) => {
+      if (error.status === 401) {
+        message.error('需要登录才能更新图片生成提供商');
+      } else {
+        message.error(`更新图片生成提供商失败: ${error.response?.data?.detail || error.message}`);
+      }
+    },
+  });
+
+  // 删除图片生成提供商
+  const deleteImageProviderMutation = useMutation({
+    mutationFn: (id: number) => apiService.deleteImageProvider(id),
+    onSuccess: () => {
+      message.success('图片生成提供商删除成功');
+      queryClient.invalidateQueries({ queryKey: ['image-providers'] });
+      queryClient.invalidateQueries({ queryKey: ['image-settings'] });
+    },
+    onError: (error: any) => {
+      if (error.status === 401) {
+        message.error('需要登录才能删除图片生成提供商');
+      } else {
+        message.error(`删除图片生成提供商失败: ${error.response?.data?.detail || error.message}`);
+      }
+    },
+  });
+
   // 获取通知配置
   const { data: notificationSettings, isLoading: notificationLoading } = useQuery({
     queryKey: ['notification-settings'],
@@ -290,6 +377,21 @@ export default function SystemSettings() {
     }
   }, [summarySettings, summaryForm]);
 
+  useEffect(() => {
+    if (imageSettings) {
+      // 将保存的提供商ID和模型组合成下拉框格式
+      let selectedProviderAndModel: string | null = null;
+      if (imageSettings.selected_image_provider_id && imageSettings.selected_image_models && imageSettings.selected_image_models.length > 0) {
+        selectedProviderAndModel = `${imageSettings.selected_image_provider_id}:${imageSettings.selected_image_models[0]}`;
+      }
+      
+      imageForm.setFieldsValue({
+        ...imageSettings,
+        selected_image_provider_id: selectedProviderAndModel,
+      });
+    }
+  }, [imageSettings, imageForm]);
+
   const handleLLMSave = (values: any) => {
     // 解析 selected_llm_provider_id，格式为 "provider_id:model_name"
     const providerAndModel = values.selected_llm_provider_id;
@@ -371,6 +473,50 @@ export default function SystemSettings() {
     }
   };
 
+  const handleImageSave = (values: any) => {
+    // 解析 selected_image_provider_id，格式为 "provider_id:model_name"
+    const providerAndModel = values.selected_image_provider_id;
+    let selected_image_provider_id: number | null = null;
+    let selected_image_models: string[] = [];
+    
+    if (providerAndModel && typeof providerAndModel === 'string') {
+      const [providerId, modelName] = providerAndModel.split(':');
+      if (providerId && modelName) {
+        selected_image_provider_id = parseInt(providerId, 10);
+        selected_image_models = [modelName];
+      }
+    }
+    
+    updateImageMutation.mutate({
+      selected_image_provider_id,
+      selected_image_models,
+    });
+  };
+
+  const handleImageProviderCreate = () => {
+    setEditingImageProvider(null);
+    imageProviderForm.resetFields();
+    setImageProviderModalVisible(true);
+  };
+
+  const handleImageProviderEdit = (provider: ImageProvider) => {
+    setEditingImageProvider(provider);
+    imageProviderForm.setFieldsValue(provider);
+    setImageProviderModalVisible(true);
+  };
+
+  const handleImageProviderDelete = (id: number) => {
+    deleteImageProviderMutation.mutate(id);
+  };
+
+  const handleImageProviderSubmit = (values: ImageProviderCreate | ImageProviderUpdate) => {
+    if (editingImageProvider) {
+      updateImageProviderMutation.mutate({ id: editingImageProvider.id, data: values });
+    } else {
+      createImageProviderMutation.mutate(values as ImageProviderCreate);
+    }
+  };
+
   const handlePasswordChange = (values: { oldPassword: string; newPassword: string; confirmPassword: string }) => {
     if (values.newPassword !== values.confirmPassword) {
       message.error('两次输入的新密码不一致');
@@ -385,8 +531,250 @@ export default function SystemSettings() {
   // 获取已启用的提供商（用于选择）
   const enabledProviders = providers.filter(p => p.enabled);
   const embeddingProviders = providers.filter(p => p.enabled && p.embedding_model);
+  const enabledImageProviders = imageProviders.filter(p => p.enabled);
 
   const tabItems = [
+    {
+      key: 'image',
+      label: '文生图配置',
+      children: (
+        <Spin spinning={imageLoading || imageProvidersLoading}>
+          <Space direction="vertical" size="large" style={{ width: '100%' }}>
+            {/* 图片生成提供商管理 */}
+            <Card
+              title="图片生成提供商管理"
+              extra={
+                <Button
+                  type="primary"
+                  icon={<PlusOutlined />}
+                  onClick={handleImageProviderCreate}
+                  disabled={!isAuthenticated}
+                >
+                  添加提供商
+                </Button>
+              }
+            >
+              <Alert
+                message="提供商管理说明"
+                description="可以配置多个图片生成提供商，并分别选择使用哪个提供商的模型。"
+                type="info"
+                showIcon
+                style={{ marginBottom: 16 }}
+              />
+              <Table
+                dataSource={imageProviders}
+                rowKey="id"
+                columns={[
+                  {
+                    title: '名称',
+                    dataIndex: 'name',
+                    key: 'name',
+                  },
+                  {
+                    title: '类型',
+                    dataIndex: 'provider_type',
+                    key: 'provider_type',
+                  },
+                  {
+                    title: '图片生成模型',
+                    dataIndex: 'image_model',
+                    key: 'image_model',
+                    render: (text: string) => {
+                      const models = text.split(',').map(m => m.trim()).filter(m => m);
+                      return (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          {models.map((model, index) => (
+                            <div key={index}>{model}</div>
+                          ))}
+                        </div>
+                      );
+                    },
+                  },
+                  {
+                    title: '状态',
+                    dataIndex: 'enabled',
+                    key: 'enabled',
+                    render: (enabled) => (
+                      <Switch checked={enabled} disabled />
+                    ),
+                  },
+                  {
+                    title: '操作',
+                    key: 'action',
+                    render: (_, record) => (
+                      <Space>
+                        <Button
+                          type="link"
+                          icon={<EditOutlined />}
+                          onClick={() => handleImageProviderEdit(record)}
+                          disabled={!isAuthenticated}
+                        >
+                          编辑
+                        </Button>
+                        <Popconfirm
+                          title="确定要删除此提供商吗？"
+                          onConfirm={() => handleImageProviderDelete(record.id)}
+                          okText="确定"
+                          cancelText="取消"
+                          disabled={!isAuthenticated}
+                        >
+                          <Button
+                            type="link"
+                            danger
+                            icon={<DeleteOutlined />}
+                            disabled={!isAuthenticated}
+                          >
+                            删除
+                          </Button>
+                        </Popconfirm>
+                      </Space>
+                    ),
+                  },
+                ]}
+                pagination={false}
+              />
+            </Card>
+
+            {/* 图片生成提供商选择 */}
+            <Card title="图片生成提供商选择">
+              <Form
+                form={imageForm}
+                layout="vertical"
+                onFinish={handleImageSave}
+                initialValues={imageSettings}
+              >
+                <Alert
+                  message="提供商选择说明"
+                  description="选择要使用的图片生成提供商和模型。请确保至少选择一个提供商才能正常使用文生图功能。"
+                  type="info"
+                  showIcon
+                  style={{ marginBottom: 24 }}
+                />
+
+                <Form.Item
+                  name="selected_image_provider_id"
+                  label="图片生成提供商"
+                  tooltip="选择用于图片生成的提供商和模型"
+                  rules={[{ required: true, message: '请选择图片生成提供商' }]}
+                >
+                  <Select
+                    placeholder="选择图片生成提供商"
+                    style={{ width: '100%' }}
+                    disabled={!isAuthenticated}
+                    options={enabledImageProviders.flatMap(p => {
+                      const models = p.image_model.split(',').map(m => m.trim()).filter(m => m);
+                      // 为每个模型创建一个选项，格式为 provider_name(model_name)
+                      return models.map(model => ({
+                        label: `${p.name}(${model})`,
+                        value: `${p.id}:${model}`, // 使用 provider_id:model_name 格式
+                      }));
+                    })}
+                  />
+                </Form.Item>
+
+                <Form.Item>
+                  <Space>
+                    <Button
+                      type="primary"
+                      icon={<SaveOutlined />}
+                      htmlType="submit"
+                      loading={updateImageMutation.isPending}
+                      disabled={!isAuthenticated}
+                    >
+                      保存配置
+                    </Button>
+                    <Button
+                      icon={<ReloadOutlined />}
+                      onClick={() => {
+                        imageForm.setFieldsValue(imageSettings);
+                      }}
+                    >
+                      重置
+                    </Button>
+                  </Space>
+                </Form.Item>
+              </Form>
+            </Card>
+          </Space>
+
+          {/* 图片生成提供商编辑/创建模态框 */}
+          <Modal
+            title={editingImageProvider ? '编辑图片生成提供商' : '添加图片生成提供商'}
+            open={imageProviderModalVisible}
+            onCancel={() => {
+              setImageProviderModalVisible(false);
+              setEditingImageProvider(null);
+              imageProviderForm.resetFields();
+            }}
+            onOk={() => imageProviderForm.submit()}
+            confirmLoading={createImageProviderMutation.isPending || updateImageProviderMutation.isPending}
+            width={600}
+          >
+            <Form
+              form={imageProviderForm}
+              layout="vertical"
+              onFinish={handleImageProviderSubmit}
+            >
+              <Form.Item
+                name="name"
+                label="提供商名称"
+                rules={[{ required: true, message: '请输入提供商名称' }]}
+              >
+                <Input placeholder="例如: 阿里云百炼" />
+              </Form.Item>
+
+              <Form.Item
+                name="provider_type"
+                label="类型"
+                rules={[{ required: true, message: '请选择类型' }]}
+                tooltip="指定使用什么接口访问模型"
+              >
+                <Select
+                  placeholder="选择类型"
+                  options={[
+                    { label: '文生图(BaiLian)', value: '文生图(BaiLian)' },
+                  ]}
+                />
+              </Form.Item>
+
+              <Form.Item
+                name="api_key"
+                label="API密钥"
+                rules={[{ required: true, message: '请输入API密钥' }]}
+              >
+                <Input.Password placeholder="sk-..." />
+              </Form.Item>
+
+              <Form.Item
+                name="api_base"
+                label="API基础URL"
+                rules={[{ required: true, message: '请输入API基础URL' }]}
+              >
+                <Input placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1" />
+              </Form.Item>
+
+              <Form.Item
+                name="image_model"
+                label="图片生成模型名称"
+                rules={[{ required: true, message: '请输入图片生成模型名称' }]}
+                tooltip="支持填写多个模型，使用逗号分隔，例如：wanx-v1, dall-e-3"
+              >
+                <Input placeholder="wanx-v1, dall-e-3" />
+              </Form.Item>
+
+              <Form.Item
+                name="enabled"
+                label="启用"
+                valuePropName="checked"
+                initialValue={true}
+              >
+                <Switch />
+              </Form.Item>
+            </Form>
+          </Modal>
+        </Spin>
+      ),
+    },
     {
       key: 'llm',
       label: 'LLM配置',
@@ -422,6 +810,11 @@ export default function SystemSettings() {
                     title: '名称',
                     dataIndex: 'name',
                     key: 'name',
+                  },
+                  {
+                    title: '类型',
+                    dataIndex: 'provider_type',
+                    key: 'provider_type',
                   },
                   {
                     title: '大模型',
@@ -607,6 +1000,20 @@ export default function SystemSettings() {
                 rules={[{ required: true, message: '请输入提供商名称' }]}
               >
                 <Input placeholder="例如: OpenAI" />
+              </Form.Item>
+
+              <Form.Item
+                name="provider_type"
+                label="类型"
+                rules={[{ required: true, message: '请选择类型' }]}
+                tooltip="指定使用什么接口访问模型"
+              >
+                <Select
+                  placeholder="选择类型"
+                  options={[
+                    { label: '大模型(OpenAI)', value: '大模型(OpenAI)' },
+                  ]}
+                />
               </Form.Item>
 
               <Form.Item

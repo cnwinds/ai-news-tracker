@@ -28,7 +28,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # 使用 docker compose (Docker Compose V2)
-DOCKER_COMPOSE_CMD="docker compose"
+# 指定项目名称，确保只管理自己的容器
+PROJECT_NAME="ai-news-tracker"
+DOCKER_COMPOSE_CMD="docker compose -p $PROJECT_NAME"
 
 # 步骤 1: 更新代码
 echo ""
@@ -59,6 +61,7 @@ echo "✅ 代码更新成功"
 # 步骤 2: 编译 Docker 镜像
 echo ""
 echo "🔨 步骤 2/3: 编译 Docker 镜像..."
+echo "📋 项目名称: $PROJECT_NAME"
 cd "$SCRIPT_DIR" || exit 1
 if ! $DOCKER_COMPOSE_CMD -f docker-compose.yml build; then
     echo "❌ 错误: Docker 镜像编译失败"
@@ -69,6 +72,20 @@ echo "✅ Docker 镜像编译成功"
 # 步骤 3: 快速重启容器（使用新镜像）
 echo ""
 echo "🚀 步骤 3/3: 重启容器（使用新版本）..."
+echo "📋 项目名称: $PROJECT_NAME"
+
+# 检查当前运行的容器
+CURRENT_CONTAINERS=$(docker ps --filter "name=ai-news-tracker" --format "{{.Names}}")
+if [ -n "$CURRENT_CONTAINERS" ]; then
+    echo "📦 当前运行的容器:"
+    echo "$CURRENT_CONTAINERS" | while read -r container; do
+        STATUS=$(docker ps --filter "name=$container" --format "{{.Status}}")
+        echo "   - $container ($STATUS)"
+    done
+else
+    echo "ℹ️  当前没有运行中的容器，将创建新容器"
+fi
+
 # docker compose up -d 会检测到新镜像并优雅地重启容器
 # 它会先启动新容器，再停止旧容器，确保服务不中断
 if ! $DOCKER_COMPOSE_CMD -f docker-compose.yml up -d; then
@@ -97,4 +114,6 @@ echo "   - API文档: http://localhost:8000/docs"
 echo ""
 echo "📝 查看日志:"
 echo "   $DOCKER_COMPOSE_CMD -f docker-compose.yml logs -f"
+echo ""
+echo "💡 提示: 使用项目名称 '$PROJECT_NAME' 确保只管理本项目的容器"
 echo ""

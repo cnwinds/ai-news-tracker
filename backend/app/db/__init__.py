@@ -115,6 +115,9 @@ class DatabaseManager:
             # 迁移：添加采集源自定义字段（如果不存在）
             self._migrate_add_source_customization()
             
+            # 迁移：添加提供商类型字段（如果不存在）
+            self._migrate_add_provider_type()
+            
             logger.info("✅ 数据库基础表初始化成功")
         except Exception as e:
             logger.error(f"❌ 数据库初始化失败: {e}")
@@ -160,6 +163,57 @@ class DatabaseManager:
         except Exception as e:
             # 如果字段已存在或其他错误，记录但不中断
             logger.debug(f"user_notes 字段迁移检查: {e}")
+
+    def _migrate_add_provider_type(self):
+        """迁移：为 llm_providers 和 image_providers 表添加 provider_type 字段（如果不存在）"""
+        try:
+            from sqlalchemy import inspect, text
+            inspector = inspect(self.engine)
+            
+            # 检查 llm_providers 表
+            try:
+                llm_columns = [col['name'] for col in inspector.get_columns('llm_providers')]
+                if 'provider_type' not in llm_columns:
+                    logger.info("🔄 检测到 llm_providers 表缺少 provider_type 字段，正在添加...")
+                    with self.engine.connect() as conn:
+                        conn.execute(text("""
+                            ALTER TABLE llm_providers 
+                            ADD COLUMN provider_type VARCHAR(50) DEFAULT '大模型(OpenAI)'
+                        """))
+                        # 更新现有记录的默认值
+                        conn.execute(text("""
+                            UPDATE llm_providers 
+                            SET provider_type = '大模型(OpenAI)' 
+                            WHERE provider_type IS NULL
+                        """))
+                        conn.commit()
+                    logger.info("✅ llm_providers.provider_type 字段添加成功")
+            except Exception as e:
+                logger.debug(f"llm_providers 表迁移检查: {e}")
+            
+            # 检查 image_providers 表
+            try:
+                image_columns = [col['name'] for col in inspector.get_columns('image_providers')]
+                if 'provider_type' not in image_columns:
+                    logger.info("🔄 检测到 image_providers 表缺少 provider_type 字段，正在添加...")
+                    with self.engine.connect() as conn:
+                        conn.execute(text("""
+                            ALTER TABLE image_providers 
+                            ADD COLUMN provider_type VARCHAR(50) DEFAULT '文生图(BaiLian)'
+                        """))
+                        # 更新现有记录的默认值
+                        conn.execute(text("""
+                            UPDATE image_providers 
+                            SET provider_type = '文生图(BaiLian)' 
+                            WHERE provider_type IS NULL
+                        """))
+                        conn.commit()
+                    logger.info("✅ image_providers.provider_type 字段添加成功")
+            except Exception as e:
+                logger.debug(f"image_providers 表迁移检查: {e}")
+        except Exception as e:
+            # 如果表不存在或其他错误，记录但不中断
+            logger.debug(f"provider_type 字段迁移检查: {e}")
 
     def _migrate_add_source_customization(self):
         """迁移：为 rss_sources 表添加 analysis_prompt 和 parse_fix_history 字段（如果不存在）"""

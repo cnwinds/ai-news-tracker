@@ -6,7 +6,7 @@ from typing import Optional
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from backend.app.db.models import Article, RSSSource, CollectionTask, CollectionLog, AppSettings, LLMProvider
+from backend.app.db.models import Article, RSSSource, CollectionTask, CollectionLog, AppSettings, LLMProvider, ImageProvider
 
 
 class ArticleRepository:
@@ -462,7 +462,8 @@ class LLMProviderRepository:
 
     @staticmethod
     def create(session: Session, name: str, api_key: str, api_base: str, 
-               llm_model: str, embedding_model: str = None, enabled: bool = True) -> LLMProvider:
+               llm_model: str, embedding_model: str = None, enabled: bool = True,
+               provider_type: str = "大模型(OpenAI)") -> LLMProvider:
         """
         创建新提供商
 
@@ -474,12 +475,14 @@ class LLMProviderRepository:
             llm_model: 大模型名称
             embedding_model: 向量模型名称（可选）
             enabled: 是否启用
+            provider_type: 提供商类型
 
         Returns:
             创建的提供商对象
         """
         provider = LLMProvider(
             name=name,
+            provider_type=provider_type,
             api_key=api_key,
             api_base=api_base,
             llm_model=llm_model,
@@ -494,7 +497,7 @@ class LLMProviderRepository:
     @staticmethod
     def update(session: Session, provider_id: int, name: str = None, api_key: str = None,
                api_base: str = None, llm_model: str = None, embedding_model: str = None,
-               enabled: bool = None) -> Optional[LLMProvider]:
+               enabled: bool = None, provider_type: str = None) -> Optional[LLMProvider]:
         """
         更新提供商
 
@@ -507,6 +510,7 @@ class LLMProviderRepository:
             llm_model: 大模型名称（可选）
             embedding_model: 向量模型名称（可选）
             enabled: 是否启用（可选）
+            provider_type: 提供商类型（可选）
 
         Returns:
             更新后的提供商对象或None
@@ -517,6 +521,8 @@ class LLMProviderRepository:
 
         if name is not None:
             provider.name = name
+        if provider_type is not None:
+            provider.provider_type = provider_type
         if api_key is not None:
             provider.api_key = api_key
         if api_base is not None:
@@ -567,3 +573,129 @@ class LLMProviderRepository:
             LLMProvider.embedding_model.isnot(None),
             LLMProvider.embedding_model != ""
         ).order_by(LLMProvider.name.asc()).all()
+
+
+class ImageProviderRepository:
+    """图片生成提供商数据访问类"""
+
+    @staticmethod
+    def get_all(session: Session, enabled_only: bool = False) -> list[ImageProvider]:
+        """
+        获取所有提供商
+
+        Args:
+            session: 数据库会话
+            enabled_only: 是否只返回启用的提供商
+
+        Returns:
+            提供商列表
+        """
+        query = session.query(ImageProvider)
+        if enabled_only:
+            query = query.filter(ImageProvider.enabled == True)
+        return query.order_by(ImageProvider.name.asc()).all()
+
+    @staticmethod
+    def get_by_id(session: Session, provider_id: int) -> Optional[ImageProvider]:
+        """
+        根据ID获取提供商
+
+        Args:
+            session: 数据库会话
+            provider_id: 提供商ID
+
+        Returns:
+            提供商对象或None
+        """
+        return session.query(ImageProvider).filter(ImageProvider.id == provider_id).first()
+
+    @staticmethod
+    def create(session: Session, name: str, api_key: str, api_base: str, 
+               image_model: str, enabled: bool = True, provider_type: str = "文生图(BaiLian)") -> ImageProvider:
+        """
+        创建新提供商
+
+        Args:
+            session: 数据库会话
+            name: 提供商名称
+            api_key: API密钥
+            api_base: API基础URL
+            image_model: 图片生成模型名称
+            enabled: 是否启用
+            provider_type: 提供商类型
+
+        Returns:
+            创建的提供商对象
+        """
+        provider = ImageProvider(
+            name=name,
+            provider_type=provider_type,
+            api_key=api_key,
+            api_base=api_base,
+            image_model=image_model,
+            enabled=enabled
+        )
+        session.add(provider)
+        session.commit()
+        session.refresh(provider)
+        return provider
+
+    @staticmethod
+    def update(session: Session, provider_id: int, name: str = None, api_key: str = None,
+               api_base: str = None, image_model: str = None,
+               enabled: bool = None, provider_type: str = None) -> Optional[ImageProvider]:
+        """
+        更新提供商
+
+        Args:
+            session: 数据库会话
+            provider_id: 提供商ID
+            name: 提供商名称（可选）
+            api_key: API密钥（可选）
+            api_base: API基础URL（可选）
+            image_model: 图片生成模型名称（可选）
+            enabled: 是否启用（可选）
+            provider_type: 提供商类型（可选）
+
+        Returns:
+            更新后的提供商对象或None
+        """
+        provider = session.query(ImageProvider).filter(ImageProvider.id == provider_id).first()
+        if not provider:
+            return None
+
+        if name is not None:
+            provider.name = name
+        if provider_type is not None:
+            provider.provider_type = provider_type
+        if api_key is not None:
+            provider.api_key = api_key
+        if api_base is not None:
+            provider.api_base = api_base
+        if image_model is not None:
+            provider.image_model = image_model
+        if enabled is not None:
+            provider.enabled = enabled
+
+        session.commit()
+        session.refresh(provider)
+        return provider
+
+    @staticmethod
+    def delete(session: Session, provider_id: int) -> bool:
+        """
+        删除提供商
+
+        Args:
+            session: 数据库会话
+            provider_id: 提供商ID
+
+        Returns:
+            是否删除成功
+        """
+        provider = session.query(ImageProvider).filter(ImageProvider.id == provider_id).first()
+        if provider:
+            session.delete(provider)
+            session.commit()
+            return True
+        return False

@@ -225,6 +225,7 @@ class LLMProvider(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(200), nullable=False, unique=True, index=True)  # 提供商名称
+    provider_type = Column(String(50), nullable=False, default="大模型(OpenAI)")  # 提供商类型：大模型(OpenAI)
     api_key = Column(String(500), nullable=False)  # API密钥
     api_base = Column(String(500), nullable=False)  # API基础URL
     llm_model = Column(String(500), nullable=False)  # 大模型名称（支持逗号分隔的多个模型）
@@ -235,3 +236,21 @@ class LLMProvider(Base):
 
     def __repr__(self):
         return f"<LLMProvider(id={self.id}, name='{self.name}', enabled={self.enabled})>"
+
+
+class ImageProvider(Base):
+    """图片生成提供商表 - 存储多个图片生成提供商的配置"""
+    __tablename__ = "image_providers"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(200), nullable=False, unique=True, index=True)  # 提供商名称
+    provider_type = Column(String(50), nullable=False, default="文生图(BaiLian)")  # 提供商类型：文生图(BaiLian)
+    api_key = Column(String(500), nullable=False)  # API密钥
+    api_base = Column(String(500), nullable=False)  # API基础URL
+    image_model = Column(String(500), nullable=False)  # 图片生成模型名称（支持逗号分隔的多个模型）
+    enabled = Column(Boolean, default=True, index=True)  # 是否启用
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    def __repr__(self):
+        return f"<ImageProvider(id={self.id}, name='{self.name}', enabled={self.enabled})>"

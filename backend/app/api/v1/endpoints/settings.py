@@ -8,7 +8,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from backend.app.core.settings import settings
 from backend.app.db import get_db
-from backend.app.db.repositories import LLMProviderRepository
+from backend.app.db.repositories import LLMProviderRepository, ImageProviderRepository
 from backend.app.schemas.settings import (
     CollectionSettings, 
     AutoCollectionSettings, 
@@ -19,6 +19,10 @@ from backend.app.schemas.settings import (
     LLMProvider,
     LLMProviderCreate,
     LLMProviderUpdate,
+    ImageSettings,
+    ImageProvider,
+    ImageProviderCreate,
+    ImageProviderUpdate,
 )
 
 router = APIRouter()
@@ -278,6 +282,7 @@ async def get_providers(
         return [LLMProvider(
             id=p.id,
             name=p.name,
+            provider_type=p.provider_type,
             api_key=p.api_key if current_user else "",
             api_base=p.api_base,
             llm_model=p.llm_model,
@@ -302,11 +307,13 @@ async def create_provider(
                 api_base=provider_data.api_base,
                 llm_model=provider_data.llm_model,
                 embedding_model=provider_data.embedding_model,
-                enabled=provider_data.enabled
+                enabled=provider_data.enabled,
+                provider_type=provider_data.provider_type
             )
             return LLMProvider(
                 id=provider.id,
                 name=provider.name,
+                provider_type=provider.provider_type,
                 api_key=provider.api_key,
                 api_base=provider.api_base,
                 llm_model=provider.llm_model,
@@ -333,6 +340,7 @@ async def get_provider(
         return LLMProvider(
             id=provider.id,
             name=provider.name,
+            provider_type=provider.provider_type,
             api_key=provider.api_key if current_user else "",
             api_base=provider.api_base,
             llm_model=provider.llm_model,
@@ -358,13 +366,15 @@ async def update_provider(
             api_base=provider_data.api_base,
             llm_model=provider_data.llm_model,
             embedding_model=provider_data.embedding_model,
-            enabled=provider_data.enabled
+            enabled=provider_data.enabled,
+            provider_type=provider_data.provider_type
         )
         if not provider:
             raise HTTPException(status_code=404, detail="提供商不存在")
         return LLMProvider(
             id=provider.id,
             name=provider.name,
+            provider_type=provider.provider_type,
             api_key=provider.api_key,
             api_base=provider.api_base,
             llm_model=provider.llm_model,
@@ -496,4 +506,166 @@ async def update_notification_settings(
         instant_notification_enabled=settings.INSTANT_NOTIFICATION_ENABLED,
         quiet_hours=quiet_hours,
     )
+
+
+@router.get("/image", response_model=ImageSettings)
+async def get_image_settings():
+    """获取图片生成配置"""
+    # 确保从数据库加载最新配置
+    settings.load_settings_from_db()
+    return ImageSettings(
+        selected_image_provider_id=settings.SELECTED_IMAGE_PROVIDER_ID,
+        selected_image_models=settings.SELECTED_IMAGE_MODELS,
+    )
+
+
+@router.put("/image", response_model=ImageSettings)
+async def update_image_settings(
+    new_settings: ImageSettings,
+    current_user: str = Depends(require_auth),
+):
+    """更新图片生成配置"""
+    success = settings.save_image_settings(
+        selected_image_provider_id=new_settings.selected_image_provider_id,
+        selected_image_models=new_settings.selected_image_models,
+    )
+    if not success:
+        raise HTTPException(status_code=500, detail="保存图片生成配置失败")
+    
+    # 重新加载配置
+    settings.load_settings_from_db()
+    return ImageSettings(
+        selected_image_provider_id=settings.SELECTED_IMAGE_PROVIDER_ID,
+        selected_image_models=settings.SELECTED_IMAGE_MODELS,
+    )
+
+
+@router.get("/image-providers", response_model=list[ImageProvider])
+async def get_image_providers(
+    enabled_only: bool = False,
+    current_user: Optional[str] = Depends(get_current_user_optional),
+):
+    """获取所有图片生成提供商列表"""
+    db = get_db()
+    with db.get_session() as session:
+        providers = ImageProviderRepository.get_all(session, enabled_only=enabled_only)
+        # 如果未登录，不返回API密钥
+        return [ImageProvider(
+            id=p.id,
+            name=p.name,
+            provider_type=p.provider_type,
+            api_key=p.api_key if current_user else "",
+            api_base=p.api_base,
+            image_model=p.image_model,
+            enabled=p.enabled
+        ) for p in providers]
+
+
+@router.post("/image-providers", response_model=ImageProvider)
+async def create_image_provider(
+    provider_data: ImageProviderCreate,
+    current_user: str = Depends(require_auth),
+):
+    """创建新图片生成提供商"""
+    db = get_db()
+    with db.get_session() as session:
+        try:
+            provider = ImageProviderRepository.create(
+                session=session,
+                name=provider_data.name,
+                api_key=provider_data.api_key,
+                api_base=provider_data.api_base,
+                image_model=provider_data.image_model,
+                enabled=provider_data.enabled,
+                provider_type=provider_data.provider_type
+            )
+            return ImageProvider(
+                id=provider.id,
+                name=provider.name,
+                provider_type=provider.provider_type,
+                api_key=provider.api_key,
+                api_base=provider.api_base,
+                image_model=provider.image_model,
+                enabled=provider.enabled
+            )
+        except Exception as e:
+            session.rollback()
+            raise HTTPException(status_code=400, detail=f"创建图片生成提供商失败: {str(e)}")
+
+
+@router.get("/image-providers/{provider_id}", response_model=ImageProvider)
+async def get_image_provider(
+    provider_id: int,
+    current_user: Optional[str] = Depends(get_current_user_optional),
+):
+    """获取指定图片生成提供商"""
+    db = get_db()
+    with db.get_session() as session:
+        provider = ImageProviderRepository.get_by_id(session, provider_id)
+        if not provider:
+            raise HTTPException(status_code=404, detail="图片生成提供商不存在")
+        # 如果未登录，不返回API密钥
+        return ImageProvider(
+            id=provider.id,
+            name=provider.name,
+            provider_type=provider.provider_type,
+            api_key=provider.api_key if current_user else "",
+            api_base=provider.api_base,
+            image_model=provider.image_model,
+            enabled=provider.enabled
+        )
+
+
+@router.put("/image-providers/{provider_id}", response_model=ImageProvider)
+async def update_image_provider(
+    provider_id: int,
+    provider_data: ImageProviderUpdate,
+    current_user: str = Depends(require_auth),
+):
+    """更新图片生成提供商"""
+    db = get_db()
+    with db.get_session() as session:
+        provider = ImageProviderRepository.update(
+            session=session,
+            provider_id=provider_id,
+            name=provider_data.name,
+            api_key=provider_data.api_key,
+            api_base=provider_data.api_base,
+            image_model=provider_data.image_model,
+            enabled=provider_data.enabled,
+            provider_type=provider_data.provider_type
+        )
+        if not provider:
+            raise HTTPException(status_code=404, detail="图片生成提供商不存在")
+        return ImageProvider(
+            id=provider.id,
+            name=provider.name,
+            provider_type=provider.provider_type,
+            api_key=provider.api_key,
+            api_base=provider.api_base,
+            image_model=provider.image_model,
+            enabled=provider.enabled
+        )
+
+
+@router.delete("/image-providers/{provider_id}")
+async def delete_image_provider(
+    provider_id: int,
+    current_user: str = Depends(require_auth),
+):
+    """删除图片生成提供商"""
+    db = get_db()
+    with db.get_session() as session:
+        # 检查是否正在使用此提供商
+        settings.load_settings_from_db()
+        if settings.SELECTED_IMAGE_PROVIDER_ID == provider_id:
+            raise HTTPException(
+                status_code=400, 
+                detail="无法删除正在使用的图片生成提供商，请先选择其他提供商"
+            )
+        
+        success = ImageProviderRepository.delete(session, provider_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="图片生成提供商不存在")
+        return {"message": "图片生成提供商已删除"}
 

@@ -25,6 +25,10 @@ import type {
   LLMProviderUpdate,
   CollectorSettings,
   NotificationSettings,
+  ImageSettings,
+  ImageProvider,
+  ImageProviderCreate,
+  ImageProviderUpdate,
   RAGSearchRequest,
   RAGSearchResponse,
   RAGQueryRequest,
@@ -509,6 +513,50 @@ class ApiService {
   async updateNotificationSettings(data: NotificationSettings): Promise<NotificationSettings> {
     return this.handleRequest(
       this.client.put<NotificationSettings>('/settings/notification', data)
+    );
+  }
+
+  // 图片生成配置相关
+  async getImageSettings(): Promise<ImageSettings> {
+    return this.handleRequest(
+      this.client.get<ImageSettings>('/settings/image')
+    );
+  }
+
+  async updateImageSettings(data: ImageSettings): Promise<ImageSettings> {
+    return this.handleRequest(
+      this.client.put<ImageSettings>('/settings/image', data)
+    );
+  }
+
+  // 图片生成提供商管理相关
+  async getImageProviders(enabledOnly: boolean = false): Promise<ImageProvider[]> {
+    return this.handleRequest(
+      this.client.get<ImageProvider[]>(`/settings/image-providers?enabled_only=${enabledOnly}`)
+    );
+  }
+
+  async getImageProvider(providerId: number): Promise<ImageProvider> {
+    return this.handleRequest(
+      this.client.get<ImageProvider>(`/settings/image-providers/${providerId}`)
+    );
+  }
+
+  async createImageProvider(data: ImageProviderCreate): Promise<ImageProvider> {
+    return this.handleRequest(
+      this.client.post<ImageProvider>('/settings/image-providers', data)
+    );
+  }
+
+  async updateImageProvider(providerId: number, data: ImageProviderUpdate): Promise<ImageProvider> {
+    return this.handleRequest(
+      this.client.put<ImageProvider>(`/settings/image-providers/${providerId}`, data)
+    );
+  }
+
+  async deleteImageProvider(providerId: number): Promise<void> {
+    await this.handleRequest(
+      this.client.delete(`/settings/image-providers/${providerId}`)
     );
   }
 

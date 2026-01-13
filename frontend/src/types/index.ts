@@ -200,6 +200,7 @@ export interface SummarySettings {
 export interface LLMProvider {
   id: number;
   name: string;
+  provider_type: string;
   api_key: string;
   api_base: string;
   llm_model: string;
@@ -216,6 +217,25 @@ export interface LLMSettings {
   selected_embedding_provider_id?: number | null;
   selected_llm_models?: string[] | null;
   selected_embedding_models?: string[] | null;
+}
+
+export interface ImageProvider {
+  id: number;
+  name: string;
+  provider_type: string;
+  api_key: string;
+  api_base: string;
+  image_model: string;
+  enabled: boolean;
+}
+
+export type ImageProviderCreate = Omit<ImageProvider, 'id'>;
+
+export type ImageProviderUpdate = Partial<ImageProviderCreate>;
+
+export interface ImageSettings {
+  selected_image_provider_id?: number | null;
+  selected_image_models?: string[] | null;
 }
 
 export interface CollectorSettings {
