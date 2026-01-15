@@ -2,20 +2,31 @@
 统一数据采集服务
 """
 import json
-from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional, Union
 
-from backend.app.services.collector.rss_collector import RSSCollector
-from backend.app.services.collector.api_collector import ArXivCollector, HuggingFaceCollector, PapersWithCodeCollector
-from backend.app.services.collector.web_collector import WebCollector
-from backend.app.services.collector.twitter_collector import TwitterCollector
-from backend.app.services.collector.email_collector import EmailCollector
 from backend.app.db import get_db
 from backend.app.db.models import Article, CollectionLog, RSSSource
 from backend.app.services.analyzer.ai_analyzer import AIAnalyzer
+from backend.app.services.collector.api_collector import (
+    ArXivCollector,
+    HuggingFaceCollector,
+    PapersWithCodeCollector,
+)
+from backend.app.services.collector.email_collector import EmailCollector
+from backend.app.services.collector.rss_collector import RSSCollector
+from backend.app.services.collector.twitter_collector import TwitterCollector
+from backend.app.services.collector.base_collector import BaseCollector
+from backend.app.services.collector.types import (
+    ArticleDict,
+    CollectorConfig,
+    CollectionStats,
+    SourceProcessStats,
+)
+from backend.app.services.collector.web_collector import WebCollector
 
 logger = logging.getLogger(__name__)
 
@@ -44,8 +55,45 @@ class CollectionService:
         else:
             self.summary_generator = None
 
+    @staticmethod
+    def _parse_json_safely(json_str: Union[str, dict, None]) -> dict:
+        """
+        安全地解析JSON字符串
+        
+        Args:
+            json_str: JSON字符串或字典
+            
+        Returns:
+            解析后的字典，如果解析失败则返回空字典
+        """
+        if json_str is None:
+            return {}
+        if isinstance(json_str, dict):
+            return json_str
+        if isinstance(json_str, str):
+            try:
+                return json.loads(json_str)
+            except (json.JSONDecodeError, TypeError, ValueError):
+                return {}
+        return {}
 
-    def _merge_extra_config(self, config: Dict[str, Any]) -> Dict[str, Any]:
+    @staticmethod
+    def _create_empty_stats() -> CollectionStats:
+        """
+        创建空的统计信息字典
+        
+        Returns:
+            初始化的统计信息字典
+        """
+        return {
+            "total_articles": 0,
+            "new_articles": 0,
+            "sources_success": 0,
+            "sources_error": 0,
+            "start_time": datetime.now(),
+        }
+
+    def _merge_extra_config(self, config: CollectorConfig) -> CollectorConfig:
         """
         合并 extra_config 到主配置中
         
@@ -56,14 +104,7 @@ class CollectionService:
             合并后的配置字典
         """
         merged_config = config.copy()
-        extra_config = config.get("extra_config", {})
-        
-        if isinstance(extra_config, str):
-            # 如果是字符串，尝试解析为JSON
-            try:
-                extra_config = json.loads(extra_config)
-            except:
-                extra_config = {}
+        extra_config = self._parse_json_safely(config.get("extra_config"))
         
         if extra_config:
             # 将 extra_config 中的字段合并到主配置
@@ -71,7 +112,11 @@ class CollectionService:
         
         return merged_config
 
-    def _get_collector_by_type(self, source_type: str, sub_type: Optional[str] = None) -> tuple[Optional[Any], Optional[str]]:
+    def _get_collector_by_type(
+        self, 
+        source_type: str, 
+        sub_type: Optional[str] = None
+    ) -> tuple[Optional[BaseCollector], Optional[str]]:
         """
         根据source_type和sub_type获取对应的采集器
         
@@ -106,7 +151,11 @@ class CollectionService:
         
         return (None, None)
 
-    def collect_all(self, enable_ai_analysis: bool = True, task_id: int = None) -> Dict[str, Any]:
+    def collect_all(
+        self, 
+        enable_ai_analysis: bool = True, 
+        task_id: Optional[int] = None
+    ) -> CollectionStats:
         """
         采集所有配置的数据源
 
@@ -127,13 +176,7 @@ class CollectionService:
         # 导入停止检查函数
         from backend.app.api.v1.endpoints.collection import is_stop_requested
         
-        stats = {
-            "total_articles": 0,
-            "new_articles": 0,
-            "sources_success": 0,
-            "sources_error": 0,
-            "start_time": datetime.now(),
-        }
+        stats = self._create_empty_stats()
 
         # 1. 采集RSS源（双层并发：多个RSS源 + 每个源内部并发获取内容+AI分析）
         logger.info("\n📡 采集RSS源（双层并发模式）")
@@ -252,7 +295,12 @@ class CollectionService:
 
         return stats
 
-    def _fetch_articles_full_content(self, articles: List[Dict[str, Any]], source_name: str, max_workers: int = 3) -> List[Dict[str, Any]]:
+    def _fetch_articles_full_content(
+        self, 
+        articles: List[ArticleDict], 
+        source_name: str, 
+        max_workers: int = 3
+    ) -> List[ArticleDict]:
         """
         并发获取文章的完整内容
         
@@ -307,7 +355,7 @@ class CollectionService:
         logger.info(f"  ✅ 完整内容获取完成: {len(articles_to_fetch)} 篇文章")
         return articles
 
-    def _update_task_progress(self, db, task_id: int, stats: Dict[str, Any]):
+    def _update_task_progress(self, db, task_id: int, stats: CollectionStats) -> None:
         """更新任务进度"""
         try:
             from backend.app.db.models import CollectionTask
@@ -323,7 +371,14 @@ class CollectionService:
         except Exception as e:
             logger.error(f"❌ 更新任务进度失败: {e}")
 
-    def _process_single_rss_source(self, db, source_name: str, feed_result: Dict[str, Any], enable_ai_analysis: bool = False, task_id: int = None) -> Dict[str, Any]:
+    def _process_single_rss_source(
+        self, 
+        db, 
+        source_name: str, 
+        feed_result: Dict[str, Union[str, int, List[ArticleDict]]], 
+        enable_ai_analysis: bool = False, 
+        task_id: Optional[int] = None
+    ) -> SourceProcessStats:
         """
         处理单个RSS源：获取完整内容 -> 保存文章 -> AI分析（全流程并发）
 
@@ -337,7 +392,7 @@ class CollectionService:
         Returns:
             处理结果统计
         """
-        result_stats = {
+        result_stats: SourceProcessStats = {
             "source_name": source_name,
             "total_articles": 0,
             "new_articles": 0,
@@ -345,7 +400,7 @@ class CollectionService:
             "ai_analyzed": 0,
             "ai_skipped": 0,  # 已分析的文章
             "success": False,
-            "error": None
+            "error": None,
         }
 
         try:
@@ -564,7 +619,12 @@ class CollectionService:
 
         return result_stats
 
-    def _collect_rss_sources(self, db, task_id: int = None, enable_ai_analysis: bool = False) -> Dict[str, Any]:
+    def _collect_rss_sources(
+        self, 
+        db, 
+        task_id: Optional[int] = None, 
+        enable_ai_analysis: bool = False
+    ) -> CollectionStats:
         """
         采集RSS源（双层并发：多个RSS源同时采集 + 每个源内部并发获取内容+AI分析）
 
@@ -576,7 +636,14 @@ class CollectionService:
         Returns:
             采集统计信息
         """
-        stats = {"sources_success": 0, "sources_error": 0, "new_articles": 0, "total_articles": 0, "ai_analyzed_count": 0}
+        stats: CollectionStats = {
+            "sources_success": 0,
+            "sources_error": 0,
+            "new_articles": 0,
+            "total_articles": 0,
+            "ai_analyzed_count": 0,
+            "start_time": datetime.now(),
+        }
 
         # 从数据库读取RSS源（只读取source_type为rss的源）
         rss_configs = []
@@ -646,7 +713,7 @@ class CollectionService:
                                 "error": error_msg,
                                 "total_articles": 0,
                                 "new_articles": 0,
-                                "ai_analyzed": 0
+                                "ai_analyzed": 0,
                             }
 
                         # 处理这个源（包含获取完整内容、保存、AI分析）
@@ -676,7 +743,7 @@ class CollectionService:
                             "error": str(e),
                             "total_articles": 0,
                             "new_articles": 0,
-                            "ai_analyzed": 0
+                            "ai_analyzed": 0,
                         }
 
                 # 提交任务到线程池
@@ -728,7 +795,15 @@ class CollectionService:
 
         return stats
 
-    def _process_articles_from_source(self, db, articles: List[Dict[str, Any]], source_name: str, source_type: str, enable_ai_analysis: bool = False, task_id: int = None) -> Dict[str, Any]:
+    def _process_articles_from_source(
+        self, 
+        db, 
+        articles: List[ArticleDict], 
+        source_name: str, 
+        source_type: str, 
+        enable_ai_analysis: bool = False, 
+        task_id: Optional[int] = None
+    ) -> CollectionStats:
         """
         统一处理文章：保存 + AI分析
 
@@ -786,7 +861,12 @@ class CollectionService:
 
         return result
 
-    def _collect_api_sources(self, db, task_id: int = None, enable_ai_analysis: bool = False) -> Dict[str, Any]:
+    def _collect_api_sources(
+        self, 
+        db, 
+        task_id: Optional[int] = None, 
+        enable_ai_analysis: bool = False
+    ) -> CollectionStats:
         """
         采集API源
 
@@ -798,7 +878,14 @@ class CollectionService:
         Returns:
             采集统计信息
         """
-        stats = {"sources_success": 0, "sources_error": 0, "new_articles": 0, "total_articles": 0, "ai_analyzed_count": 0}
+        stats: CollectionStats = {
+            "sources_success": 0,
+            "sources_error": 0,
+            "new_articles": 0,
+            "total_articles": 0,
+            "ai_analyzed_count": 0,
+            "start_time": datetime.now(),
+        }
 
         api_configs = []
         with db.get_session() as session:
@@ -817,13 +904,9 @@ class CollectionService:
                 }
 
                 if source.extra_config:
-                    try:
-                        import json
-                        extra_config = json.loads(source.extra_config)
-                        if isinstance(extra_config, dict):
-                            config.update(extra_config)
-                    except:
-                        pass
+                    extra_config = self._parse_json_safely(source.extra_config)
+                    if extra_config:
+                        config.update(extra_config)
 
                 api_configs.append(config)
                 _ = source.id
@@ -941,7 +1024,12 @@ class CollectionService:
 
         return stats
 
-    def _collect_web_sources(self, db, task_id: int = None, enable_ai_analysis: bool = False) -> Dict[str, Any]:
+    def _collect_web_sources(
+        self, 
+        db, 
+        task_id: Optional[int] = None, 
+        enable_ai_analysis: bool = False
+    ) -> CollectionStats:
         """
         采集网站源（通过网页爬取）
 
@@ -953,7 +1041,14 @@ class CollectionService:
         Returns:
             采集统计信息
         """
-        stats = {"sources_success": 0, "sources_error": 0, "new_articles": 0, "total_articles": 0, "ai_analyzed_count": 0}
+        stats: CollectionStats = {
+            "sources_success": 0,
+            "sources_error": 0,
+            "new_articles": 0,
+            "total_articles": 0,
+            "ai_analyzed_count": 0,
+            "start_time": datetime.now(),
+        }
 
         # 优先从数据库读取Web源
         web_configs = []
@@ -972,23 +1067,15 @@ class CollectionService:
                 
                 # 优先使用 extra_config 字段，如果没有则尝试从 note 字段解析
                 if source.extra_config:
-                    try:
-                        import json
-                        extra_config = json.loads(source.extra_config)
-                        if isinstance(extra_config, dict):
-                            config["extra_config"] = extra_config
-                    except:
-                        pass
+                    extra_config = self._parse_json_safely(source.extra_config)
+                    if extra_config:
+                        config["extra_config"] = extra_config
                 elif source.note:
-                    try:
-                        import json
-                        note_config = json.loads(source.note)
-                        # 如果note是extra_config格式，将其放入extra_config字段
-                        if isinstance(note_config, dict):
-                            config["extra_config"] = note_config
-                        else:
-                            config["note"] = source.note
-                    except:
+                    note_config = self._parse_json_safely(source.note)
+                    # 如果note是extra_config格式，将其放入extra_config字段
+                    if note_config:
+                        config["extra_config"] = note_config
+                    else:
                         config["note"] = source.note
                 
                 web_configs.append(config)
@@ -1084,7 +1171,12 @@ class CollectionService:
 
         return stats
 
-    def _collect_email_sources(self, db, task_id: int = None, enable_ai_analysis: bool = False) -> Dict[str, Any]:
+    def _collect_email_sources(
+        self, 
+        db, 
+        task_id: Optional[int] = None, 
+        enable_ai_analysis: bool = False
+    ) -> CollectionStats:
         """
         采集邮件源
 
@@ -1096,7 +1188,14 @@ class CollectionService:
         Returns:
             采集统计信息
         """
-        stats = {"sources_success": 0, "sources_error": 0, "new_articles": 0, "total_articles": 0, "ai_analyzed_count": 0}
+        stats: CollectionStats = {
+            "sources_success": 0,
+            "sources_error": 0,
+            "new_articles": 0,
+            "total_articles": 0,
+            "ai_analyzed_count": 0,
+            "start_time": datetime.now(),
+        }
 
         # 从数据库读取邮件源
         email_configs = []
@@ -1115,13 +1214,9 @@ class CollectionService:
                 }
 
                 if source.extra_config:
-                    try:
-                        import json
-                        extra_config = json.loads(source.extra_config)
-                        if isinstance(extra_config, dict):
-                            config.update(extra_config)
-                    except:
-                        pass
+                    extra_config = self._parse_json_safely(source.extra_config)
+                    if extra_config:
+                        config.update(extra_config)
 
                 email_configs.append(config)
             session.expunge_all()
@@ -1212,7 +1307,11 @@ class CollectionService:
 
         return stats
 
-    def _save_or_update_article_and_get_id(self, db, article: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def _save_or_update_article_and_get_id(
+        self, 
+        db, 
+        article: ArticleDict
+    ) -> Optional[Dict[str, Union[int, bool]]]:
         """
         保存或更新文章到数据库并返回文章ID和信息
 
@@ -1273,7 +1372,13 @@ class CollectionService:
         return None
 
 
-    def _analyze_articles(self, db, batch_size: int = 50, max_age_days: int = None, max_workers: int = 3) -> Dict[str, Any]:
+    def _analyze_articles(
+        self, 
+        db, 
+        batch_size: int = 50, 
+        max_age_days: Optional[int] = None, 
+        max_workers: int = 3
+    ) -> CollectionStats:
         """
         AI分析未分析的文章（并发）
         
@@ -1411,7 +1516,6 @@ class CollectionService:
                             elif "content" in summary_value:
                                 summary_value = summary_value["content"]
                             else:
-                                import json
                                 summary_value = json.dumps(summary_value, ensure_ascii=False)
                         elif not isinstance(summary_value, str):
                             summary_value = str(summary_value) if summary_value else ""
@@ -1528,7 +1632,6 @@ class CollectionService:
                         elif "content" in summary_value:
                             summary_value = summary_value["content"]
                         else:
-                            import json
                             summary_value = json.dumps(summary_value, ensure_ascii=False)
                     elif not isinstance(summary_value, str):
                         summary_value = str(summary_value) if summary_value else ""

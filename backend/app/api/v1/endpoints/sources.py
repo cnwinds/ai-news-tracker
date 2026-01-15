@@ -1,9 +1,10 @@
 """
 订阅源相关 API 端点
 """
-import logging
+import asyncio
 import json
-from typing import List, Optional, Dict, Any
+import logging
+from typing import List, Optional, Dict, Union
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -25,7 +26,34 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def extract_sub_type_from_config(source_type: str, extra_config: Dict[str, Any], url: str = "") -> Optional[str]:
+def parse_extra_config_safely(extra_config_raw: Union[str, dict, None]) -> dict:
+    """
+    安全地解析 extra_config
+    
+    Args:
+        extra_config_raw: extra_config 原始值（可能是字符串、字典或None）
+        
+    Returns:
+        解析后的字典，如果解析失败则返回空字典
+    """
+    if extra_config_raw is None:
+        return {}
+    if isinstance(extra_config_raw, dict):
+        return extra_config_raw
+    if isinstance(extra_config_raw, str):
+        try:
+            return json.loads(extra_config_raw)
+        except (json.JSONDecodeError, TypeError, ValueError) as e:
+            logger.warning(f"解析 extra_config 字符串失败: {e}")
+            return {}
+    return {}
+
+
+def extract_sub_type_from_config(
+    source_type: str, 
+    extra_config: Dict[str, str], 
+    url: str = ""
+) -> Optional[str]:
     """
     从extra_config中提取sub_type（用于导入新源时）
     
@@ -38,7 +66,7 @@ def extract_sub_type_from_config(source_type: str, extra_config: Dict[str, Any],
         sub_type字符串，如果无法确定则返回None
     """
     if not extra_config:
-        extra_config = {}
+        return None
     
     url_lower = url.lower() if url else ""
     
@@ -46,21 +74,25 @@ def extract_sub_type_from_config(source_type: str, extra_config: Dict[str, Any],
         # API源：从collector_type提取
         collector_type = extra_config.get("collector_type", "").lower()
         if collector_type:
-            if collector_type in ["hf", "huggingface"]:
-                return "huggingface"
-            elif collector_type in ["pwc", "paperswithcode"]:
-                return "paperswithcode"
-            else:
-                return collector_type
+            type_mapping = {
+                "hf": "huggingface",
+                "huggingface": "huggingface",
+                "pwc": "paperswithcode",
+                "paperswithcode": "paperswithcode",
+            }
+            return type_mapping.get(collector_type, collector_type)
+        
         # 从URL判断
-        if "arxiv.org" in url_lower:
-            return "arxiv"
-        elif "huggingface.co" in url_lower:
-            return "huggingface"
-        elif "paperswithcode.com" in url_lower:
-            return "paperswithcode"
-        elif "twitter.com" in url_lower or "x.com" in url_lower:
-            # Twitter/X 现在作为API源的子类型
+        url_type_mapping = {
+            "arxiv.org": "arxiv",
+            "huggingface.co": "huggingface",
+            "paperswithcode.com": "paperswithcode",
+        }
+        for domain, sub_type in url_type_mapping.items():
+            if domain in url_lower:
+                return sub_type
+        
+        if "twitter.com" in url_lower or "x.com" in url_lower:
             return "twitter"
     
     return None
@@ -313,15 +345,7 @@ async def import_default_sources(
                     # 如果源已存在，检查是否需要更新 extra_config
                     extra_config_raw = source_data.get("extra_config")
                     if extra_config_raw is not None:
-                        extra_config_dict = {}
-                        if isinstance(extra_config_raw, dict):
-                            extra_config_dict = extra_config_raw
-                        elif isinstance(extra_config_raw, str):
-                            try:
-                                extra_config_dict = json.loads(extra_config_raw)
-                            except Exception as e:
-                                logger.warning(f"解析源 '{source_name}' 的 extra_config 字符串失败: {e}")
-                                extra_config_dict = {}
+                        extra_config_dict = parse_extra_config_safely(extra_config_raw)
                         
                         if extra_config_dict:
                             extra_config_str = json.dumps(extra_config_dict, ensure_ascii=False)
@@ -335,23 +359,10 @@ async def import_default_sources(
                 
                 # 处理 extra_config（如果是字典，序列化为JSON字符串）
                 extra_config_raw = source_data.get("extra_config")
-                extra_config_dict = {}
-                
-                if extra_config_raw is not None:
-                    if isinstance(extra_config_raw, dict):
-                        extra_config_dict = extra_config_raw
-                    elif isinstance(extra_config_raw, str):
-                        try:
-                            extra_config_dict = json.loads(extra_config_raw)
-                        except Exception as e:
-                            logger.warning(f"解析源 '{source_name}' 的 extra_config 字符串失败: {e}")
-                            extra_config_dict = {}
+                extra_config_dict = parse_extra_config_safely(extra_config_raw)
                 
                 # 序列化为JSON字符串
-                if extra_config_dict:
-                    extra_config_str = json.dumps(extra_config_dict, ensure_ascii=False)
-                else:
-                    extra_config_str = ""
+                extra_config_str = json.dumps(extra_config_dict, ensure_ascii=False) if extra_config_dict else ""
                 
                 # 提取sub_type
                 source_type = source_data.get("source_type", "rss")
@@ -438,10 +449,12 @@ async def fix_source_parse(
             "extra_config": source.extra_config,
         }
         
-        # 执行修复
-        result = ai_parser.analyze_and_fix_config(
+        # 执行修复（在线程池中执行，避免阻塞）
+        result = await asyncio.to_thread(
+            ai_parser.analyze_and_fix_config,
             source_config,
-            error_message=source.last_error
+            None,  # raw_data
+            source.last_error  # error_message
         )
         
         if result["success"]:

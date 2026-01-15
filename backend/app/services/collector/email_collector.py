@@ -140,7 +140,7 @@ class EmailCollector(BaseCollector):
             if mail:
                 try:
                     mail.logout()
-                except:
+                except Exception:
                     pass
             return []
 

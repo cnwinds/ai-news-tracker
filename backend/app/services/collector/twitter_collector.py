@@ -536,8 +536,8 @@ class TwitterCollector(BaseCollector):
                 try:
                     error_data = e.response.json()
                     logger.error(f"  错误详情: {error_data}")
-                except:
-                    logger.error(f"  响应内容: {e.response.text}")
+                except (ValueError, KeyError, AttributeError):
+                    logger.error(f"  响应内容: {e.response.text if hasattr(e, 'response') and e.response else 'N/A'}")
             return []
         except Exception as e:
             logger.error(f"  ❌ TwitterAPI.io 处理失败: {e}")

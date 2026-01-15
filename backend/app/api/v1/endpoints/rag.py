@@ -1,6 +1,7 @@
 """
 RAG相关 API 端点
 """
+import asyncio
 import json
 import logging
 from typing import List, Optional
@@ -80,11 +81,12 @@ async def search_articles(
         if request.time_to:
             filters["time_to"] = request.time_to
         
-        # 执行搜索
-        results = rag_service.search_articles(
-            query=request.query,
-            top_k=request.top_k,
-            filters=filters if filters else None
+        # 执行搜索（在线程池中执行，避免阻塞）
+        results = await asyncio.to_thread(
+            rag_service.search_articles,
+            request.query,
+            request.top_k,
+            filters if filters else None
         )
         
         # 转换为响应格式
@@ -145,10 +147,12 @@ async def query_articles(
             ]
             logger.debug(f"包含对话历史: {len(conversation_history)} 条消息")
         
-        result = rag_service.query_articles(
-            question=request.question,
-            top_k=request.top_k,
-            conversation_history=conversation_history
+        # 执行问答（在线程池中执行，避免阻塞）
+        result = await asyncio.to_thread(
+            rag_service.query_articles,
+            request.question,
+            request.top_k,
+            conversation_history
         )
         
         logger.info(f"问答服务返回结果: answer长度={len(result.get('answer', ''))}, articles数量={len(result.get('articles', []))}")
@@ -237,21 +241,60 @@ async def query_articles_stream(
                 
                 return processed
             
-            # 转换对话历史格式
-            conversation_history = None
-            if request.conversation_history:
-                conversation_history = [
-                    {"role": msg.role, "content": msg.content}
-                    for msg in request.conversation_history
-                ]
-                logger.debug(f"包含对话历史: {len(conversation_history)} 条消息")
-            
             # 调用流式查询
-            for chunk in rag_service.query_articles_stream(
-                question=request.question,
-                top_k=request.top_k,
-                conversation_history=conversation_history
-            ):
+            # 注意：query_articles_stream 是同步生成器，内部会调用 search_articles() 阻塞
+            # 我们需要在线程池中执行整个生成器，然后逐步迭代
+            loop = asyncio.get_event_loop()
+            
+            # 在线程池中创建生成器（这会立即执行到第一个 yield，包括 search_articles 调用）
+            stream_generator = await loop.run_in_executor(
+                None,  # 使用默认线程池
+                lambda: rag_service.query_articles_stream(
+                    question=request.question,
+                    top_k=request.top_k,
+                    conversation_history=conversation_history
+                )
+            )
+            
+            # 迭代生成器（每次迭代也在线程池中执行，避免阻塞）
+            # 使用一个包装函数来捕获生成器
+            def get_next_chunk(gen):
+                try:
+                    return next(gen)
+                except StopIteration:
+                    raise
+            
+            while True:
+                try:
+                    chunk = await loop.run_in_executor(
+                        None,
+                        get_next_chunk,
+                        stream_generator
+                    )
+                    chunk_type = chunk.get("type")
+                    chunk_data = chunk.get("data", {})
+                    
+                    # 处理文章数据
+                    if chunk_type == "articles" and "articles" in chunk_data:
+                        processed_articles = [process_article(article) for article in chunk_data["articles"]]
+                        chunk_data["articles"] = processed_articles
+                    
+                    # 发送SSE格式的数据
+                    yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
+                    
+                    # 如果收到完成或错误信号，退出循环
+                    if chunk_type in ["done", "error"]:
+                        break
+                except StopIteration:
+                    break
+                except Exception as e:
+                    logger.error(f"迭代流式生成器失败: {e}", exc_info=True)
+                    error_chunk = {
+                        "type": "error",
+                        "data": {"message": f"流式生成失败: {str(e)}"}
+                    }
+                    yield f"data: {json.dumps(error_chunk, ensure_ascii=False)}\n\n"
+                    break
                 chunk_type = chunk.get("type")
                 chunk_data = chunk.get("data", {})
                 
@@ -321,10 +364,11 @@ async def index_articles_batch(
                 message="没有需要索引的文章"
             )
         
-        # 执行批量索引
-        result = rag_service.index_articles_batch(
-            articles=articles,
-            batch_size=request.batch_size
+        # 执行批量索引（在线程池中执行，避免阻塞）
+        result = await asyncio.to_thread(
+            rag_service.index_articles_batch,
+            articles,
+            request.batch_size
         )
         
         return RAGBatchIndexResponse(
@@ -423,10 +467,11 @@ async def rebuild_all_indexes(
                 message="没有需要索引的文章"
             )
         
-        # 执行批量索引
-        result = rag_service.index_articles_batch(
-            articles=articles,
-            batch_size=batch_size
+        # 执行批量索引（在线程池中执行，避免阻塞）
+        result = await asyncio.to_thread(
+            rag_service.index_articles_batch,
+            articles,
+            batch_size
         )
         
         return RAGBatchIndexResponse(
@@ -467,8 +512,8 @@ async def index_article(
         if not article:
             raise HTTPException(status_code=404, detail="文章不存在")
         
-        # 执行索引
-        success = rag_service.index_article(article)
+        # 执行索引（在线程池中执行，避免阻塞）
+        success = await asyncio.to_thread(rag_service.index_article, article)
         
         if success:
             return RAGIndexResponse(

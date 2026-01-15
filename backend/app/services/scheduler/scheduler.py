@@ -15,10 +15,6 @@ from backend.app.db import get_db
 from backend.app.db.models import Article
 from backend.app.services.collector import CollectionService
 from backend.app.utils import create_ai_analyzer, setup_logger
-from backend.app.db import get_db
-from backend.app.db.models import Article
-from backend.app.utils import create_ai_analyzer, setup_logger
-from backend.app.core.settings import settings
 
 # 加载环境变量
 load_dotenv()

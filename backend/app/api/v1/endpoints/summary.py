@@ -1,6 +1,7 @@
 """
 摘要相关 API 端点
 """
+import asyncio
 from datetime import datetime, timedelta
 from typing import List
 
@@ -136,8 +137,12 @@ async def generate_summary(
                 # 默认今天
                 target_date = datetime.now()
             
-            # 生成每日总结
-            summary_obj = summary_generator.generate_daily_summary(db_manager, target_date)
+            # 生成每日总结（在线程池中执行，避免阻塞）
+            summary_obj = await asyncio.to_thread(
+                summary_generator.generate_daily_summary,
+                db_manager,
+                target_date
+            )
             
         elif request.summary_type == "weekly":
             if request.week:
@@ -175,8 +180,12 @@ async def generate_summary(
                 # 默认本周
                 target_date = datetime.now()
             
-            # 生成每周总结
-            summary_obj = summary_generator.generate_weekly_summary(db_manager, target_date)
+            # 生成每周总结（在线程池中执行，避免阻塞）
+            summary_obj = await asyncio.to_thread(
+                summary_generator.generate_weekly_summary,
+                db_manager,
+                target_date
+            )
         else:
             raise HTTPException(status_code=400, detail="不支持的摘要类型")
         

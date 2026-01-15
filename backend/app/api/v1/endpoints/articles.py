@@ -1,6 +1,7 @@
 """
 文章相关 API 端点
 """
+import asyncio
 import json
 import logging
 from datetime import datetime, timedelta
@@ -326,7 +327,9 @@ async def analyze_article(
                 custom_prompt = source_obj.analysis_prompt
         
         # 执行AI分析（使用已保存的内容，不重新采集）
-        analysis_result = ai_analyzer.analyze_article(
+        # 使用 asyncio.to_thread 将同步阻塞调用放到线程池中执行，避免阻塞事件循环
+        analysis_result = await asyncio.to_thread(
+            ai_analyzer.analyze_article,
             title=article.title,
             content=article.content or "",
             url=article.url,
@@ -441,9 +444,9 @@ async def collect_article_from_url(
     if existing_article:
         raise HTTPException(status_code=409, detail=f"文章已存在 (ID: {existing_article.id})")
     
-    # 使用WebCollector采集文章
+    # 使用WebCollector采集文章（在线程池中执行，避免阻塞）
     collector = WebCollector()
-    article_data = collector.fetch_single_article(url)
+    article_data = await asyncio.to_thread(collector.fetch_single_article, url)
     
     if not article_data:
         raise HTTPException(status_code=500, detail="采集文章失败，请检查URL是否可访问")
@@ -472,7 +475,7 @@ async def collect_article_from_url(
         db.add(new_article)
         db.flush()  # 刷新以获取ID，但不提交
         
-        # 立即进行AI分析
+        # 立即进行AI分析（使用线程池避免阻塞）
         ai_analyzer = create_ai_analyzer()
         if ai_analyzer:
             try:
@@ -486,7 +489,9 @@ async def collect_article_from_url(
                     if source_obj and source_obj.analysis_prompt:
                         custom_prompt = source_obj.analysis_prompt
                 
-                analysis_result = ai_analyzer.analyze_article(
+                # 使用 asyncio.to_thread 将同步阻塞调用放到线程池中执行
+                analysis_result = await asyncio.to_thread(
+                    ai_analyzer.analyze_article,
                     title=new_article.title,
                     content=new_article.content or "",
                     url=new_article.url,

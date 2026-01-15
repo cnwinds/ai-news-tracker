@@ -142,7 +142,7 @@ class AIParser:
         if isinstance(old_config, str):
             try:
                 old_config = json.loads(old_config)
-            except:
+            except (json.JSONDecodeError, TypeError, ValueError):
                 old_config = {}
 
         # 构建AI提示词
@@ -309,7 +309,7 @@ HTML内容（前10000字符）:
                 if source.parse_fix_history:
                     try:
                         history = json.loads(source.parse_fix_history)
-                    except:
+                    except (json.JSONDecodeError, TypeError, ValueError):
                         history = []
 
                 history.append(fix_history_entry)

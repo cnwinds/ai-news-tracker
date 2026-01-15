@@ -236,7 +236,7 @@ class HuggingFaceCollector(BaseCollector):
                     # 转换为本地时间（UTC+8）
                     local_tz = timezone(timedelta(hours=8))
                     published_at = utc_time.astimezone(local_tz).replace(tzinfo=None)
-                except:
+                except (ValueError, TypeError):
                     pass
 
             return {

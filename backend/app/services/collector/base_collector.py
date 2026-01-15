@@ -2,11 +2,13 @@
 采集器基类 - 定义统一的采集器接口
 """
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Optional
+from typing import List, Optional, Union
 from datetime import datetime
 from bs4 import BeautifulSoup
 import re
 import logging
+
+from backend.app.services.collector.types import ArticleDict, CollectorConfig
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +17,7 @@ class BaseCollector(ABC):
     """采集器抽象基类"""
     
     @abstractmethod
-    def fetch_articles(self, config: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def fetch_articles(self, config: CollectorConfig) -> List[ArticleDict]:
         """
         从数据源获取文章列表
         
@@ -41,7 +43,7 @@ class BaseCollector(ABC):
         pass
     
     @abstractmethod
-    def validate_config(self, config: Dict[str, Any]) -> tuple[bool, Optional[str]]:
+    def validate_config(self, config: CollectorConfig) -> tuple[bool, Optional[str]]:
         """
         验证配置是否有效
         
@@ -66,9 +68,9 @@ class BaseCollector(ABC):
     
     def extract_articles_from_data(
         self, 
-        raw_data: Any, 
-        config: Dict[str, Any]
-    ) -> List[Dict[str, Any]]:
+        raw_data: Union[str, dict, list], 
+        config: CollectorConfig
+    ) -> List[ArticleDict]:
         """
         从原始数据中提取文章（可选实现）
         
@@ -231,5 +233,5 @@ class BaseCollector(ABC):
             try:
                 soup = BeautifulSoup(html_content, "html.parser")
                 return soup.get_text(separator=" ", strip=True)
-            except:
+            except Exception:
                 return html_content

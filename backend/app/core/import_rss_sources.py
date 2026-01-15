@@ -4,14 +4,14 @@
 """
 import json
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Union
 from backend.app.core.paths import APP_ROOT
 
 # 获取配置文件路径（sources.json 在 backend/app 目录）
 CONFIG_PATH = APP_ROOT / "sources.json"
 
 
-def load_sources(source_type: str = "rss") -> List[Dict[str, Any]]:
+def load_sources(source_type: str = "rss") -> List[Dict[str, Union[str, int, bool, dict, None]]]:
     """
     从配置文件加载指定类型的源列表
 
@@ -38,7 +38,7 @@ def load_sources(source_type: str = "rss") -> List[Dict[str, Any]]:
             if isinstance(extra_config, str):
                 try:
                     extra_config = json.loads(extra_config)
-                except:
+                except (json.JSONDecodeError, TypeError, ValueError):
                     extra_config = {}
             
             # 如果没有 extra_config，尝试从顶层字段读取（向后兼容）
@@ -118,7 +118,7 @@ def load_sources(source_type: str = "rss") -> List[Dict[str, Any]]:
         return []
 
 
-def load_rss_sources() -> List[Dict[str, Any]]:
+def load_rss_sources() -> List[Dict[str, Union[str, int, bool, dict, None]]]:
     """
     从配置文件加载RSS源列表
 
@@ -130,7 +130,7 @@ def load_rss_sources() -> List[Dict[str, Any]]:
     return load_sources("rss")
 
 
-def load_api_sources() -> List[Dict[str, Any]]:
+def load_api_sources() -> List[Dict[str, Union[str, int, bool, dict, None]]]:
     """
     从配置文件加载API源列表
 
@@ -140,7 +140,7 @@ def load_api_sources() -> List[Dict[str, Any]]:
     return load_sources("api")
 
 
-def load_web_sources() -> List[Dict[str, Any]]:
+def load_web_sources() -> List[Dict[str, Union[str, int, bool, dict, None]]]:
     """
     从配置文件加载Web源列表
 
@@ -150,7 +150,7 @@ def load_web_sources() -> List[Dict[str, Any]]:
     return load_sources("web")
 
 
-def load_email_sources() -> List[Dict[str, Any]]:
+def load_email_sources() -> List[Dict[str, Union[str, int, bool, dict, None]]]:
     """
     从配置文件加载邮件源列表
 
@@ -160,7 +160,7 @@ def load_email_sources() -> List[Dict[str, Any]]:
     return load_sources("email")
 
 
-def load_all_sources() -> List[Dict[str, Any]]:
+def load_all_sources() -> List[Dict[str, Union[str, int, bool, dict, None]]]:
     """
     从配置文件加载所有类型的源列表
 

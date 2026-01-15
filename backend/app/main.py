@@ -2,15 +2,15 @@
 FastAPI 应用入口
 """
 import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Optional, TYPE_CHECKING
 
 # 添加项目根目录到 Python 路径，使其可以在任何目录运行
+# 必须在所有 backend.app 导入之前执行
 _project_root = Path(__file__).parent.parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
-
-from contextlib import asynccontextmanager
-from typing import Optional
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -21,10 +21,13 @@ from backend.app.core.config import settings
 from backend.app.core.security import setup_cors
 from backend.app.utils import setup_logger
 
+if TYPE_CHECKING:
+    from backend.app.services.scheduler.scheduler import SchedulerService
+
 logger = setup_logger(__name__)
 
 # 全局调度器实例
-scheduler: Optional[object] = None
+scheduler: Optional["SchedulerService"] = None
 
 
 @asynccontextmanager
@@ -42,10 +45,13 @@ async def lifespan(app: FastAPI):
         logger.info("✅ 数据库已初始化")
     except Exception as e:
         logger.warning(f"⚠️  数据库初始化失败: {e}")
+        raise
     
     # 从数据库加载配置
+    app_settings = None
     try:
-        from backend.app.core.settings import settings as app_settings
+        from backend.app.core.settings import settings as app_settings_module
+        app_settings = app_settings_module
         app_settings.load_settings_from_db()
         logger.info("✅ 配置已从数据库加载")
         
@@ -60,9 +66,9 @@ async def lifespan(app: FastAPI):
     
     # 启动定时任务调度器
     # 如果自动采集已启用，则启动调度器
-    if app_settings.AUTO_COLLECTION_ENABLED:
+    if app_settings and app_settings.AUTO_COLLECTION_ENABLED:
         try:
-            from backend.app.services.scheduler import create_scheduler
+            from backend.app.services.scheduler.scheduler import create_scheduler
             scheduler = create_scheduler()
             logger.info("✅ 定时任务调度器已启动")
             
