@@ -357,58 +357,58 @@ export default function CollectionHistory() {
                     <Space direction="vertical" size="middle" style={{ width: '100%' }}>
                       <div>
                         <Text strong>任务ID：</Text>
-                        <Text>{taskDetail.task.id}</Text>
+                        <Text>{taskDetail.id}</Text>
                       </div>
                       <div>
                         <Text strong>状态：</Text>
-                        <Tag color={taskDetail.task.status === 'completed' ? 'success' : taskDetail.task.status === 'error' ? 'error' : 'processing'}>
-                          {taskDetail.task.status}
+                        <Tag color={taskDetail.status === 'completed' ? 'success' : taskDetail.status === 'error' ? 'error' : 'processing'}>
+                          {taskDetail.status}
                         </Tag>
                       </div>
                       <div>
                         <Text strong>开始时间：</Text>
                         <div style={{ display: 'flex', flexDirection: 'column', marginTop: 4 }}>
-                          <Text>{dayjs(taskDetail.task.started_at).format('YYYY-MM-DD')}</Text>
-                          <Text type="secondary" style={{ fontSize: '12px' }}>{dayjs(taskDetail.task.started_at).format('HH:mm:ss')}</Text>
+                          <Text>{dayjs(taskDetail.started_at).format('YYYY-MM-DD')}</Text>
+                          <Text type="secondary" style={{ fontSize: '12px' }}>{dayjs(taskDetail.started_at).format('HH:mm:ss')}</Text>
                         </div>
                       </div>
-                      {taskDetail.task.completed_at && (
+                      {taskDetail.completed_at && (
                         <div>
                           <Text strong>完成时间：</Text>
                           <div style={{ display: 'flex', flexDirection: 'column', marginTop: 4 }}>
-                            <Text>{dayjs(taskDetail.task.completed_at).format('YYYY-MM-DD')}</Text>
-                            <Text type="secondary" style={{ fontSize: '12px' }}>{dayjs(taskDetail.task.completed_at).format('HH:mm:ss')}</Text>
+                            <Text>{dayjs(taskDetail.completed_at).format('YYYY-MM-DD')}</Text>
+                            <Text type="secondary" style={{ fontSize: '12px' }}>{dayjs(taskDetail.completed_at).format('HH:mm:ss')}</Text>
                           </div>
                         </div>
                       )}
                       <div>
                         <Text strong>耗时：</Text>
-                        <Text>{taskDetail.task.duration ? `${taskDetail.task.duration.toFixed(1)}秒` : '-'}</Text>
+                        <Text>{taskDetail.duration ? `${taskDetail.duration.toFixed(1)}秒` : '-'}</Text>
                       </div>
                       <Divider />
                       <div>
                         <Text strong>新增文章：</Text>
-                        <Text>{taskDetail.task.new_articles_count}</Text>
+                        <Text>{taskDetail.new_articles_count}</Text>
                       </div>
                       <div>
                         <Text strong>成功源：</Text>
-                        <Tag color="success">{taskDetail.task.success_sources}</Tag>
+                        <Tag color="success">{taskDetail.success_sources}</Tag>
                       </div>
                       <div>
                         <Text strong>失败源：</Text>
-                        <Tag color="error">{taskDetail.task.failed_sources}</Tag>
+                        <Tag color="error">{taskDetail.failed_sources}</Tag>
                       </div>
-                      {taskDetail.task.ai_enabled && (
+                      {taskDetail.ai_enabled && (
                         <div>
                           <Text strong>AI分析文章数：</Text>
-                          <Text>{taskDetail.task.ai_analyzed_count}</Text>
+                          <Text>{taskDetail.ai_analyzed_count}</Text>
                         </div>
                       )}
-                      {taskDetail.task.error_message && (
+                      {taskDetail.error_message && (
                         <div>
                           <Text strong>错误信息：</Text>
                           <Paragraph style={{ color: '#ff4d4f', marginTop: 8 }}>
-                            {taskDetail.task.error_message}
+                            {taskDetail.error_message}
                           </Paragraph>
                         </div>
                       )}
@@ -418,10 +418,10 @@ export default function CollectionHistory() {
               },
               {
                 key: 'success',
-                label: `成功源 (${(taskDetail.task?.success_sources ?? taskDetail.success_sources_count ?? taskDetail.success_logs?.length) || 0})`,
+                label: `成功源 (${taskDetail.success_sources || 0})`,
                 children: (
                   <List
-                    dataSource={taskDetail.success_logs || []}
+                    dataSource={(taskDetail as any).success_logs || []}
                     renderItem={(log: any) => (
                       <List.Item>
                         <List.Item.Meta
@@ -451,10 +451,10 @@ export default function CollectionHistory() {
               },
               {
                 key: 'failed',
-                label: `失败源 (${(taskDetail.task?.failed_sources ?? taskDetail.failed_sources_count ?? taskDetail.failed_logs?.length) || 0})`,
+                label: `失败源 (${taskDetail.failed_sources || 0})`,
                 children: (
                   <List
-                    dataSource={taskDetail.failed_logs || []}
+                    dataSource={(taskDetail as any).failed_logs || []}
                     renderItem={(log: any) => (
                       <List.Item>
                         <List.Item.Meta
@@ -486,10 +486,10 @@ export default function CollectionHistory() {
               },
               {
                 key: 'articles',
-                label: `新增文章 (${(taskDetail.task?.new_articles_count ?? taskDetail.new_articles_count ?? taskDetail.new_articles?.length) || 0})`,
+                label: `新增文章 (${taskDetail.new_articles_count || 0})`,
                 children: (
                   <List
-                    dataSource={taskDetail.new_articles || []}
+                    dataSource={(taskDetail as any).new_articles || []}
                     renderItem={(article: any) => (
                       <List.Item>
                         <List.Item.Meta

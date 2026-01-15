@@ -3,7 +3,7 @@
  * 显示文章的完整内容、摘要等信息
  */
 import { useState, useEffect } from 'react';
-import { Modal, Typography, Spin, Tag, Space, Button, Divider, Empty, message, Popconfirm } from 'antd';
+import { Modal, Typography, Spin, Tag, Space, Button, Divider, Empty, Popconfirm } from 'antd';
 import {
   CloseOutlined,
   LinkOutlined,
@@ -21,6 +21,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useDeleteArticle } from '@/hooks/useArticles';
 import { getThemeColor } from '@/utils/theme';
 import { createMarkdownComponents } from '@/utils/markdown';
+import { copyToClipboard } from '@/utils/clipboard';
 import ReactMarkdown from 'react-markdown';
 import dayjs from 'dayjs';
 
@@ -106,37 +107,10 @@ export default function ArticleDetailModal({
     background: getThemeColor(theme, 'bgElevated'),
   };
 
-  const copyToClipboard = async (text: string) => {
-    try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(text);
-        message.success('分享链接已复制');
-        return;
-      }
-    } catch (err) {
-      // Fallback to manual copy.
-    }
-
-    const textarea = document.createElement('textarea');
-    textarea.value = text;
-    textarea.style.position = 'fixed';
-    textarea.style.left = '-9999px';
-    document.body.appendChild(textarea);
-    textarea.select();
-    try {
-      document.execCommand('copy');
-      message.success('分享链接已复制');
-    } catch (err) {
-      message.info(`分享链接: ${text}`);
-    } finally {
-      document.body.removeChild(textarea);
-    }
-  };
-
   const handleCopyShareLink = () => {
     if (!article) return;
     const shareUrl = `${window.location.origin}/share/${article.id}`;
-    void copyToClipboard(shareUrl);
+    void copyToClipboard(shareUrl, '分享链接已复制');
   };
 
   return (

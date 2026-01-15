@@ -611,7 +611,7 @@ export default function SourceManagement() {
             <Col span={12}>
               <Form.Item name="source_type" label="源类型" rules={[{ required: true }]} initialValue="rss">
                 <Select
-                  onChange={(value) => {
+                  onChange={() => {
                     // 切换源类型时，清空子类型字段
                     form.setFieldsValue({ sub_type: undefined });
                   }}

@@ -1,7 +1,7 @@
 /**
  * Dashboard 主页面
  */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type CSSProperties } from 'react';
 import { Layout, Tabs, Drawer, Button, Space } from 'antd';
 import {
   FileTextOutlined,
@@ -74,7 +74,7 @@ export default function Dashboard() {
   ];
 
   // 根据主题设置 Content 背景色
-  const contentStyle = {
+  const contentStyle: CSSProperties = {
     padding: '24px',
     background: theme === 'dark' ? '#1a1a1a' : '#f0f2f5',
     minHeight: 'calc(100vh - 64px)',

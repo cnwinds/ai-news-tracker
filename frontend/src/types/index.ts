@@ -18,7 +18,7 @@ export interface Article {
   importance?: 'high' | 'medium' | 'low';
   tags?: string[];
   target_audience?: string;
-  extra_data?: Record<string, any>;
+  extra_data?: Record<string, unknown>;
   is_processed: boolean;
   is_sent: boolean;
   is_favorited: boolean;
@@ -159,7 +159,7 @@ export interface FixHistoryEntry {
 export interface FixParseResponse {
   message: string;
   source_id: number;
-  new_config?: any;
+  new_config?: Record<string, unknown>;
   fix_history?: FixHistoryEntry;
 }
 

@@ -2,7 +2,7 @@
  * 文章卡片组件
  */
 import { useState, useEffect } from 'react';
-import { Card, Tag, Button, Space, Typography, Popconfirm, Tooltip, Input, Spin, message, Divider } from 'antd';
+import { Card, Tag, Button, Space, Typography, Popconfirm, Tooltip, Input, Spin, Divider } from 'antd';
 import { LinkOutlined, DeleteOutlined, RobotOutlined, UpOutlined, DownOutlined, StarOutlined, StarFilled, EditOutlined, SaveOutlined, ShareAltOutlined } from '@ant-design/icons';
 import ReactMarkdown from 'react-markdown';
 import dayjs from 'dayjs';
@@ -13,6 +13,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { createMarkdownComponents } from '@/utils/markdown';
 import { getThemeColor } from '@/utils/theme';
 import { getSummaryText, IMPORTANCE_COLORS, getImportanceLabel } from '@/utils/article';
+import { copyToClipboard } from '@/utils/clipboard';
 
 const { TextArea } = Input;
 const { Title, Text } = Typography;
@@ -97,36 +98,9 @@ export default function ArticleCard({ article }: ArticleCardProps) {
     setIsEditingNotes(false);
   };
 
-  const copyToClipboard = async (text: string) => {
-    try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(text);
-        message.success('分享链接已复制');
-        return;
-      }
-    } catch (err) {
-      // Fallback to manual copy.
-    }
-
-    const textarea = document.createElement('textarea');
-    textarea.value = text;
-    textarea.style.position = 'fixed';
-    textarea.style.left = '-9999px';
-    document.body.appendChild(textarea);
-    textarea.select();
-    try {
-      document.execCommand('copy');
-      message.success('分享链接已复制');
-    } catch (err) {
-      message.info(`分享链接: ${text}`);
-    } finally {
-      document.body.removeChild(textarea);
-    }
-  };
-
   const handleShareLink = () => {
     const shareUrl = `${window.location.origin}/share/${article.id}`;
-    void copyToClipboard(shareUrl);
+    void copyToClipboard(shareUrl, '分享链接已复制');
   };
 
   return (

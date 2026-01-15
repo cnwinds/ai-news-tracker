@@ -2,13 +2,21 @@
  * Markdown 组件配置
  * 统一的 ReactMarkdown 组件配置，支持主题切换
  */
+import type { ReactNode } from 'react';
+import type { Components } from 'react-markdown';
 import type { ThemeMode } from '@/contexts/ThemeContext';
 import { getThemeColor } from './theme';
+
+interface MarkdownComponentProps {
+  children?: ReactNode;
+  className?: string;
+  href?: string;
+}
 
 /**
  * 创建 Markdown 组件配置
  */
-export function createMarkdownComponents(theme: ThemeMode) {
+export function createMarkdownComponents(theme: ThemeMode): Components {
   const textColor = getThemeColor(theme, 'text');
   const textSecondaryColor = getThemeColor(theme, 'textSecondary');
   const codeBg = getThemeColor(theme, 'codeBg');
@@ -17,7 +25,7 @@ export function createMarkdownComponents(theme: ThemeMode) {
   const primaryColor = theme === 'dark' ? '#4096ff' : '#1890ff';
 
   return {
-    p: ({ children }: any) => (
+    p: ({ children }: MarkdownComponentProps) => (
       <p style={{ 
         marginBottom: '0.5em', 
         marginTop: 0,
@@ -26,7 +34,7 @@ export function createMarkdownComponents(theme: ThemeMode) {
         {children}
       </p>
     ),
-    strong: ({ children }: any) => (
+    strong: ({ children }: MarkdownComponentProps) => (
       <strong style={{ 
         fontWeight: 600,
         color: textColor,
@@ -34,7 +42,7 @@ export function createMarkdownComponents(theme: ThemeMode) {
         {children}
       </strong>
     ),
-    em: ({ children }: any) => (
+    em: ({ children }: MarkdownComponentProps) => (
       <em style={{ 
         fontStyle: 'italic',
         color: textSecondaryColor,
@@ -42,7 +50,7 @@ export function createMarkdownComponents(theme: ThemeMode) {
         {children}
       </em>
     ),
-    ul: ({ children }: any) => (
+    ul: ({ children }: MarkdownComponentProps) => (
       <ul style={{ 
         marginBottom: '0.5em', 
         paddingLeft: '1.5em',
@@ -51,7 +59,7 @@ export function createMarkdownComponents(theme: ThemeMode) {
         {children}
       </ul>
     ),
-    ol: ({ children }: any) => (
+    ol: ({ children }: MarkdownComponentProps) => (
       <ol style={{ 
         marginBottom: '0.5em', 
         paddingLeft: '1.5em',
@@ -60,7 +68,7 @@ export function createMarkdownComponents(theme: ThemeMode) {
         {children}
       </ol>
     ),
-    li: ({ children }: any) => (
+    li: ({ children }: MarkdownComponentProps) => (
       <li style={{ 
         marginBottom: '0.25em',
         color: textColor,
@@ -68,7 +76,7 @@ export function createMarkdownComponents(theme: ThemeMode) {
         {children}
       </li>
     ),
-    h1: ({ children }: any) => (
+    h1: ({ children }: MarkdownComponentProps) => (
       <h1 style={{ 
         fontSize: '1.5em', 
         fontWeight: 600, 
@@ -79,7 +87,7 @@ export function createMarkdownComponents(theme: ThemeMode) {
         {children}
       </h1>
     ),
-    h2: ({ children }: any) => (
+    h2: ({ children }: MarkdownComponentProps) => (
       <h2 style={{ 
         fontSize: '1.3em', 
         fontWeight: 600, 
@@ -90,7 +98,7 @@ export function createMarkdownComponents(theme: ThemeMode) {
         {children}
       </h2>
     ),
-    h3: ({ children }: any) => (
+    h3: ({ children }: MarkdownComponentProps) => (
       <h3 style={{ 
         fontSize: '1.1em', 
         fontWeight: 600, 
@@ -101,7 +109,7 @@ export function createMarkdownComponents(theme: ThemeMode) {
         {children}
       </h3>
     ),
-    code: ({ children, className }: any) => {
+    code: ({ children, className }: MarkdownComponentProps) => {
       const isInline = !className;
       if (isInline) {
         return (
@@ -133,7 +141,7 @@ export function createMarkdownComponents(theme: ThemeMode) {
         </code>
       );
     },
-    blockquote: ({ children }: any) => (
+    blockquote: ({ children }: MarkdownComponentProps) => (
       <blockquote style={{ 
         borderLeft: `3px solid ${borderColor}`,
         paddingLeft: '1em', 
@@ -144,7 +152,7 @@ export function createMarkdownComponents(theme: ThemeMode) {
         {children}
       </blockquote>
     ),
-    a: ({ children, href }: any) => (
+    a: ({ children, href }: MarkdownComponentProps) => (
       <a
         href={href}
         style={{ 

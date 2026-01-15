@@ -1654,8 +1654,12 @@ export default function SystemSettings() {
       label: '数据库管理',
       children: (
         <Card
-          title="数据库备份与还原"
-          icon={<DatabaseOutlined />}
+          title={
+            <Space>
+              <DatabaseOutlined />
+              数据库备份与还原
+            </Space>
+          }
         >
           <Alert
             message="重要提示"

@@ -50,10 +50,10 @@ export function useWebSocket() {
     };
   }, []);
 
-  const subscribe = useCallback((event: string, callback: (data: any) => void) => {
+  const subscribe = useCallback((event: string, callback: (data: unknown) => void) => {
     const unsubscribe = wsService.on(event, (data) => {
       if (isMountedRef.current) {
-        setLastMessage({ type: event, ...data } as WebSocketMessage);
+        setLastMessage({ type: event, ...(data as Record<string, unknown>) } as WebSocketMessage);
         callback(data);
       }
     });

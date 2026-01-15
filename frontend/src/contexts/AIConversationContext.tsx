@@ -3,12 +3,14 @@
  */
 import { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
 
+import type { ArticleSearchResult } from '@/types';
+
 export interface Message {
   id: string;
   type: 'user' | 'assistant';
   content: string;
   timestamp: Date;
-  articles?: any[];
+  articles?: ArticleSearchResult[];
   sources?: string[];
 }
 
@@ -69,11 +71,26 @@ export function AIConversationProvider({ children }: { children: ReactNode }) {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
-        const histories: ChatHistory[] = JSON.parse(saved).map((h: any) => ({
+        interface StoredChatHistory {
+          id: string;
+          title: string;
+          messages: Array<{
+            id: string;
+            type: 'user' | 'assistant';
+            content: string;
+            timestamp: string;
+            articles?: ArticleSearchResult[];
+            sources?: string[];
+          }>;
+          createdAt: string;
+          updatedAt: string;
+        }
+        const parsed: StoredChatHistory[] = JSON.parse(saved);
+        const histories: ChatHistory[] = parsed.map((h) => ({
           ...h,
           createdAt: new Date(h.createdAt),
           updatedAt: new Date(h.updatedAt),
-          messages: h.messages.map((m: any) => ({
+          messages: h.messages.map((m) => ({
             ...m,
             timestamp: new Date(m.timestamp),
           })),

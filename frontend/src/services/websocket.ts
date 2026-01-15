@@ -10,7 +10,7 @@ export class WebSocketService {
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
   private reconnectDelay = 3000;
-  private listeners: Map<string, Set<(data: any) => void>> = new Map();
+  private listeners: Map<string, Set<(data: unknown) => void>> = new Map();
   private heartbeatInterval: number | null = null;
 
   connect(): void {
@@ -136,7 +136,7 @@ export class WebSocketService {
     }, this.reconnectDelay);
   }
 
-  on(event: string, callback: (data: any) => void): () => void {
+  on(event: string, callback: (data: unknown) => void): () => void {
     if (!this.listeners.has(event)) {
       this.listeners.set(event, new Set());
     }
@@ -148,14 +148,14 @@ export class WebSocketService {
     };
   }
 
-  off(event: string, callback: (data: any) => void): void {
+  off(event: string, callback: (data: unknown) => void): void {
     const callbacks = this.listeners.get(event);
     if (callbacks) {
       callbacks.delete(callback);
     }
   }
 
-  private emit(event: string, data: any): void {
+  private emit(event: string, data: unknown): void {
     const callbacks = this.listeners.get(event);
     if (callbacks) {
       callbacks.forEach((callback) => {

@@ -6,6 +6,7 @@ import type {
   Article,
   ArticleListResponse,
   ArticleFilter,
+  ArticleSearchResult,
   CollectionTask,
   CollectionTaskStatus,
   DailySummary,
@@ -46,7 +47,52 @@ export interface ApiError {
   status: number;
   message: string;
   code?: string;
-  data?: any;
+  data?: unknown;
+}
+
+/**
+ * 修复历史条目
+ */
+interface FixHistoryEntry {
+  timestamp: string;
+  old_config: string | null;
+  new_config: string | null;
+  error_message?: string;
+  success: boolean;
+}
+
+/**
+ * 修复解析响应
+ */
+interface FixParseResponse {
+  message: string;
+  source_id: number;
+  new_config?: Record<string, unknown>;
+  fix_history?: FixHistoryEntry;
+}
+
+/**
+ * 默认数据源
+ */
+interface DefaultSource {
+  name: string;
+  url: string;
+  description?: string;
+  category?: string;
+  source_type: string;
+}
+
+/**
+ * 流式查询数据块
+ */
+interface StreamChunk {
+  type: 'articles' | 'content' | 'done' | 'error';
+  data: {
+    articles?: ArticleSearchResult[];
+    sources?: string[];
+    content?: string;
+    message?: string;
+  };
 }
 
 class ApiService {
@@ -200,9 +246,9 @@ class ApiService {
     );
   }
 
-  async analyzeArticle(id: number, force: boolean = false): Promise<any> {
+  async analyzeArticle(id: number, force: boolean = false): Promise<{ is_processed: boolean }> {
     return this.handleRequest(
-      this.client.post(`/articles/${id}/analyze`, null, {
+      this.client.post<{ is_processed: boolean }>(`/articles/${id}/analyze`, null, {
         params: { force: force },
       })
     );
@@ -214,15 +260,15 @@ class ApiService {
     );
   }
 
-  async favoriteArticle(id: number): Promise<any> {
+  async favoriteArticle(id: number): Promise<{ is_favorited: boolean }> {
     return this.handleRequest(
-      this.client.post(`/articles/${id}/favorite`)
+      this.client.post<{ is_favorited: boolean }>(`/articles/${id}/favorite`)
     );
   }
 
-  async unfavoriteArticle(id: number): Promise<any> {
+  async unfavoriteArticle(id: number): Promise<{ is_favorited: boolean }> {
     return this.handleRequest(
-      this.client.delete(`/articles/${id}/favorite`)
+      this.client.delete<{ is_favorited: boolean }>(`/articles/${id}/favorite`)
     );
   }
 
@@ -253,16 +299,16 @@ class ApiService {
     );
   }
 
-  async getCollectionTask(id: number, includeDetail: boolean = false): Promise<CollectionTask | any> {
+  async getCollectionTask(id: number, includeDetail: boolean = false): Promise<CollectionTask> {
     return this.handleRequest(
-      this.client.get<CollectionTask | any>(`/collection/tasks/${id}`, {
+      this.client.get<CollectionTask>(`/collection/tasks/${id}`, {
         params: { include_detail: includeDetail },
       })
     );
   }
 
   // 兼容旧接口（已废弃，使用 getCollectionTask(id, true) 替代）
-  async getCollectionTaskDetail(id: number): Promise<any> {
+  async getCollectionTaskDetail(id: number): Promise<CollectionTask> {
     return this.getCollectionTask(id, true);
   }
 
@@ -272,9 +318,9 @@ class ApiService {
     );
   }
 
-  async stopCollection(): Promise<any> {
+  async stopCollection(): Promise<{ message: string }> {
     return this.handleRequest(
-      this.client.post('/collection/stop')
+      this.client.post<{ message: string }>('/collection/stop')
     );
   }
 
@@ -363,29 +409,29 @@ class ApiService {
   }
 
   // AI修复相关
-  async fixSourceParse(id: number): Promise<any> {
+  async fixSourceParse(id: number): Promise<FixParseResponse> {
     return this.handleRequest(
-      this.client.post<any>(`/sources/${id}/fix-parse`)
+      this.client.post<FixParseResponse>(`/sources/${id}/fix-parse`)
     );
   }
 
-  async getFixHistory(id: number): Promise<{ source_id: number; source_name: string; fix_history: any[] }> {
+  async getFixHistory(id: number): Promise<{ source_id: number; source_name: string; fix_history: FixHistoryEntry[] }> {
     return this.handleRequest(
-      this.client.get<{ source_id: number; source_name: string; fix_history: any[] }>(`/sources/${id}/fix-history`)
+      this.client.get<{ source_id: number; source_name: string; fix_history: FixHistoryEntry[] }>(`/sources/${id}/fix-history`)
     );
   }
 
   // 默认数据源相关
-  async getDefaultSources(sourceType?: string): Promise<any[]> {
+  async getDefaultSources(sourceType?: string): Promise<DefaultSource[]> {
     const params = sourceType ? `?source_type=${sourceType}` : '';
     return this.handleRequest(
-      this.client.get<any[]>(`/sources/default/list${params}`)
+      this.client.get<DefaultSource[]>(`/sources/default/list${params}`)
     );
   }
 
-  async importDefaultSources(sourceNames: string[]): Promise<any> {
+  async importDefaultSources(sourceNames: string[]): Promise<{ message: string; imported: number; skipped: number; errors?: string[] }> {
     return this.handleRequest(
-      this.client.post('/sources/default/import', sourceNames)
+      this.client.post<{ message: string; imported: number; skipped: number; errors?: string[] }>('/sources/default/import', sourceNames)
     );
   }
 
@@ -402,9 +448,9 @@ class ApiService {
     delete_logs_older_than_days?: number;
     delete_unanalyzed_articles?: boolean;
     delete_articles_by_sources?: string[];
-  }): Promise<any> {
+  }): Promise<{ message: string; deleted_count?: number }> {
     return this.handleRequest(
-      this.client.post('/cleanup', data)
+      this.client.post<{ message: string; deleted_count?: number }>('/cleanup', data)
     );
   }
 
@@ -581,10 +627,7 @@ class ApiService {
    */
   async queryArticlesStream(
     request: RAGQueryRequest,
-    onChunk: (chunk: {
-      type: 'articles' | 'content' | 'done' | 'error';
-      data: any;
-    }) => void
+    onChunk: (chunk: StreamChunk) => void
   ): Promise<void> {
     try {
       const response = await fetch(`${API_BASE_URL}/rag/query/stream`, {
@@ -668,9 +711,9 @@ class ApiService {
     );
   }
 
-  async indexArticle(articleId: number): Promise<any> {
+  async indexArticle(articleId: number): Promise<{ success: boolean; message: string }> {
     return this.handleRequest(
-      this.client.post(`/rag/index/${articleId}`)
+      this.client.post<{ success: boolean; message: string }>(`/rag/index/${articleId}`)
     );
   }
 

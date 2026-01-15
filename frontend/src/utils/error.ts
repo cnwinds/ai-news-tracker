@@ -17,11 +17,14 @@ export function getErrorMessage(error: unknown): string {
     if (apiError.message) {
       return apiError.message;
     }
-    if (apiError.data?.detail) {
-      return apiError.data.detail;
-    }
-    if (apiError.data?.message) {
-      return apiError.data.message;
+    if (apiError.data && typeof apiError.data === 'object') {
+      const data = apiError.data as Record<string, unknown>;
+      if (typeof data.detail === 'string') {
+        return data.detail;
+      }
+      if (typeof data.message === 'string') {
+        return data.message;
+      }
     }
   }
   

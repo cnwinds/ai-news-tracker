@@ -2,14 +2,13 @@
  * 文章分享页
  * 外部用户可直接访问，独立展示文章内容
  */
-import { useMemo, useState, type CSSProperties } from 'react';
+import { useState, type CSSProperties } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Layout, Typography, Spin, Tag, Space, Button, Divider, Empty, message } from 'antd';
+import { Layout, Typography, Spin, Tag, Space, Button, Divider, Empty } from 'antd';
 import {
   ArrowLeftOutlined,
   LinkOutlined,
-  ShareAltOutlined,
   DownOutlined,
   UpOutlined,
 } from '@ant-design/icons';
@@ -22,33 +21,6 @@ import { createMarkdownComponents } from '@/utils/markdown';
 
 const { Content } = Layout;
 const { Title, Text } = Typography;
-
-const copyToClipboard = async (text: string) => {
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text);
-      message.success('分享链接已复制');
-      return;
-    }
-  } catch (err) {
-    // Fallback to manual copy.
-  }
-
-  const textarea = document.createElement('textarea');
-  textarea.value = text;
-  textarea.style.position = 'fixed';
-  textarea.style.left = '-9999px';
-  document.body.appendChild(textarea);
-  textarea.select();
-  try {
-    document.execCommand('copy');
-    message.success('分享链接已复制');
-  } catch (err) {
-    message.info(`分享链接: ${text}`);
-  } finally {
-    document.body.removeChild(textarea);
-  }
-};
 
 export default function ShareArticle() {
   const { id } = useParams();
@@ -64,15 +36,6 @@ export default function ShareArticle() {
     staleTime: 60 * 1000,
   });
 
-  const shareUrl = useMemo(() => {
-    if (!article) return '';
-    return `${window.location.origin}/share/${article.id}`;
-  }, [article]);
-
-  const handleCopyShareLink = () => {
-    if (!article) return;
-    void copyToClipboard(shareUrl);
-  };
 
   const containerStyle: CSSProperties = {
     background: getThemeColor(theme, 'bgElevated'),
@@ -88,15 +51,10 @@ export default function ShareArticle() {
           style={{
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'space-between',
-            flexWrap: 'wrap',
-            gap: 12,
+            justifyContent: 'flex-end',
             marginBottom: 16,
           }}
         >
-          <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/')}>
-            返回首页
-          </Button>
           <Text type="secondary">AI News Tracker</Text>
         </div>
 
@@ -241,7 +199,7 @@ export default function ShareArticle() {
                   gap: 12,
                 }}
               >
-                <Space wrap>
+                <Space wrap size="middle">
                   <Button
                     type="primary"
                     icon={<LinkOutlined />}
@@ -253,8 +211,8 @@ export default function ShareArticle() {
                 >
                   查看原文
                 </Button>
-                  <Button icon={<ShareAltOutlined />} onClick={handleCopyShareLink}>
-                    分享
+                  <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/')}>
+                    返回首页
                   </Button>
                 </Space>
                 <Text type="secondary" style={{ fontSize: '12px' }}>
