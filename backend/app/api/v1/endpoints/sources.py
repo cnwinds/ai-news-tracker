@@ -173,7 +173,6 @@ async def get_default_sources(
             raise HTTPException(status_code=500, detail=error_msg)
         
         try:
-            import json
             with open(sources_json_path, "r", encoding="utf-8") as f:
                 config = json.load(f)
             
@@ -268,7 +267,6 @@ async def import_default_sources(
             raise HTTPException(status_code=500, detail=error_msg)
         
         try:
-            import json
             with open(sources_json_path, "r", encoding="utf-8") as f:
                 config = json.load(f)
             
@@ -303,6 +301,7 @@ async def import_default_sources(
         errors = []
         
         for source_data in sources_to_import:
+            source_name = source_data.get("name", "未知")
             try:
                 # 检查是否已存在（根据名称或URL）
                 existing = db.query(RSSSource).filter(
@@ -311,19 +310,48 @@ async def import_default_sources(
                 ).first()
                 
                 if existing:
+                    # 如果源已存在，检查是否需要更新 extra_config
+                    extra_config_raw = source_data.get("extra_config")
+                    if extra_config_raw is not None:
+                        extra_config_dict = {}
+                        if isinstance(extra_config_raw, dict):
+                            extra_config_dict = extra_config_raw
+                        elif isinstance(extra_config_raw, str):
+                            try:
+                                extra_config_dict = json.loads(extra_config_raw)
+                            except Exception as e:
+                                logger.warning(f"解析源 '{source_name}' 的 extra_config 字符串失败: {e}")
+                                extra_config_dict = {}
+                        
+                        if extra_config_dict:
+                            extra_config_str = json.dumps(extra_config_dict, ensure_ascii=False)
+                            # 如果数据库中的 extra_config 为空或不同，则更新
+                            if not existing.extra_config or existing.extra_config != extra_config_str:
+                                existing.extra_config = extra_config_str
+                                db.commit()
+                                logger.info(f"已更新源 '{source_name}' 的 extra_config")
                     skipped_count += 1
                     continue
                 
                 # 处理 extra_config（如果是字典，序列化为JSON字符串）
-                extra_config_raw = source_data.get("extra_config", {})
-                extra_config_dict = extra_config_raw if isinstance(extra_config_raw, dict) else {}
-                if isinstance(extra_config_raw, str):
-                    try:
-                        extra_config_dict = json.loads(extra_config_raw)
-                    except:
-                        extra_config_dict = {}
+                extra_config_raw = source_data.get("extra_config")
+                extra_config_dict = {}
                 
-                extra_config_str = json.dumps(extra_config_dict, ensure_ascii=False) if extra_config_dict else ""
+                if extra_config_raw is not None:
+                    if isinstance(extra_config_raw, dict):
+                        extra_config_dict = extra_config_raw
+                    elif isinstance(extra_config_raw, str):
+                        try:
+                            extra_config_dict = json.loads(extra_config_raw)
+                        except Exception as e:
+                            logger.warning(f"解析源 '{source_name}' 的 extra_config 字符串失败: {e}")
+                            extra_config_dict = {}
+                
+                # 序列化为JSON字符串
+                if extra_config_dict:
+                    extra_config_str = json.dumps(extra_config_dict, ensure_ascii=False)
+                else:
+                    extra_config_str = ""
                 
                 # 提取sub_type
                 source_type = source_data.get("source_type", "rss")
@@ -356,6 +384,7 @@ async def import_default_sources(
                 db.add(new_source)
                 imported_count += 1
             except Exception as e:
+                logger.error(f"处理源 '{source_name}' 时出错: {e}", exc_info=True)
                 errors.append(f"{source_data.get('name', '未知')}: {str(e)}")
         
         db.commit()
@@ -367,6 +396,7 @@ async def import_default_sources(
             "errors": errors if errors else None,
         }
     except Exception as e:
+        logger.error(f"导入失败: {e}", exc_info=True)
         db.rollback()
         raise HTTPException(status_code=500, detail=f"导入失败: {str(e)}")
 
@@ -469,7 +499,6 @@ async def get_fix_history(
         raise HTTPException(status_code=404, detail="订阅源不存在")
     
     try:
-        import json
         history = []
         if source.parse_fix_history:
             history = json.loads(source.parse_fix_history)

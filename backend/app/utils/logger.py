@@ -45,6 +45,10 @@ def setup_logger(name: str = "", log_file: Optional[str] = None) -> logging.Logg
     console_handler.setFormatter(formatter)
     root_logger.addHandler(console_handler)
 
+    # 设置 watchfiles 模块的日志级别为 DEBUG（减少烦人的文件变化日志）
+    watchfiles_logger = logging.getLogger("watchfiles")
+    watchfiles_logger.setLevel(logging.DEBUG)
+
     # 文件处理器（如果指定了日志文件）
     if log_file:
         log_path = Path(log_file)

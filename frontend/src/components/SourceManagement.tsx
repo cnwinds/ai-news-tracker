@@ -146,25 +146,36 @@ export default function SourceManagement() {
     setEditingSource(source);
     const formValues: any = { ...source };
     
-    // 如果是邮件源，解析extra_config并设置到表单字段
-    if (source.source_type === 'email' && source.extra_config) {
+    // 处理 extra_config 字段
+    if (source.extra_config) {
       try {
         const extraConfig = typeof source.extra_config === 'string' 
           ? JSON.parse(source.extra_config) 
           : source.extra_config;
-        formValues.extra_config = extraConfig;
-        // 设置URL为邮箱地址（从email://xxx格式中提取）
-        if (source.url.startsWith('email://')) {
-          formValues.url = source.url.replace('email://', '');
-        }
-        // 将数组转换为逗号分隔的字符串（用于表单显示）
-        if (extraConfig.title_filter) {
-          if (Array.isArray(extraConfig.title_filter.keywords)) {
-            extraConfig.title_filter.keywords = extraConfig.title_filter.keywords.join(', ');
+        
+        // 如果是邮件源，将 extra_config 解析为对象用于动态表单
+        if (source.source_type === 'email') {
+          formValues.extra_config = extraConfig;
+          // 设置URL为邮箱地址（从email://xxx格式中提取）
+          if (source.url.startsWith('email://')) {
+            formValues.url = source.url.replace('email://', '');
           }
+          // 将数组转换为逗号分隔的字符串（用于表单显示）
+          if (extraConfig.title_filter) {
+            if (Array.isArray(extraConfig.title_filter.keywords)) {
+              extraConfig.title_filter.keywords = extraConfig.title_filter.keywords.join(', ');
+            }
+          }
+        } else {
+          // 对于其他源类型（API、Web等），将 extra_config 格式化为格式化的 JSON 字符串显示在文本框中
+          formValues.extra_config = JSON.stringify(extraConfig, null, 2);
         }
       } catch (e) {
         console.error('解析extra_config失败:', e);
+        // 如果解析失败，对于非邮件源，直接使用原始字符串
+        if (source.source_type !== 'email') {
+          formValues.extra_config = source.extra_config;
+        }
       }
     }
     
@@ -220,9 +231,27 @@ export default function SourceManagement() {
       // 设置URL为email://格式
       submitData.url = `email://${values.url}`;
       submitData.extra_config = JSON.stringify(emailConfig);
-    } else if (typeof values.extra_config === 'object') {
-      // 其他源类型，如果extra_config是对象，转换为JSON字符串
-      submitData.extra_config = JSON.stringify(values.extra_config);
+    } else {
+      // 其他源类型（API、Web等）处理 extra_config
+      if (values.extra_config) {
+        if (typeof values.extra_config === 'string') {
+          // 如果是字符串，尝试解析并重新序列化（确保格式正确）
+          try {
+            const parsed = JSON.parse(values.extra_config);
+            submitData.extra_config = JSON.stringify(parsed, null, 0); // 紧凑格式存储
+          } catch (e) {
+            // 如果解析失败，可能是无效的JSON，直接使用原始字符串
+            submitData.extra_config = values.extra_config.trim();
+          }
+        } else if (typeof values.extra_config === 'object') {
+          // 如果是对象，转换为JSON字符串
+          submitData.extra_config = JSON.stringify(values.extra_config, null, 0);
+        } else {
+          submitData.extra_config = '';
+        }
+      } else {
+        submitData.extra_config = '';
+      }
     }
     
     if (editingSource) {
@@ -758,7 +787,7 @@ export default function SourceManagement() {
               return (
                 <Form.Item name="extra_config" label="扩展配置（JSON）">
                   <Input.TextArea 
-                    placeholder="Web源的扩展配置（JSON格式），例如: {&quot;article_selector&quot;: &quot;article.entry-card&quot;, &quot;title_selector&quot;: &quot;h2.entry-title a&quot;}" 
+                    placeholder="扩展配置（JSON格式）。API源示例: {&quot;query&quot;: &quot;cat:cs.AI&quot;, &quot;max_results&quot;: 20}；Web源示例: {&quot;article_selector&quot;: &quot;article.entry-card&quot;, &quot;title_selector&quot;: &quot;h2.entry-title a&quot;}" 
                     rows={4}
                   />
                 </Form.Item>

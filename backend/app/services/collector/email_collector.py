@@ -734,7 +734,7 @@ class EmailCollector(BaseCollector):
                     # 尝试解析时间
                     received_time = self._parse_email_date(time_str)
                     if received_time:
-                        logger.info(f"✅ 成功从Received字段提取接收时间: {received_time}")
+                        logger.debug(f"✅ 成功从Received字段提取接收时间: {received_time}")
                         return received_time
             
             # 如果正则匹配失败，尝试直接解析整个Received字段
@@ -742,7 +742,7 @@ class EmailCollector(BaseCollector):
             logger.debug("尝试直接解析Received字段")
             received_time = self._parse_email_date(last_received)
             if received_time:
-                logger.info(f"✅ 成功解析Received字段: {received_time}")
+                logger.debug(f"✅ 成功解析Received字段: {received_time}")
                 return received_time
             
             logger.warning(f"⚠️  无法从Received字段提取时间: {last_received[:100]}...")

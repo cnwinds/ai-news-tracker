@@ -59,7 +59,7 @@ export function getSubTypeOptions(sourceType: string): Array<{ value: string; la
   
   if (normalizedType === 'api') {
     return [
-      { value: 'arxiv', label: 'ArXiv' },
+      { value: 'arxiv', label: 'arXiv' },
       { value: 'huggingface', label: 'Hugging Face' },
       { value: 'paperswithcode', label: 'Papers with Code' },
       { value: 'twitter', label: 'Twitter/X' },

@@ -737,6 +737,30 @@ class ApiService {
       })
     );
   }
+
+  // 数据库备份和还原相关
+  async backupDatabase(): Promise<Blob> {
+    const response = await this.client.get('/settings/database/backup', {
+      responseType: 'blob',
+    });
+    return response.data;
+  }
+
+  async restoreDatabase(file: File): Promise<{ message: string; filename?: string; auto_backup?: string }> {
+    const formData = new FormData();
+    formData.append('file', file);
+    return this.handleRequest(
+      this.client.post<{ message: string; filename?: string; auto_backup?: string }>(
+        '/settings/database/restore',
+        formData,
+        {
+          headers: {
+            'Content-Type': 'multipart/form-data',
+          },
+        }
+      )
+    );
+  }
 }
 
 export const apiService = new ApiService();

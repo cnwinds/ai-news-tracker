@@ -1,10 +1,17 @@
 """
 配置相关 API 端点
 """
+import logging
+import shutil
+from pathlib import Path
 from typing import Optional
+from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
+from fastapi.responses import FileResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+
+logger = logging.getLogger(__name__)
 
 from backend.app.core.settings import settings
 from backend.app.db import get_db
@@ -668,4 +675,157 @@ async def delete_image_provider(
         if not success:
             raise HTTPException(status_code=404, detail="图片生成提供商不存在")
         return {"message": "图片生成提供商已删除"}
+
+
+@router.get("/database/backup")
+async def backup_database(
+    current_user: str = Depends(require_auth),
+):
+    """备份数据库（下载数据库文件）"""
+    try:
+        from backend.app.core.paths import APP_ROOT
+        
+        # 获取数据库文件路径
+        db_path = APP_ROOT / "data" / "ai_news.db"
+        
+        if not db_path.exists():
+            raise HTTPException(
+                status_code=404,
+                detail="数据库文件不存在"
+            )
+        
+        # 创建备份文件名（带时间戳）
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_filename = f"ai_news_backup_{timestamp}.db"
+        
+        # 创建临时备份文件
+        backup_dir = APP_ROOT / "data" / "backups"
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        backup_path = backup_dir / backup_filename
+        
+        # 复制数据库文件
+        shutil.copy2(db_path, backup_path)
+        
+        # 返回文件
+        return FileResponse(
+            path=str(backup_path),
+            filename=backup_filename,
+            media_type="application/x-sqlite3",
+            headers={
+                "Content-Disposition": f"attachment; filename={backup_filename}"
+            }
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"备份数据库失败: {str(e)}"
+        )
+
+
+@router.post("/database/restore")
+async def restore_database(
+    file: UploadFile = File(...),
+    current_user: str = Depends(require_auth),
+):
+    """还原数据库（上传数据库文件）"""
+    try:
+        from backend.app.core.paths import APP_ROOT
+        
+        # 验证文件类型
+        if not file.filename or not file.filename.endswith('.db'):
+            raise HTTPException(
+                status_code=400,
+                detail="只能上传 .db 格式的数据库文件"
+            )
+        
+        # 获取数据库文件路径
+        db_path = APP_ROOT / "data" / "ai_news.db"
+        backup_dir = APP_ROOT / "data" / "backups"
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        
+        auto_backup_path = None
+        
+        # 创建当前数据库的备份（以防万一）
+        if db_path.exists():
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            auto_backup_path = backup_dir / f"auto_backup_before_restore_{timestamp}.db"
+            shutil.copy2(db_path, auto_backup_path)
+        
+        # 保存上传的文件
+        temp_restore_path = backup_dir / f"temp_restore_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db"
+        
+        with open(temp_restore_path, "wb") as f:
+            content = await file.read()
+            f.write(content)
+        
+        # 验证文件是否为有效的SQLite数据库
+        try:
+            import sqlite3
+            conn = sqlite3.connect(str(temp_restore_path))
+            # 尝试执行一个简单查询
+            cursor = conn.cursor()
+            cursor.execute("SELECT 1")
+            cursor.close()
+            conn.close()
+        except Exception as e:
+            # 删除无效文件
+            if temp_restore_path.exists():
+                temp_restore_path.unlink()
+            raise HTTPException(
+                status_code=400,
+                detail=f"上传的文件不是有效的SQLite数据库: {str(e)}"
+            )
+        
+        # 关闭所有数据库连接（重要！）
+        from backend.app.db import get_db
+        db = get_db()
+        if hasattr(db, 'engine'):
+            # 关闭所有连接
+            db.engine.dispose()
+        
+        # 替换数据库文件
+        if db_path.exists():
+            db_path.unlink()
+        shutil.move(str(temp_restore_path), str(db_path))
+        
+        # 重新创建引擎和会话工厂
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+        
+        connect_args = {"check_same_thread": False}
+        new_engine = create_engine(
+            f"sqlite:///{db_path.absolute()}",
+            connect_args=connect_args,
+            echo=False,
+        )
+        
+        # 重新设置数据库管理器的引擎和会话工厂
+        db.engine = new_engine
+        db.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=new_engine)
+        
+        # 重新初始化sqlite-vec扩展（需要重新设置事件监听器）
+        if hasattr(db, '_setup_sqlite_vec_loader'):
+            db._setup_sqlite_vec_loader()
+        
+        # 重新初始化数据库表结构（确保表存在）
+        try:
+            from backend.app.db.models import Base
+            Base.metadata.create_all(bind=new_engine)
+        except Exception as e:
+            logger.warning(f"重新初始化数据库表时出错（可能不需要）: {e}")
+        
+        return {
+            "message": "数据库还原成功，请刷新页面以使用新的数据库",
+            "filename": file.filename,
+            "auto_backup": str(auto_backup_path) if auto_backup_path and auto_backup_path.exists() else None
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"还原数据库失败: {str(e)}"
+        )
 

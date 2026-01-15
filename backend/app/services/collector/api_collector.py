@@ -101,14 +101,24 @@ class ArXivCollector(BaseCollector):
             # 提取作者
             authors = ", ".join([author.name for author in entry.authors[:5]]) if hasattr(entry, "authors") else ""
 
-            # 提取摘要
+            # 提取摘要（论文摘要内容）
             summary = entry.get("summary", "")
 
             # arXiv ID
-            arxiv_id = entry.get("id", "").split("/abs/")[-1] if "/abs/" in entry.get("id", "") else ""
+            entry_id = entry.get("id", "")
+            arxiv_id = entry_id.split("/abs/")[-1] if "/abs/" in entry_id else ""
+            
+            # HTML 页面地址（确保是 /abs/ 格式）
+            html_url = entry_id
+            if arxiv_id and "/abs/" not in html_url:
+                # 如果 entry.id 不是 /abs/ 格式，构建 HTML URL
+                html_url = f"http://arxiv.org/abs/{arxiv_id}"
 
             # PDF链接
             pdf_url = entry.get("link", "").replace("/abs/", "/pdf/") + ".pdf" if "/abs/" in entry.get("link", "") else ""
+            if arxiv_id and not pdf_url:
+                # 如果无法从 link 获取，根据 arxiv_id 构建 PDF URL
+                pdf_url = f"http://arxiv.org/pdf/{arxiv_id}.pdf"
 
             # 发布时间
             # feedparser返回的时间是UTC时间，需要转换为本地时间（UTC+8）
@@ -122,14 +132,15 @@ class ArXivCollector(BaseCollector):
 
             return {
                 "title": entry.get("title", ""),
-                "url": entry.get("id", ""),
-                "content": summary,
+                "url": html_url,  # 使用 HTML 页面地址作为主 URL
+                "content": summary,  # 将论文摘要作为文章内容，用于后续AI分析和中文总结
                 "source": "arXiv",
                 "author": authors,
                 "published_at": published_at,
                 "category": "paper",
                 "metadata": {
                     "arxiv_id": arxiv_id,
+                    "html_url": html_url,  # 明确添加 HTML 页面地址
                     "pdf_url": pdf_url,
                     "primary_category": entry.get("arxiv_primary_category", {}).get("term", ""),
                     "categories": [tag.term for tag in entry.tags] if hasattr(entry, "tags") else [],

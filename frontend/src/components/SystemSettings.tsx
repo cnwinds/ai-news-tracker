@@ -20,7 +20,7 @@ import {
   TimePicker,
   Typography,
 } from 'antd';
-import { SaveOutlined, ReloadOutlined, PlusOutlined, EditOutlined, DeleteOutlined, LockOutlined, MinusCircleOutlined, DatabaseOutlined, SyncOutlined } from '@ant-design/icons';
+import { SaveOutlined, ReloadOutlined, PlusOutlined, EditOutlined, DeleteOutlined, LockOutlined, MinusCircleOutlined, DatabaseOutlined, SyncOutlined, DownloadOutlined, UploadOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiService } from '@/services/api';
@@ -329,6 +329,53 @@ export default function SystemSettings() {
     },
   });
 
+  // 数据库备份
+  const backupDatabaseMutation = useMutation({
+    mutationFn: () => apiService.backupDatabase(),
+    onSuccess: async (blob: Blob) => {
+      // 创建下载链接
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+      a.href = url;
+      a.download = `ai_news_backup_${timestamp}.db`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      message.success('数据库备份下载成功');
+    },
+    onError: (error: any) => {
+      if (error.status === 401) {
+        message.error('需要登录才能备份数据库');
+      } else {
+        message.error(`备份数据库失败: ${error.response?.data?.detail || error.message}`);
+      }
+    },
+  });
+
+  // 数据库还原
+  const restoreDatabaseMutation = useMutation({
+    mutationFn: (file: File) => apiService.restoreDatabase(file),
+    onSuccess: (data: { message: string; filename?: string; auto_backup?: string }) => {
+      message.success(data.message || '数据库还原成功，请刷新页面');
+      if (data.auto_backup) {
+        message.info(`已自动备份原数据库到: ${data.auto_backup}`);
+      }
+      // 延迟刷新页面，让用户看到消息
+      setTimeout(() => {
+        window.location.reload();
+      }, 2000);
+    },
+    onError: (error: any) => {
+      if (error.status === 401) {
+        message.error('需要登录才能还原数据库');
+      } else {
+        message.error(`还原数据库失败: ${error.response?.data?.detail || error.message}`);
+      }
+    },
+  });
+
   // 当配置加载完成后，初始化表单数据
   useEffect(() => {
     if (llmSettings) {
@@ -535,249 +582,6 @@ export default function SystemSettings() {
 
   const tabItems = [
     {
-      key: 'image',
-      label: '文生图配置',
-      children: (
-        <Spin spinning={imageLoading || imageProvidersLoading}>
-          <Space direction="vertical" size="large" style={{ width: '100%' }}>
-            {/* 图片生成提供商管理 */}
-            <Card
-              title="图片生成提供商管理"
-              extra={
-                <Button
-                  type="primary"
-                  icon={<PlusOutlined />}
-                  onClick={handleImageProviderCreate}
-                  disabled={!isAuthenticated}
-                >
-                  添加提供商
-                </Button>
-              }
-            >
-              <Alert
-                message="提供商管理说明"
-                description="可以配置多个图片生成提供商，并分别选择使用哪个提供商的模型。"
-                type="info"
-                showIcon
-                style={{ marginBottom: 16 }}
-              />
-              <Table
-                dataSource={imageProviders}
-                rowKey="id"
-                columns={[
-                  {
-                    title: '名称',
-                    dataIndex: 'name',
-                    key: 'name',
-                  },
-                  {
-                    title: '类型',
-                    dataIndex: 'provider_type',
-                    key: 'provider_type',
-                  },
-                  {
-                    title: '图片生成模型',
-                    dataIndex: 'image_model',
-                    key: 'image_model',
-                    render: (text: string) => {
-                      const models = text.split(',').map(m => m.trim()).filter(m => m);
-                      return (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                          {models.map((model, index) => (
-                            <div key={index}>{model}</div>
-                          ))}
-                        </div>
-                      );
-                    },
-                  },
-                  {
-                    title: '状态',
-                    dataIndex: 'enabled',
-                    key: 'enabled',
-                    render: (enabled) => (
-                      <Switch checked={enabled} disabled />
-                    ),
-                  },
-                  {
-                    title: '操作',
-                    key: 'action',
-                    render: (_, record) => (
-                      <Space>
-                        <Button
-                          type="link"
-                          icon={<EditOutlined />}
-                          onClick={() => handleImageProviderEdit(record)}
-                          disabled={!isAuthenticated}
-                        >
-                          编辑
-                        </Button>
-                        <Popconfirm
-                          title="确定要删除此提供商吗？"
-                          onConfirm={() => handleImageProviderDelete(record.id)}
-                          okText="确定"
-                          cancelText="取消"
-                          disabled={!isAuthenticated}
-                        >
-                          <Button
-                            type="link"
-                            danger
-                            icon={<DeleteOutlined />}
-                            disabled={!isAuthenticated}
-                          >
-                            删除
-                          </Button>
-                        </Popconfirm>
-                      </Space>
-                    ),
-                  },
-                ]}
-                pagination={false}
-              />
-            </Card>
-
-            {/* 图片生成提供商选择 */}
-            <Card title="图片生成提供商选择">
-              <Form
-                form={imageForm}
-                layout="vertical"
-                onFinish={handleImageSave}
-                initialValues={imageSettings}
-              >
-                <Alert
-                  message="提供商选择说明"
-                  description="选择要使用的图片生成提供商和模型。请确保至少选择一个提供商才能正常使用文生图功能。"
-                  type="info"
-                  showIcon
-                  style={{ marginBottom: 24 }}
-                />
-
-                <Form.Item
-                  name="selected_image_provider_id"
-                  label="图片生成提供商"
-                  tooltip="选择用于图片生成的提供商和模型"
-                  rules={[{ required: true, message: '请选择图片生成提供商' }]}
-                >
-                  <Select
-                    placeholder="选择图片生成提供商"
-                    style={{ width: '100%' }}
-                    disabled={!isAuthenticated}
-                    options={enabledImageProviders.flatMap(p => {
-                      const models = p.image_model.split(',').map(m => m.trim()).filter(m => m);
-                      // 为每个模型创建一个选项，格式为 provider_name(model_name)
-                      return models.map(model => ({
-                        label: `${p.name}(${model})`,
-                        value: `${p.id}:${model}`, // 使用 provider_id:model_name 格式
-                      }));
-                    })}
-                  />
-                </Form.Item>
-
-                <Form.Item>
-                  <Space>
-                    <Button
-                      type="primary"
-                      icon={<SaveOutlined />}
-                      htmlType="submit"
-                      loading={updateImageMutation.isPending}
-                      disabled={!isAuthenticated}
-                    >
-                      保存配置
-                    </Button>
-                    <Button
-                      icon={<ReloadOutlined />}
-                      onClick={() => {
-                        imageForm.setFieldsValue(imageSettings);
-                      }}
-                    >
-                      重置
-                    </Button>
-                  </Space>
-                </Form.Item>
-              </Form>
-            </Card>
-          </Space>
-
-          {/* 图片生成提供商编辑/创建模态框 */}
-          <Modal
-            title={editingImageProvider ? '编辑图片生成提供商' : '添加图片生成提供商'}
-            open={imageProviderModalVisible}
-            onCancel={() => {
-              setImageProviderModalVisible(false);
-              setEditingImageProvider(null);
-              imageProviderForm.resetFields();
-            }}
-            onOk={() => imageProviderForm.submit()}
-            confirmLoading={createImageProviderMutation.isPending || updateImageProviderMutation.isPending}
-            width={600}
-          >
-            <Form
-              form={imageProviderForm}
-              layout="vertical"
-              onFinish={handleImageProviderSubmit}
-            >
-              <Form.Item
-                name="name"
-                label="提供商名称"
-                rules={[{ required: true, message: '请输入提供商名称' }]}
-              >
-                <Input placeholder="例如: 阿里云百炼" />
-              </Form.Item>
-
-              <Form.Item
-                name="provider_type"
-                label="类型"
-                rules={[{ required: true, message: '请选择类型' }]}
-                tooltip="指定使用什么接口访问模型"
-              >
-                <Select
-                  placeholder="选择类型"
-                  options={[
-                    { label: '文生图(BaiLian)', value: '文生图(BaiLian)' },
-                    { label: '文生图(智谱)', value: '文生图(智谱)' },
-                  ]}
-                />
-              </Form.Item>
-
-              <Form.Item
-                name="api_key"
-                label="API密钥"
-                rules={[{ required: true, message: '请输入API密钥' }]}
-              >
-                <Input.Password placeholder="sk-..." />
-              </Form.Item>
-
-              <Form.Item
-                name="api_base"
-                label="API基础URL"
-                rules={[{ required: true, message: '请输入API基础URL' }]}
-                tooltip="文生图(BaiLian): https://dashscope.aliyuncs.com/compatible-mode/v1 | 文生图(智谱): https://open.bigmodel.cn/api/paas/v4"
-              >
-                <Input placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1 或 https://open.bigmodel.cn/api/paas/v4" />
-              </Form.Item>
-
-              <Form.Item
-                name="image_model"
-                label="图片生成模型名称"
-                rules={[{ required: true, message: '请输入图片生成模型名称' }]}
-                tooltip="支持填写多个模型，使用逗号分隔。文生图(BaiLian): wanx-v1, dall-e-3 | 文生图(智谱): glm-image, cogview-4, cogview-3-flash"
-              >
-                <Input placeholder="wanx-v1, dall-e-3 或 glm-image, cogview-4" />
-              </Form.Item>
-
-              <Form.Item
-                name="enabled"
-                label="启用"
-                valuePropName="checked"
-                initialValue={true}
-              >
-                <Switch />
-              </Form.Item>
-            </Form>
-          </Modal>
-        </Spin>
-      ),
-    },
-    {
       key: 'llm',
       label: 'LLM配置',
       children: (
@@ -853,6 +657,8 @@ export default function SystemSettings() {
                     title: '状态',
                     dataIndex: 'enabled',
                     key: 'enabled',
+                    align: 'center',
+                    width: 80,
                     render: (enabled) => (
                       <Switch checked={enabled} disabled />
                     ),
@@ -860,13 +666,17 @@ export default function SystemSettings() {
                   {
                     title: '操作',
                     key: 'action',
+                    width: 80,
+                    align: 'center',
                     render: (_, record) => (
-                      <Space>
+                      <Space direction="vertical" size={0}>
                         <Button
                           type="link"
                           icon={<EditOutlined />}
                           onClick={() => handleProviderEdit(record)}
                           disabled={!isAuthenticated}
+                          size="small"
+                          style={{ padding: 0 }}
                         >
                           编辑
                         </Button>
@@ -882,6 +692,8 @@ export default function SystemSettings() {
                             danger
                             icon={<DeleteOutlined />}
                             disabled={!isAuthenticated}
+                            size="small"
+                            style={{ padding: 0 }}
                           >
                             删除
                           </Button>
@@ -1049,6 +861,257 @@ export default function SystemSettings() {
                 tooltip="如果此提供商支持向量模型，请填写。支持填写多个模型，使用逗号分隔，例如：text-embedding-3-small, text-embedding-3-large。如果不支持，留空即可。"
               >
                 <Input placeholder="text-embedding-3-small, text-embedding-3-large" />
+              </Form.Item>
+
+              <Form.Item
+                name="enabled"
+                label="启用"
+                valuePropName="checked"
+                initialValue={true}
+              >
+                <Switch />
+              </Form.Item>
+            </Form>
+          </Modal>
+        </Spin>
+      ),
+    },
+    {
+      key: 'image',
+      label: '文生图配置',
+      children: (
+        <Spin spinning={imageLoading || imageProvidersLoading}>
+          <Space direction="vertical" size="large" style={{ width: '100%' }}>
+            {/* 图片生成提供商管理 */}
+            <Card
+              title="图片生成提供商管理"
+              extra={
+                <Button
+                  type="primary"
+                  icon={<PlusOutlined />}
+                  onClick={handleImageProviderCreate}
+                  disabled={!isAuthenticated}
+                >
+                  添加提供商
+                </Button>
+              }
+            >
+              <Alert
+                message="提供商管理说明"
+                description="可以配置多个图片生成提供商，并分别选择使用哪个提供商的模型。"
+                type="info"
+                showIcon
+                style={{ marginBottom: 16 }}
+              />
+              <Table
+                dataSource={imageProviders}
+                rowKey="id"
+                columns={[
+                  {
+                    title: '名称',
+                    dataIndex: 'name',
+                    key: 'name',
+                  },
+                  {
+                    title: '类型',
+                    dataIndex: 'provider_type',
+                    key: 'provider_type',
+                  },
+                  {
+                    title: '图片生成模型',
+                    dataIndex: 'image_model',
+                    key: 'image_model',
+                    render: (text: string) => {
+                      const models = text.split(',').map(m => m.trim()).filter(m => m);
+                      return (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          {models.map((model, index) => (
+                            <div key={index}>{model}</div>
+                          ))}
+                        </div>
+                      );
+                    },
+                  },
+                  {
+                    title: '状态',
+                    dataIndex: 'enabled',
+                    key: 'enabled',
+                    align: 'center',
+                    width: 80,
+                    render: (enabled) => (
+                      <Switch checked={enabled} disabled />
+                    ),
+                  },
+                  {
+                    title: '操作',
+                    key: 'action',
+                    width: 80,
+                    align: 'center',
+                    render: (_, record) => (
+                      <Space direction="vertical" size={0}>
+                        <Button
+                          type="link"
+                          icon={<EditOutlined />}
+                          onClick={() => handleImageProviderEdit(record)}
+                          disabled={!isAuthenticated}
+                          size="small"
+                          style={{ padding: 0 }}
+                        >
+                          编辑
+                        </Button>
+                        <Popconfirm
+                          title="确定要删除此提供商吗？"
+                          onConfirm={() => handleImageProviderDelete(record.id)}
+                          okText="确定"
+                          cancelText="取消"
+                          disabled={!isAuthenticated}
+                        >
+                          <Button
+                            type="link"
+                            danger
+                            icon={<DeleteOutlined />}
+                            disabled={!isAuthenticated}
+                            size="small"
+                            style={{ padding: 0 }}
+                          >
+                            删除
+                          </Button>
+                        </Popconfirm>
+                      </Space>
+                    ),
+                  },
+                ]}
+                pagination={false}
+              />
+            </Card>
+
+            {/* 图片生成提供商选择 */}
+            <Card title="图片生成提供商选择">
+              <Form
+                form={imageForm}
+                layout="vertical"
+                onFinish={handleImageSave}
+                initialValues={imageSettings}
+              >
+                <Alert
+                  message="提供商选择说明"
+                  description="选择要使用的图片生成提供商和模型。请确保至少选择一个提供商才能正常使用文生图功能。"
+                  type="info"
+                  showIcon
+                  style={{ marginBottom: 24 }}
+                />
+
+                <Form.Item
+                  name="selected_image_provider_id"
+                  label="图片生成提供商"
+                  tooltip="选择用于图片生成的提供商和模型"
+                  rules={[{ required: true, message: '请选择图片生成提供商' }]}
+                >
+                  <Select
+                    placeholder="选择图片生成提供商"
+                    style={{ width: '100%' }}
+                    disabled={!isAuthenticated}
+                    options={enabledImageProviders.flatMap(p => {
+                      const models = p.image_model.split(',').map(m => m.trim()).filter(m => m);
+                      // 为每个模型创建一个选项，格式为 provider_name(model_name)
+                      return models.map(model => ({
+                        label: `${p.name}(${model})`,
+                        value: `${p.id}:${model}`, // 使用 provider_id:model_name 格式
+                      }));
+                    })}
+                  />
+                </Form.Item>
+
+                <Form.Item>
+                  <Space>
+                    <Button
+                      type="primary"
+                      icon={<SaveOutlined />}
+                      htmlType="submit"
+                      loading={updateImageMutation.isPending}
+                      disabled={!isAuthenticated}
+                    >
+                      保存配置
+                    </Button>
+                    <Button
+                      icon={<ReloadOutlined />}
+                      onClick={() => {
+                        imageForm.setFieldsValue(imageSettings);
+                      }}
+                    >
+                      重置
+                    </Button>
+                  </Space>
+                </Form.Item>
+              </Form>
+            </Card>
+          </Space>
+
+          {/* 图片生成提供商编辑/创建模态框 */}
+          <Modal
+            title={editingImageProvider ? '编辑图片生成提供商' : '添加图片生成提供商'}
+            open={imageProviderModalVisible}
+            onCancel={() => {
+              setImageProviderModalVisible(false);
+              setEditingImageProvider(null);
+              imageProviderForm.resetFields();
+            }}
+            onOk={() => imageProviderForm.submit()}
+            confirmLoading={createImageProviderMutation.isPending || updateImageProviderMutation.isPending}
+            width={600}
+          >
+            <Form
+              form={imageProviderForm}
+              layout="vertical"
+              onFinish={handleImageProviderSubmit}
+            >
+              <Form.Item
+                name="name"
+                label="提供商名称"
+                rules={[{ required: true, message: '请输入提供商名称' }]}
+              >
+                <Input placeholder="例如: 阿里云百炼" />
+              </Form.Item>
+
+              <Form.Item
+                name="provider_type"
+                label="类型"
+                rules={[{ required: true, message: '请选择类型' }]}
+                tooltip="指定使用什么接口访问模型"
+              >
+                <Select
+                  placeholder="选择类型"
+                  options={[
+                    { label: '文生图(BaiLian)', value: '文生图(BaiLian)' },
+                    { label: '文生图(智谱)', value: '文生图(智谱)' },
+                  ]}
+                />
+              </Form.Item>
+
+              <Form.Item
+                name="api_key"
+                label="API密钥"
+                rules={[{ required: true, message: '请输入API密钥' }]}
+              >
+                <Input.Password placeholder="sk-..." />
+              </Form.Item>
+
+              <Form.Item
+                name="api_base"
+                label="API基础URL"
+                rules={[{ required: true, message: '请输入API基础URL' }]}
+                tooltip="文生图(BaiLian): https://dashscope.aliyuncs.com/compatible-mode/v1 | 文生图(智谱): https://open.bigmodel.cn/api/paas/v4"
+              >
+                <Input placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1 或 https://open.bigmodel.cn/api/paas/v4" />
+              </Form.Item>
+
+              <Form.Item
+                name="image_model"
+                label="图片生成模型名称"
+                rules={[{ required: true, message: '请输入图片生成模型名称' }]}
+                tooltip="支持填写多个模型，使用逗号分隔。文生图(BaiLian): wanx-v1, dall-e-3 | 文生图(智谱): glm-image, cogview-4, cogview-3-flash"
+              >
+                <Input placeholder="wanx-v1, dall-e-3 或 glm-image, cogview-4" />
               </Form.Item>
 
               <Form.Item
@@ -1583,6 +1646,97 @@ export default function SystemSettings() {
               </Button>
             </Form.Item>
           </Form>
+        </Card>
+      ),
+    },
+    {
+      key: 'database',
+      label: '数据库管理',
+      children: (
+        <Card
+          title="数据库备份与还原"
+          icon={<DatabaseOutlined />}
+        >
+          <Alert
+            message="重要提示"
+            description="数据库备份和还原功能允许您备份当前数据库或从备份文件还原。还原操作会替换当前数据库，请谨慎操作。系统会在还原前自动创建备份。"
+            type="warning"
+            showIcon
+            style={{ marginBottom: 24 }}
+          />
+
+          <Space direction="vertical" size="large" style={{ width: '100%' }}>
+            <Card
+              title="数据库备份"
+              type="inner"
+            >
+              <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                <Typography.Text>
+                  点击下方按钮下载当前数据库的备份文件。备份文件包含所有文章、配置和设置。
+                </Typography.Text>
+                <Button
+                  type="primary"
+                  icon={<DownloadOutlined />}
+                  onClick={() => backupDatabaseMutation.mutate()}
+                  loading={backupDatabaseMutation.isPending}
+                  disabled={!isAuthenticated}
+                  size="large"
+                >
+                  下载数据库备份
+                </Button>
+              </Space>
+            </Card>
+
+            <Card
+              title="数据库还原"
+              type="inner"
+            >
+              <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                <Typography.Text>
+                  上传之前备份的数据库文件来还原数据库。还原操作会：
+                </Typography.Text>
+                <ul>
+                  <li>自动备份当前数据库（以防需要恢复）</li>
+                  <li>替换当前数据库为上传的备份文件</li>
+                  <li>需要刷新页面以使用新的数据库</li>
+                </ul>
+                <input
+                  type="file"
+                  accept=".db"
+                  id="restore-db-input"
+                  style={{ display: 'none' }}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      if (!file.name.endsWith('.db')) {
+                        message.error('只能上传 .db 格式的数据库文件');
+                        return;
+                      }
+                      restoreDatabaseMutation.mutate(file);
+                      // 重置input，允许重复选择同一文件
+                      e.target.value = '';
+                    }
+                  }}
+                />
+                <Button
+                  type="primary"
+                  danger
+                  icon={<UploadOutlined />}
+                  onClick={() => {
+                    const input = document.getElementById('restore-db-input');
+                    if (input) {
+                      input.click();
+                    }
+                  }}
+                  loading={restoreDatabaseMutation.isPending}
+                  disabled={!isAuthenticated}
+                  size="large"
+                >
+                  上传数据库备份还原
+                </Button>
+              </Space>
+            </Card>
+          </Space>
         </Card>
       ),
     },

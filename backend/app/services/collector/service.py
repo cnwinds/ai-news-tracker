@@ -159,7 +159,7 @@ class CollectionService:
         if task_id and is_stop_requested(task_id):
             logger.info("🛑 收到停止信号，终止采集")
             return stats
-        api_stats = self._collect_api_sources(db, task_id=task_id)
+        api_stats = self._collect_api_sources(db, task_id=task_id, enable_ai_analysis=enable_ai_analysis)
         stats["total_articles"] += api_stats.get("total_articles", 0)
         stats["new_articles"] += api_stats.get("new_articles", 0)
         stats["sources_success"] += api_stats.get("sources_success", 0)
@@ -221,7 +221,8 @@ class CollectionService:
                     rag_service = RAGService(ai_analyzer=self.ai_analyzer, db=session)
                     # 获取所有未索引的文章（不限制时间，避免遗漏）
                     # 使用子查询排除已索引的文章
-                    indexed_ids = session.query(ArticleEmbedding.article_id).subquery()
+                    from sqlalchemy import select
+                    indexed_ids = select(ArticleEmbedding.article_id)
                     unindexed_articles = session.query(Article).filter(
                         ~Article.id.in_(indexed_ids)
                     ).all()
@@ -745,6 +746,10 @@ class CollectionService:
         if not articles:
             return {"total": 0, "new": 0, "ai_analyzed": 0}
 
+        # 统一修正所有文章的source字段为配置中的name，确保使用正确的源名称
+        for article in articles:
+            article["source"] = source_name
+
         new_count = 0
         saved_article_ids = []
 
@@ -757,7 +762,15 @@ class CollectionService:
 
         result = {"total": len(articles), "new": new_count, "ai_analyzed": 0}
 
-        if enable_ai_analysis and self.ai_analyzer and saved_article_ids:
+        # 检查AI分析条件并记录日志
+        if not enable_ai_analysis:
+            logger.info(f"  ℹ️  {source_name}: AI分析未启用（enable_ai_analysis=False）")
+        elif not self.ai_analyzer:
+            logger.warning(f"  ⚠️  {source_name}: AI分析器未初始化，无法进行AI分析。请检查LLM提供商和向量模型配置。")
+        elif not saved_article_ids:
+            logger.info(f"  ℹ️  {source_name}: 没有保存的文章，跳过AI分析")
+        else:
+            # 所有条件满足，进行AI分析
             unanalyzed_ids = self._filter_unanalyzed_articles(db, saved_article_ids)
             ai_skipped = len(saved_article_ids) - len(unanalyzed_ids)
 
@@ -768,6 +781,8 @@ class CollectionService:
                 logger.info(f"  🤖 {source_name}: 开始AI分析 {len(unanalyzed_ids)} 篇文章...")
                 analyzed_count = self._analyze_articles_by_ids(db, unanalyzed_ids, max_workers=3)
                 result["ai_analyzed"] = analyzed_count
+            else:
+                logger.info(f"  ℹ️  {source_name}: 所有文章都已分析过，无需重新分析")
 
         return result
 
