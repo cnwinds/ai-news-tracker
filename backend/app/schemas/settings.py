@@ -95,7 +95,7 @@ class NotificationSettings(BaseModel):
 class ImageProviderBase(BaseModel):
     """图片生成提供商基础模型"""
     name: str = Field(..., description="提供商名称")
-    provider_type: str = Field(default="文生图(BaiLian)", description="提供商类型：文生图(BaiLian)")
+    provider_type: str = Field(default="文生图(BaiLian)", description="提供商类型：文生图(BaiLian) 或 文生图(智谱)")
     api_key: str = Field(..., description="API密钥")
     api_base: str = Field(..., description="API基础URL")
     image_model: str = Field(..., description="图片生成模型名称")
@@ -110,7 +110,7 @@ class ImageProviderCreate(ImageProviderBase):
 class ImageProviderUpdate(BaseModel):
     """更新图片生成提供商模型"""
     name: Optional[str] = Field(None, description="提供商名称")
-    provider_type: Optional[str] = Field(None, description="提供商类型：文生图(BaiLian)")
+    provider_type: Optional[str] = Field(None, description="提供商类型：文生图(BaiLian) 或 文生图(智谱)")
     api_key: Optional[str] = Field(None, description="API密钥")
     api_base: Optional[str] = Field(None, description="API基础URL")
     image_model: Optional[str] = Field(None, description="图片生成模型名称")

@@ -28,7 +28,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiService } from '@/services/api';
 import { useAuth } from '@/contexts/AuthContext';
 import type { RSSSource, RSSSourceCreate, RSSSourceUpdate } from '@/types';
-import { groupSourcesByType, SOURCE_TYPE_LABELS } from '@/utils/source';
+import { groupSourcesByType, SOURCE_TYPE_LABELS, sourceTypeSupportsSubType, getSubTypeOptions } from '@/utils/source';
 import { getDaysAgo, getDaysAgoText, formatDate, getDaysAgoColor } from '@/utils/date';
 
 export default function SourceManagement() {
@@ -174,6 +174,11 @@ export default function SourceManagement() {
 
   const handleSubmit = (values: any) => {
     const submitData: any = { ...values };
+    
+    // 如果源类型不支持子类型，清空sub_type字段
+    if (!sourceTypeSupportsSubType(values.source_type)) {
+      submitData.sub_type = undefined;
+    }
     
     // 如果是邮件源，需要将表单字段转换为extra_config JSON
     if (values.source_type === 'email') {
@@ -366,6 +371,11 @@ export default function SourceManagement() {
               </Tag>
               {source.category && <Tag style={{ margin: 0 }}>{source.category}</Tag>}
               {source.tier && <Tag style={{ margin: 0 }}>{source.tier}</Tag>}
+              {source.sub_type && (
+                <Tag color="purple" style={{ margin: 0 }}>
+                  {source.sub_type}
+                </Tag>
+              )}
             </Space>
             {source.articles_count !== undefined && (
               <Tag color="blue" style={{ marginBottom: 8 }}>文章数: {source.articles_count}</Tag>
@@ -526,25 +536,6 @@ export default function SourceManagement() {
                 ),
               },
               {
-                key: 'social',
-                label: `${SOURCE_TYPE_LABELS.social} (${groupedSources.social?.length || 0})`,
-                children: (
-                  <div className="hidden-scrollbar" style={hiddenScrollbarStyle}>
-                    {groupedSources.social?.length > 0 ? (
-                      <Row gutter={[16, 16]}>
-                        {groupedSources.social.map((source: RSSSource) => (
-                          <Col key={source.id} xs={24} sm={12} md={8} lg={8}>
-                            {renderSourceItem(source)}
-                          </Col>
-                        ))}
-                      </Row>
-                    ) : (
-                      <Alert message="暂无社交媒体源" type="info" />
-                    )}
-                  </div>
-                ),
-              },
-              {
                 key: 'email',
                 label: `${SOURCE_TYPE_LABELS.email} (${groupedSources.email?.length || 0})`,
                 children: (
@@ -590,16 +581,50 @@ export default function SourceManagement() {
             </Col>
             <Col span={12}>
               <Form.Item name="source_type" label="源类型" rules={[{ required: true }]} initialValue="rss">
-                <Select>
+                <Select
+                  onChange={(value) => {
+                    // 切换源类型时，清空子类型字段
+                    form.setFieldsValue({ sub_type: undefined });
+                  }}
+                >
                   <Select.Option value="rss">RSS源</Select.Option>
                   <Select.Option value="api">API源</Select.Option>
                   <Select.Option value="web">Web源</Select.Option>
-                  <Select.Option value="social">社交媒体源</Select.Option>
                   <Select.Option value="email">邮件源</Select.Option>
                 </Select>
               </Form.Item>
             </Col>
           </Row>
+          
+          {/* 子类型选择（仅当源类型支持时显示） */}
+          <Form.Item noStyle shouldUpdate={(prevValues, currentValues) => prevValues.source_type !== currentValues.source_type}>
+            {({ getFieldValue }) => {
+              const sourceType = getFieldValue('source_type');
+              
+              if (!sourceTypeSupportsSubType(sourceType)) {
+                return null;
+              }
+              
+              const subTypeOptions = getSubTypeOptions(sourceType);
+              const subTypeLabel = 'API子类型';
+              
+              return (
+                <Form.Item 
+                  name="sub_type" 
+                  label={subTypeLabel} 
+                  rules={[{ required: true, message: `请选择${subTypeLabel}` }]}
+                >
+                  <Select placeholder={`请选择${subTypeLabel}`}>
+                    {subTypeOptions.map(option => (
+                      <Select.Option key={option.value} value={option.value}>
+                        {option.label}
+                      </Select.Option>
+                    ))}
+                  </Select>
+                </Form.Item>
+              );
+            }}
+          </Form.Item>
           
           <Form.Item noStyle shouldUpdate={(prevValues, currentValues) => prevValues.source_type !== currentValues.source_type}>
             {({ getFieldValue }) => {
@@ -733,7 +758,7 @@ export default function SourceManagement() {
               return (
                 <Form.Item name="extra_config" label="扩展配置（JSON）">
                   <Input.TextArea 
-                    placeholder="Web源和社交媒体源的扩展配置（JSON格式），例如: {&quot;article_selector&quot;: &quot;article.entry-card&quot;, &quot;title_selector&quot;: &quot;h2.entry-title a&quot;}" 
+                    placeholder="Web源的扩展配置（JSON格式），例如: {&quot;article_selector&quot;: &quot;article.entry-card&quot;, &quot;title_selector&quot;: &quot;h2.entry-title a&quot;}" 
                     rows={4}
                   />
                 </Form.Item>
@@ -889,43 +914,6 @@ export default function SourceManagement() {
                   children: (
                     <div style={{ maxHeight: 400, overflowY: 'auto' }}>
                       {groupedDefaultSources.web?.map((source: any) => {
-                        const exists = isSourceExists(source.name, source.url);
-                        return (
-                          <div key={source.name} style={{ marginBottom: 8 }}>
-                            <Checkbox
-                              checked={selectedSources.includes(source.name)}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  setSelectedSources([...selectedSources, source.name]);
-                                } else {
-                                  setSelectedSources(selectedSources.filter((n) => n !== source.name));
-                                }
-                              }}
-                              disabled={exists}
-                            >
-                              <Space>
-                                <strong>{source.name}</strong>
-                                {exists && <Tag color="orange">已存在</Tag>}
-                                {source.category && <Tag>{source.category}</Tag>}
-                                {source.tier && <Tag>{source.tier}</Tag>}
-                                {!source.enabled && <Tag color="red">禁用</Tag>}
-                              </Space>
-                            </Checkbox>
-                            <div style={{ marginLeft: 24, fontSize: 12, color: '#666' }}>
-                              {source.url}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ),
-                },
-                {
-                  key: 'social',
-                  label: `${SOURCE_TYPE_LABELS.social} (${groupedDefaultSources.social?.length || 0})`,
-                  children: (
-                    <div style={{ maxHeight: 400, overflowY: 'auto' }}>
-                      {groupedDefaultSources.social?.map((source: any) => {
                         const exists = isSourceExists(source.name, source.url);
                         return (
                           <div key={source.name} style={{ marginBottom: 8 }}>

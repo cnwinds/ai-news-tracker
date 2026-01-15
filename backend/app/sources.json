@@ -75,6 +75,56 @@
       "priority": 2,
       "source_type": "rss",
       "description": "宝玉的工程技术分享，专注AI、编程和产品思考"
+    },
+    {
+      "name": "Reddit Machine Learning",
+      "url": "https://www.reddit.com/r/MachineLearning/.rss",
+      "category": "community",
+      "enabled": true,
+      "language": "en",
+      "priority": 3,
+      "source_type": "rss",
+      "description": "Reddit Machine Learning 社区 RSS 源"
+    },
+    {
+      "name": "Hacker News AI",
+      "url": "https://news.ycombinator.com/rss",
+      "category": "community",
+      "enabled": true,
+      "language": "en",
+      "priority": 3,
+      "source_type": "rss",
+      "description": "Hacker News RSS 源"
+    },
+    {
+      "name": "TechCrunch AI",
+      "url": "https://techcrunch.com/category/artificial-intelligence/feed/",
+      "category": "news",
+      "enabled": true,
+      "language": "en",
+      "priority": 2,
+      "source_type": "rss",
+      "description": "TechCrunch 人工智能新闻 RSS 源"
+    },
+    {
+      "name": "The Verge AI",
+      "url": "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml",
+      "category": "news",
+      "enabled": true,
+      "language": "en",
+      "priority": 2,
+      "source_type": "rss",
+      "description": "The Verge 人工智能新闻 RSS 源"
+    },
+    {
+      "name": "NYTimes AI",
+      "url": "https://www.nytimes.com/svc/collections/v1/publish/https://www.nytimes.com/spotlight/artificial-intelligence/rss.xml",
+      "category": "news",
+      "enabled": true,
+      "language": "en",
+      "priority": 2,
+      "source_type": "rss",
+      "description": "纽约时报人工智能专题 RSS 源"
     }
   ],
   "api_sources": [
@@ -86,6 +136,7 @@
       "language": "en",
       "priority": 1,
       "source_type": "api",
+      "sub_type": "arxiv",
       "description": "人工智能：搜索、规划、知识表示、推理等",
       "extra_config": {
         "query": "cat:cs.AI",
@@ -100,6 +151,7 @@
       "language": "en",
       "priority": 1,
       "source_type": "api",
+      "sub_type": "arxiv",
       "description": "机器学习：监督/无监督学习、强化学习、深度学习等",
       "extra_config": {
         "query": "cat:cs.LG",
@@ -114,6 +166,7 @@
       "language": "en",
       "priority": 2,
       "source_type": "api",
+      "sub_type": "arxiv",
       "description": "计算语言学：NLP、文本处理、语言模型等",
       "extra_config": {
         "query": "cat:cs.CL",
@@ -128,6 +181,7 @@
       "language": "en",
       "priority": 2,
       "source_type": "api",
+      "sub_type": "arxiv",
       "description": "计算机视觉：图像识别、目标检测、图像生成等",
       "extra_config": {
         "query": "cat:cs.CV",
@@ -142,9 +196,58 @@
       "language": "en",
       "priority": 2,
       "source_type": "api",
+      "sub_type": "paperswithcode",
       "extra_config": {
         "endpoint": "/trending",
         "max_results": 20
+      }
+    },
+    {
+      "name": "Yann LeCun Twitter",
+      "url": "https://twitter.com/ylecun",
+      "category": "social",
+      "enabled": false,
+      "language": "en",
+      "priority": 3,
+      "source_type": "api",
+      "sub_type": "twitter",
+      "description": "使用 Nitter RSS 服务采集 Twitter 推文（无需 API 密钥）",
+      "extra_config": {
+        "method": "nitter",
+        "nitter_instance": "https://nitter.net",
+        "max_tweets": 20
+      }
+    },
+    {
+      "name": "Andrew Ng Twitter",
+      "url": "https://twitter.com/AndrewYNg",
+      "category": "social",
+      "enabled": false,
+      "language": "en",
+      "priority": 3,
+      "source_type": "api",
+      "sub_type": "twitter",
+      "description": "使用 Nitter RSS 服务采集 Twitter 推文（无需 API 密钥）",
+      "extra_config": {
+        "method": "nitter",
+        "nitter_instance": "https://nitter.net",
+        "max_tweets": 20
+      }
+    },
+    {
+      "name": "Andrej Karpathy Twitter",
+      "url": "https://twitter.com/karpathy",
+      "category": "social",
+      "enabled": true,
+      "language": "en",
+      "priority": 3,
+      "source_type": "api",
+      "sub_type": "twitter",
+      "description": "使用 Nitter RSS 服务采集 Twitter 推文（无需 API 密钥）",
+      "extra_config": {
+        "method": "nitter",
+        "nitter_instance": "https://nitter.net",
+        "max_tweets": 20
       }
     }
   ],
@@ -185,81 +288,6 @@
         "link_selector": "self",
         "date_selector": ".PublicationList-module-scss-module__KxYrHG__date",
         "description_selector": ".PublicationList-module-scss-module__KxYrHG__subject"
-      }
-    }
-  ],
-  "social_sources": [
-    {
-      "name": "Yann LeCun Twitter",
-      "url": "https://twitter.com/ylecun",
-      "category": "social",
-      "enabled": false,
-      "language": "en",
-      "priority": 3,
-      "source_type": "social",
-      "description": "使用 Nitter RSS 服务采集 Twitter 推文（无需 API 密钥）",
-      "extra_config": {
-        "platform": "twitter",
-        "method": "nitter",
-        "nitter_instance": "https://nitter.net",
-        "max_tweets": 20
-      }
-    },
-    {
-      "name": "Andrew Ng Twitter",
-      "url": "https://twitter.com/AndrewYNg",
-      "category": "social",
-      "enabled": false,
-      "language": "en",
-      "priority": 3,
-      "source_type": "social",
-      "description": "使用 Nitter RSS 服务采集 Twitter 推文（无需 API 密钥）",
-      "extra_config": {
-        "platform": "twitter",
-        "method": "nitter",
-        "nitter_instance": "https://nitter.net",
-        "max_tweets": 20
-      }
-    },
-    {
-      "name": "Andrej Karpathy Twitter",
-      "url": "https://twitter.com/karpathy",
-      "category": "social",
-      "enabled": true,
-      "language": "en",
-      "priority": 3,
-      "source_type": "social",
-      "description": "使用 Nitter RSS 服务采集 Twitter 推文（无需 API 密钥）",
-      "extra_config": {
-        "platform": "twitter",
-        "method": "nitter",
-        "nitter_instance": "https://nitter.net",
-        "max_tweets": 20
-      }
-    },
-    {
-      "name": "Reddit Machine Learning",
-      "url": "https://www.reddit.com/r/MachineLearning/.rss",
-      "category": "community",
-      "enabled": true,
-      "language": "en",
-      "priority": 3,
-      "source_type": "social",
-      "extra_config": {
-        "platform": "reddit"
-      }
-    },
-    {
-      "name": "Hacker News AI",
-      "url": "https://news.ycombinator.com/rss",
-      "category": "community",
-      "enabled": true,
-      "language": "en",
-      "priority": 3,
-      "source_type": "social",
-      "extra_config": {
-        "platform": "hackernews",
-        "search_query": "AI"
       }
     }
   ],

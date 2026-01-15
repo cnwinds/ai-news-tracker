@@ -733,6 +733,7 @@ export default function SystemSettings() {
                   placeholder="选择类型"
                   options={[
                     { label: '文生图(BaiLian)', value: '文生图(BaiLian)' },
+                    { label: '文生图(智谱)', value: '文生图(智谱)' },
                   ]}
                 />
               </Form.Item>
@@ -749,17 +750,18 @@ export default function SystemSettings() {
                 name="api_base"
                 label="API基础URL"
                 rules={[{ required: true, message: '请输入API基础URL' }]}
+                tooltip="文生图(BaiLian): https://dashscope.aliyuncs.com/compatible-mode/v1 | 文生图(智谱): https://open.bigmodel.cn/api/paas/v4"
               >
-                <Input placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1" />
+                <Input placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1 或 https://open.bigmodel.cn/api/paas/v4" />
               </Form.Item>
 
               <Form.Item
                 name="image_model"
                 label="图片生成模型名称"
                 rules={[{ required: true, message: '请输入图片生成模型名称' }]}
-                tooltip="支持填写多个模型，使用逗号分隔，例如：wanx-v1, dall-e-3"
+                tooltip="支持填写多个模型，使用逗号分隔。文生图(BaiLian): wanx-v1, dall-e-3 | 文生图(智谱): glm-image, cogview-4, cogview-3-flash"
               >
-                <Input placeholder="wanx-v1, dall-e-3" />
+                <Input placeholder="wanx-v1, dall-e-3 或 glm-image, cogview-4" />
               </Form.Item>
 
               <Form.Item

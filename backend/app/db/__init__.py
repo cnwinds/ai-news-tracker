@@ -118,6 +118,12 @@ class DatabaseManager:
             # 迁移：添加提供商类型字段（如果不存在）
             self._migrate_add_provider_type()
             
+            # 迁移：添加源子类型字段（如果不存在）
+            self._migrate_add_sub_type()
+            
+            # 升级：将老格式的sub_type从extra_config中提取并写入sub_type字段
+            self._upgrade_sub_type_fields()
+            
             logger.info("✅ 数据库基础表初始化成功")
         except Exception as e:
             logger.error(f"❌ 数据库初始化失败: {e}")
@@ -246,6 +252,36 @@ class DatabaseManager:
         except Exception as e:
             # 如果字段已存在或其他错误，记录但不中断
             logger.debug(f"采集源自定义字段迁移检查: {e}")
+
+    def _migrate_add_sub_type(self):
+        """迁移：为 rss_sources 表添加 sub_type 字段（如果不存在）"""
+        try:
+            from sqlalchemy import inspect, text
+            inspector = inspect(self.engine)
+            columns = [col['name'] for col in inspector.get_columns('rss_sources')]
+            
+            # 添加 sub_type 字段
+            if 'sub_type' not in columns:
+                logger.info("🔄 检测到缺少 sub_type 字段，正在添加...")
+                with self.engine.connect() as conn:
+                    conn.execute(text("""
+                        ALTER TABLE rss_sources 
+                        ADD COLUMN sub_type VARCHAR(50)
+                    """))
+                    conn.commit()
+                logger.info("✅ sub_type 字段添加成功")
+        except Exception as e:
+            # 如果字段已存在或其他错误，记录但不中断
+            logger.debug(f"sub_type 字段迁移检查: {e}")
+
+    def _upgrade_sub_type_fields(self):
+        """升级：将老格式的sub_type从extra_config中提取并写入sub_type字段"""
+        try:
+            from backend.app.db.migrations.upgrade_sub_type import upgrade_sub_type_fields
+            upgrade_sub_type_fields(self.engine)
+        except Exception as e:
+            # 如果升级失败，记录但不中断
+            logger.warning(f"⚠️  升级sub_type字段失败: {e}")
 
     def init_sqlite_vec_table(self, embedding_model: str = None):
         """

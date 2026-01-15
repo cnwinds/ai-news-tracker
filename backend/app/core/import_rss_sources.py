@@ -1,6 +1,6 @@
 """
 订阅源导入模块
-从配置文件加载默认的订阅源列表（支持rss/api/web/social所有类型）
+从配置文件加载默认的订阅源列表（支持rss/api/web/email所有类型）
 """
 import json
 from pathlib import Path
@@ -16,7 +16,7 @@ def load_sources(source_type: str = "rss") -> List[Dict[str, Any]]:
     从配置文件加载指定类型的源列表
 
     Args:
-        source_type: 源类型 (rss/api/web/social)
+        source_type: 源类型 (rss/api/web/email)
 
     Returns:
         源列表，每个源包含 name, url, description, category, tier, language, priority, enabled, source_type 等字段
@@ -73,13 +73,6 @@ def load_sources(source_type: str = "rss") -> List[Dict[str, Any]]:
                     if source.get("max_articles"):
                         extra_fields["max_articles"] = source.get("max_articles")
                 
-                # 社交源的扩展字段
-                elif source_type == "social":
-                    if source.get("platform"):
-                        extra_fields["platform"] = source.get("platform")
-                    if source.get("search_query"):
-                        extra_fields["search_query"] = source.get("search_query")
-                
                 if extra_fields:
                     extra_config = extra_fields
             
@@ -95,6 +88,7 @@ def load_sources(source_type: str = "rss") -> List[Dict[str, Any]]:
                 "category": source.get("category", "other"),
                 "tier": source.get("tier", "tier3"),
                 "source_type": source_type,
+                "sub_type": source.get("sub_type"),  # 添加sub_type字段
                 "language": source.get("language", "en"),
                 "priority": source.get("priority", 3),
                 "enabled": source.get("enabled", True),
@@ -156,16 +150,6 @@ def load_web_sources() -> List[Dict[str, Any]]:
     return load_sources("web")
 
 
-def load_social_sources() -> List[Dict[str, Any]]:
-    """
-    从配置文件加载社交媒体源列表
-
-    Returns:
-        社交媒体源列表
-    """
-    return load_sources("social")
-
-
 def load_email_sources() -> List[Dict[str, Any]]:
     """
     从配置文件加载邮件源列表
@@ -187,7 +171,6 @@ def load_all_sources() -> List[Dict[str, Any]]:
     all_sources.extend(load_rss_sources())
     all_sources.extend(load_api_sources())
     all_sources.extend(load_web_sources())
-    all_sources.extend(load_social_sources())
     all_sources.extend(load_email_sources())
     return all_sources
 

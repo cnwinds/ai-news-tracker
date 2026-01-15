@@ -71,6 +71,41 @@ class CollectionService:
         
         return merged_config
 
+    def _get_collector_by_type(self, source_type: str, sub_type: Optional[str] = None) -> tuple[Optional[Any], Optional[str]]:
+        """
+        根据source_type和sub_type获取对应的采集器
+        
+        Args:
+            source_type: 源类型（rss/api/web/email）
+            sub_type: 源子类型（如api下的arxiv/huggingface/paperswithcode，social下的twitter/reddit/hackernews）
+        
+        Returns:
+            (collector_instance, collector_name) 元组，如果找不到则返回(None, None)
+        """
+        # 根据source_type和sub_type选择采集器
+        if source_type == "rss":
+            return (self.rss_collector, "rss")
+        
+        elif source_type == "api":
+            if sub_type == "arxiv":
+                return (self.arxiv_collector, "arxiv")
+            elif sub_type == "huggingface":
+                return (self.hf_collector, "huggingface")
+            elif sub_type == "paperswithcode":
+                return (self.pwc_collector, "paperswithcode")
+            elif sub_type == "twitter":
+                return (self.twitter_collector, "twitter")
+            else:
+                return (None, None)
+        
+        elif source_type == "web":
+            return (self.web_collector, "web")
+        
+        elif source_type == "email":
+            return (self.email_collector, "email")
+        
+        return (None, None)
+
     def collect_all(self, enable_ai_analysis: bool = True, task_id: int = None) -> Dict[str, Any]:
         """
         采集所有配置的数据源
@@ -157,26 +192,7 @@ class CollectionService:
                 logger.info("🛑 收到停止信号，终止采集")
                 return stats
 
-        # 4. 采集社交媒体源
-        logger.info("\n📱 采集社交媒体源")
-        if task_id and is_stop_requested(task_id):
-            logger.info("🛑 收到停止信号，终止采集")
-            return stats
-        social_stats = self._collect_social_sources(db, task_id=task_id, enable_ai_analysis=enable_ai_analysis)
-        stats["total_articles"] += social_stats.get("total_articles", 0)
-        stats["new_articles"] += social_stats.get("new_articles", 0)
-        stats["sources_success"] += social_stats.get("sources_success", 0)
-        stats["sources_error"] += social_stats.get("sources_error", 0)
-        stats["ai_analyzed_count"] += social_stats.get("ai_analyzed_count", 0)
-
-        # 实时更新任务状态
-        if task_id:
-            self._update_task_progress(db, task_id, stats)
-            if is_stop_requested(task_id):
-                logger.info("🛑 收到停止信号，终止采集")
-                return stats
-
-        # 5. 采集邮件源
+        # 3. 采集邮件源
         logger.info("\n📧 采集邮件源")
         if task_id and is_stop_requested(task_id):
             logger.info("🛑 收到停止信号，终止采集")
@@ -782,6 +798,7 @@ class CollectionService:
                     "url": source.url,
                     "enabled": source.enabled,
                     "category": source.category,
+                    "sub_type": source.sub_type,  # 读取sub_type字段
                 }
 
                 if source.extra_config:
@@ -812,47 +829,14 @@ class CollectionService:
             # 合并 extra_config 到主配置
             config = self._merge_extra_config(config)
             name = config.get("name")
+            sub_type = config.get("sub_type")  # 从数据库读取的sub_type
 
             try:
-                # 根据配置明确指定采集器，不再通过名称匹配
-                # 优先级：1. extra_config中的collector_type 2. URL特征判断
-                collector_type = config.get("collector_type", "").lower()
-                url = config.get("url", "").lower()
+                # 使用source_type和sub_type获取采集器
+                collector, collector_name = self._get_collector_by_type("api", sub_type)
                 
-                articles = []
-                collector_used = None
-                
-                # 首先检查是否明确指定了collector_type
-                if collector_type == "arxiv" or (not collector_type and "arxiv.org" in url):
-                    collector_used = "arxiv"
-                    query = config.get("query")
-                    if not query:
-                        raise ValueError(f"{name}: ArXiv采集器需要配置query参数")
-                    # 使用配置值作为默认值
-                    from backend.app.core.settings import settings
-                    settings.load_collector_settings()
-                    max_results = config.get("max_results", settings.MAX_ARTICLES_PER_SOURCE)
-                    articles = self.arxiv_collector.fetch_papers(query, max_results)
-
-                elif collector_type == "huggingface" or collector_type == "hf" or (not collector_type and "huggingface.co" in url):
-                    collector_used = "huggingface"
-                    # 使用配置值作为默认值
-                    from backend.app.core.settings import settings
-                    settings.load_collector_settings()
-                    limit = config.get("max_results", settings.MAX_ARTICLES_PER_SOURCE)
-                    articles = self.hf_collector.fetch_trending_papers(limit)
-
-                elif collector_type == "paperswithcode" or collector_type == "pwc" or (not collector_type and "paperswithcode.com" in url):
-                    collector_used = "paperswithcode"
-                    # 使用配置值作为默认值
-                    from backend.app.core.settings import settings
-                    settings.load_collector_settings()
-                    limit = config.get("max_results", settings.MAX_ARTICLES_PER_SOURCE)
-                    articles = self.pwc_collector.fetch_trending_papers(limit)
-
-                else:
-                    # 无法确定使用哪个采集器，明确报错
-                    error_msg = f"{name}: 无法确定API采集器类型。请在extra_config中指定collector_type (arxiv/huggingface/paperswithcode)，或确保URL包含可识别的域名特征"
+                if not collector:
+                    error_msg = f"{name}: 无法确定API采集器类型。请设置sub_type字段 (arxiv/huggingface/paperswithcode/twitter)"
                     logger.error(f"  ❌ {error_msg}")
                     stats["sources_error"] += 1
                     self._log_collection(db, name, "api", "error", 0, error_msg, task_id=task_id)
@@ -863,6 +847,35 @@ class CollectionService:
                             source_obj.last_error = error_msg
                             session.commit()
                     continue
+                
+                articles = []
+                collector_used = collector_name
+                
+                # 根据不同的采集器调用相应的方法
+                from backend.app.core.settings import settings
+                settings.load_collector_settings()
+                
+                if collector_name == "arxiv":
+                    query = config.get("query")
+                    if not query:
+                        raise ValueError(f"{name}: ArXiv采集器需要配置query参数")
+                    max_results = config.get("max_results", settings.MAX_ARTICLES_PER_SOURCE)
+                    articles = self.arxiv_collector.fetch_papers(query, max_results)
+                
+                elif collector_name == "huggingface":
+                    limit = config.get("max_results", settings.MAX_ARTICLES_PER_SOURCE)
+                    articles = self.hf_collector.fetch_trending_papers(limit)
+                
+                elif collector_name == "paperswithcode":
+                    limit = config.get("max_results", settings.MAX_ARTICLES_PER_SOURCE)
+                    articles = self.pwc_collector.fetch_trending_papers(limit)
+                
+                elif collector_name == "twitter":
+                    # Twitter 使用专门的 Twitter 采集器（支持 Nitter RSS、TodayRss、Twitter API）
+                    # 如果config中没有max_tweets，使用max_articles或配置值
+                    if "max_tweets" not in config:
+                        config["max_tweets"] = config.get("max_articles", settings.MAX_ARTICLES_PER_SOURCE)
+                    articles = self.twitter_collector.fetch_tweets(config)
 
                 if not articles:
                     logger.info(f"  ⚠️  {name}: 使用{collector_used}采集器未获取到文章")
@@ -1052,197 +1065,6 @@ class CollectionService:
                         session.commit()
 
         logger.info(f"  ✅ 网站源采集完成: 成功 {stats['sources_success']} 个源, 失败 {stats['sources_error']} 个源")
-        logger.info(f"     总文章: {stats['total_articles']} 篇, 新增: {stats['new_articles']} 篇, AI分析: {stats['ai_analyzed_count']} 篇")
-
-        return stats
-
-    def _collect_social_sources(self, db, task_id: int = None, enable_ai_analysis: bool = False) -> Dict[str, Any]:
-        """
-        采集社交媒体源（目前使用RSS方式采集，因为大多数社交媒体平台提供RSS feed）
-
-        Args:
-            db: 数据库管理器
-            task_id: 任务ID
-            enable_ai_analysis: 是否启用AI分析
-
-        Returns:
-            采集统计信息
-        """
-        stats = {"sources_success": 0, "sources_error": 0, "new_articles": 0, "total_articles": 0, "ai_analyzed_count": 0}
-
-        # 优先从数据库读取社交源
-        social_configs = []
-        with db.get_session() as session:
-            db_sources = session.query(RSSSource).filter(
-                RSSSource.enabled == True,
-                RSSSource.source_type == "social"
-            ).order_by(RSSSource.priority.asc()).all()
-
-            for source in db_sources:
-                config = {
-                    "name": source.name,
-                    "url": source.url,
-                    "enabled": source.enabled,
-                    "category": source.category,
-                    "tier": source.tier,
-                }
-                
-                # 优先使用 extra_config 字段，如果没有则尝试从 note 字段解析
-                if source.extra_config:
-                    try:
-                        import json
-                        extra_config = json.loads(source.extra_config)
-                        if isinstance(extra_config, dict):
-                            config["extra_config"] = extra_config
-                    except:
-                        pass
-                elif source.note:
-                    try:
-                        import json
-                        note_config = json.loads(source.note)
-                        # 如果note是extra_config格式，将其放入extra_config字段
-                        if isinstance(note_config, dict):
-                            config["extra_config"] = note_config
-                        else:
-                            config["note"] = source.note
-                    except:
-                        config["note"] = source.note
-                
-                social_configs.append(config)
-                # 预先加载属性
-                _ = source.id
-                _ = source.name
-                _ = source.url
-                _ = source.enabled
-            session.expunge_all()
-
-        # 只从数据库读取源，如果数据库中没有源则不采集
-        if not social_configs:
-            logger.info("  ℹ️  数据库中没有启用的社交源，跳过采集")
-            return stats
-
-        if not social_configs:
-            logger.warning("  ⚠️  没有配置社交媒体源")
-            return stats
-
-        logger.info(f"  🚀 开始采集 {len(social_configs)} 个社交媒体源")
-
-        # 根据extra_config中的platform参数选择对应的采集器
-        for config in social_configs:
-            if not config.get("enabled", True):
-                continue
-
-            # 合并 extra_config 到主配置
-            config = self._merge_extra_config(config)
-            source_name = config.get("name", "Unknown")
-            platform = config.get("platform", "").lower() if config.get("platform") else ""
-            
-            # 如果没有配置max_articles，使用全局配置值（RSS和Twitter采集器都需要）
-            if "max_articles" not in config:
-                from backend.app.core.settings import settings
-                settings.load_collector_settings()
-                config["max_articles"] = settings.MAX_ARTICLES_PER_SOURCE
-
-            try:
-                logger.info(f"  📱 开始采集社交媒体: {source_name} (平台: {platform or '未指定'})")
-
-                # 根据platform选择对应的采集器
-                articles = []
-                collector_used = None
-                
-                if platform == "reddit" or (not platform and "reddit.com" in config.get("url", "").lower()):
-                    # Reddit 使用 RSS 采集器（Reddit 提供 RSS feed）
-                    collector_used = "rss"
-                    feed_data = self.rss_collector.fetch_single_feed(config)
-                    if feed_data and feed_data.get("articles"):
-                        articles = feed_data.get("articles", [])
-
-                elif platform == "hackernews" or platform == "hn" or (not platform and "ycombinator.com" in config.get("url", "").lower()):
-                    # Hacker News 使用 RSS 采集器
-                    collector_used = "rss"
-                    feed_data = self.rss_collector.fetch_single_feed(config)
-                    if feed_data and feed_data.get("articles"):
-                        articles = feed_data.get("articles", [])
-
-                elif platform == "twitter" or (not platform and ("twitter.com" in config.get("url", "").lower() or "x.com" in config.get("url", "").lower())):
-                    # Twitter 使用专门的 Twitter 采集器（支持 Nitter RSS、TodayRss、Twitter API）
-                    collector_used = "twitter"
-                    # 如果config中没有max_tweets，使用max_articles或配置值
-                    if "max_tweets" not in config:
-                        # settings已经在上面导入
-                        config["max_tweets"] = config.get("max_articles", settings.MAX_ARTICLES_PER_SOURCE)
-                    articles = self.twitter_collector.fetch_tweets(config)
-
-                else:
-                    # 默认使用 RSS 采集器（大多数社交平台提供 RSS feed）
-                    # 如果无法确定平台，明确报错
-                    if platform:
-                        error_msg = f"{source_name}: 不支持的社交平台类型 '{platform}'。支持的平台: reddit, hackernews, twitter"
-                        logger.error(f"  ❌ {error_msg}")
-                        stats["sources_error"] += 1
-                        self._log_collection(db, source_name, "social", "error", 0, error_msg, task_id=task_id)
-                        
-                        with db.get_session() as session:
-                            source_obj = session.query(RSSSource).filter(RSSSource.name == source_name).first()
-                            if source_obj:
-                                source_obj.last_error = error_msg
-                                session.commit()
-                        continue
-                    else:
-                        # 没有指定platform，尝试使用RSS采集器（向后兼容）
-                        collector_used = "rss"
-                        feed_data = self.rss_collector.fetch_single_feed(config)
-                        if feed_data and feed_data.get("articles"):
-                            articles = feed_data.get("articles", [])
-
-                if not articles:
-                    logger.info(f"  ⚠️  {source_name}: 使用{collector_used}采集器未获取到文章")
-                    stats["sources_error"] += 1
-                    self._log_collection(db, source_name, "social", "error", 0, f"使用{collector_used}采集器未获取到文章", task_id=task_id)
-                    continue
-
-                process_result = self._process_articles_from_source(db, articles, source_name, "social", enable_ai_analysis, task_id=task_id)
-
-                # 更新社交源的统计信息
-                with db.get_session() as session:
-                    source_obj = session.query(RSSSource).filter(RSSSource.name == source_name).first()
-                    if source_obj:
-                        source_obj.last_collected_at = datetime.now()
-                        source_obj.articles_count += len(articles)
-                        source_obj.last_error = None
-
-                        # 更新最新文章发布时间
-                        latest_article = session.query(Article).filter(
-                            Article.source == source_name,
-                            Article.published_at.isnot(None)
-                        ).order_by(Article.published_at.desc()).first()
-
-                        if latest_article:
-                            source_obj.latest_article_published_at = latest_article.published_at
-
-                        session.commit()
-
-                self._log_collection(db, source_name, "social", "success", process_result["total"], task_id=task_id)
-                stats["sources_success"] += 1
-                stats["new_articles"] += process_result["new"]
-                stats["total_articles"] += process_result["total"]
-                stats["ai_analyzed_count"] += process_result["ai_analyzed"]
-
-                logger.info(f"  ✅ {source_name}: {process_result['total']} 篇, 新增 {process_result['new']} 篇, AI分析 {process_result['ai_analyzed']} 篇")
-
-            except Exception as e:
-                logger.error(f"  ❌ {source_name}: {e}")
-                stats["sources_error"] += 1
-                self._log_collection(db, source_name, "social", "error", 0, str(e), task_id=task_id)
-                
-                # 更新错误信息
-                with db.get_session() as session:
-                    source_obj = session.query(RSSSource).filter(RSSSource.name == source_name).first()
-                    if source_obj:
-                        source_obj.last_error = str(e)
-                        session.commit()
-
-        logger.info(f"  ✅ 社交媒体源采集完成: 成功 {stats['sources_success']} 个源, 失败 {stats['sources_error']} 个源")
         logger.info(f"     总文章: {stats['total_articles']} 篇, 新增: {stats['new_articles']} 篇, AI分析: {stats['ai_analyzed_count']} 篇")
 
         return stats

@@ -66,7 +66,7 @@ class CollectionLog(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     source_name = Column(String(200), nullable=False)
-    source_type = Column(String(50), nullable=False)  # rss/api/web/social
+    source_type = Column(String(50), nullable=False)  # rss/api/web/email
     status = Column(String(20), nullable=False)  # success/error
     articles_count = Column(Integer, default=0)
     error_message = Column(Text, nullable=True)
@@ -104,7 +104,8 @@ class RSSSource(Base):
     description = Column(Text, nullable=True)  # 简介/说明
     category = Column(String(100), nullable=True, index=True)  # 分类：corporate_lab/academic/individual/newsletter
     tier = Column(String(50), nullable=True, index=True)  # 梯队/级别：tier1/tier2/tier3
-    source_type = Column(String(20), default="rss", nullable=False, index=True)  # 源类型：rss/api/web/social
+    source_type = Column(String(20), default="rss", nullable=False, index=True)  # 源类型：rss/api/web/email
+    sub_type = Column(String(50), nullable=True, index=True)  # 源子类型：在源类型下进一步细分（如api下的arxiv/huggingface/paperswithcode，social下的twitter/reddit/hackernews）
     language = Column(String(20), default="en")  # 语言
     enabled = Column(Boolean, default=True, index=True)  # 是否启用
     priority = Column(Integer, default=1)  # 优先级（1-5，数字越小优先级越高）
@@ -244,7 +245,7 @@ class ImageProvider(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(200), nullable=False, unique=True, index=True)  # 提供商名称
-    provider_type = Column(String(50), nullable=False, default="文生图(BaiLian)")  # 提供商类型：文生图(BaiLian)
+    provider_type = Column(String(50), nullable=False, default="文生图(BaiLian)")  # 提供商类型：文生图(BaiLian) 或 文生图(智谱)
     api_key = Column(String(500), nullable=False)  # API密钥
     api_base = Column(String(500), nullable=False)  # API基础URL
     image_model = Column(String(500), nullable=False)  # 图片生成模型名称（支持逗号分隔的多个模型）

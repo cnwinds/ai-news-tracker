@@ -2,7 +2,8 @@
 订阅源相关 API 端点
 """
 import logging
-from typing import List, Optional
+import json
+from typing import List, Optional, Dict, Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -22,6 +23,47 @@ from backend.app.schemas.source import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def extract_sub_type_from_config(source_type: str, extra_config: Dict[str, Any], url: str = "") -> Optional[str]:
+    """
+    从extra_config中提取sub_type（用于导入新源时）
+    
+    Args:
+        source_type: 源类型（rss/api/web/email）
+        extra_config: 扩展配置字典
+        url: 源URL（用于从URL特征判断）
+    
+    Returns:
+        sub_type字符串，如果无法确定则返回None
+    """
+    if not extra_config:
+        extra_config = {}
+    
+    url_lower = url.lower() if url else ""
+    
+    if source_type == "api":
+        # API源：从collector_type提取
+        collector_type = extra_config.get("collector_type", "").lower()
+        if collector_type:
+            if collector_type in ["hf", "huggingface"]:
+                return "huggingface"
+            elif collector_type in ["pwc", "paperswithcode"]:
+                return "paperswithcode"
+            else:
+                return collector_type
+        # 从URL判断
+        if "arxiv.org" in url_lower:
+            return "arxiv"
+        elif "huggingface.co" in url_lower:
+            return "huggingface"
+        elif "paperswithcode.com" in url_lower:
+            return "paperswithcode"
+        elif "twitter.com" in url_lower or "x.com" in url_lower:
+            # Twitter/X 现在作为API源的子类型
+            return "twitter"
+    
+    return None
 
 
 @router.get("", response_model=List[RSSSourceSchema])
@@ -145,7 +187,6 @@ async def get_default_sources(
                 sources.extend(config.get("rss_sources", []))
                 sources.extend(config.get("api_sources", []))
                 sources.extend(config.get("web_sources", []))
-                sources.extend(config.get("social_sources", []))
                 sources.extend(config.get("email_sources", []))
             
             # 格式化源数据
@@ -171,6 +212,7 @@ async def get_default_sources(
                     "category": source.get("category", "other"),
                     "tier": source.get("tier", "tier3"),
                     "source_type": source.get("source_type", source_type or "rss"),
+                    "sub_type": source.get("sub_type"),  # 添加sub_type字段
                     "language": source.get("language", "en"),
                     "priority": source.get("priority", 3),
                     "enabled": source.get("enabled", True),
@@ -193,8 +235,6 @@ async def get_default_sources(
                 sources = import_rss_sources.load_api_sources()
             elif source_type == "web":
                 sources = import_rss_sources.load_web_sources()
-            elif source_type == "social":
-                sources = import_rss_sources.load_social_sources()
             elif source_type == "email":
                 sources = import_rss_sources.load_email_sources()
             else:
@@ -236,7 +276,6 @@ async def import_default_sources(
             all_sources.extend(config.get("rss_sources", []))
             all_sources.extend(config.get("api_sources", []))
             all_sources.extend(config.get("web_sources", []))
-            all_sources.extend(config.get("social_sources", []))
             all_sources.extend(config.get("email_sources", []))
         except Exception as e:
             logger.error(f"读取 sources.json 失败: {e}", exc_info=True)
@@ -276,12 +315,22 @@ async def import_default_sources(
                     continue
                 
                 # 处理 extra_config（如果是字典，序列化为JSON字符串）
-                extra_config = source_data.get("extra_config", "")
-                if isinstance(extra_config, dict):
-                    import json
-                    extra_config = json.dumps(extra_config, ensure_ascii=False)
-                elif not extra_config:
-                    extra_config = ""
+                extra_config_raw = source_data.get("extra_config", {})
+                extra_config_dict = extra_config_raw if isinstance(extra_config_raw, dict) else {}
+                if isinstance(extra_config_raw, str):
+                    try:
+                        extra_config_dict = json.loads(extra_config_raw)
+                    except:
+                        extra_config_dict = {}
+                
+                extra_config_str = json.dumps(extra_config_dict, ensure_ascii=False) if extra_config_dict else ""
+                
+                # 提取sub_type
+                source_type = source_data.get("source_type", "rss")
+                url = source_data.get("url", "")
+                sub_type = source_data.get("sub_type")  # 优先使用直接提供的sub_type
+                if not sub_type:
+                    sub_type = extract_sub_type_from_config(source_type, extra_config_dict, url)
                 
                 # 处理 description：优先使用 description，如果没有则使用 note（向后兼容）
                 description = source_data.get("description", "")
@@ -291,16 +340,17 @@ async def import_default_sources(
                 # 创建新源
                 new_source = RSSSource(
                     name=source_data.get("name", ""),
-                    url=source_data.get("url", ""),
+                    url=url,
                     description=description,
                     category=source_data.get("category", "other"),
                     tier=source_data.get("tier", "tier3"),
-                    source_type=source_data.get("source_type", "rss"),
+                    source_type=source_type,
+                    sub_type=sub_type,  # 设置sub_type字段
                     language=source_data.get("language", "en"),
                     enabled=source_data.get("enabled", True),
                     priority=source_data.get("priority", 3),
                     note=None,  # 不再使用 note 字段存储描述信息
-                    extra_config=extra_config,
+                    extra_config=extra_config_str,
                     analysis_prompt=source_data.get("analysis_prompt"),  # 自定义AI分析提示词
                 )
                 db.add(new_source)

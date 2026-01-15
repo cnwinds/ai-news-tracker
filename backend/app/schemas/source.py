@@ -14,6 +14,7 @@ class RSSSourceBase(BaseModel):
     category: Optional[str] = None
     tier: Optional[str] = None
     source_type: str = "rss"
+    sub_type: Optional[str] = None  # 源子类型：在源类型下进一步细分
     language: str = "en"
     enabled: bool = True
     priority: int = 1
@@ -35,6 +36,8 @@ class RSSSourceUpdate(BaseModel):
     description: Optional[str] = None
     category: Optional[str] = None
     tier: Optional[str] = None
+    source_type: Optional[str] = None
+    sub_type: Optional[str] = None
     enabled: Optional[bool] = None
     priority: Optional[int] = None
     note: Optional[str] = None

@@ -188,7 +188,7 @@ class RSSSourceRepository:
             session: 数据库会话
             category: 分类筛选
             tier: 梯队筛选
-            source_type: 源类型筛选 (rss/api/web/social)
+            source_type: 源类型筛选 (rss/api/web/email)
             enabled_only: 是否只返回启用的源
 
         Returns:

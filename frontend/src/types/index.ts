@@ -132,6 +132,7 @@ export interface RSSSource {
   category?: string;
   tier?: string;
   source_type: string;
+  sub_type?: string;  // 源子类型：在源类型下进一步细分（如api下的arxiv/huggingface/paperswithcode，social下的twitter/reddit/hackernews）
   language: string;
   enabled: boolean;
   priority: number;

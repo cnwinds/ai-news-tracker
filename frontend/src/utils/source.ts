@@ -11,7 +11,6 @@ export function normalizeSourceType(type: string | undefined): string {
   const normalized = type.toLowerCase().trim();
   
   // 支持多种可能的写法
-  if (normalized === 'social' || normalized === 'social_media') return 'social';
   if (normalized === 'rss' || normalized === 'rss_feed') return 'rss';
   if (normalized === 'api' || normalized === 'api_source') return 'api';
   if (normalized === 'web' || normalized === 'web_source') return 'web';
@@ -26,7 +25,6 @@ export const SOURCE_TYPE_LABELS: Record<string, string> = {
   rss: 'RSS源',
   api: 'API源',
   web: 'Web源',
-  social: '社交媒体源',
   email: '邮件源',
 } as const;
 
@@ -44,4 +42,29 @@ export function groupSourcesByType<T extends { source_type?: string }>(
     acc[type].push(source);
     return acc;
   }, {} as Record<string, T[]>);
+}
+
+/**
+ * 获取源类型是否支持子类型
+ */
+export function sourceTypeSupportsSubType(sourceType: string): boolean {
+  return ['api'].includes(normalizeSourceType(sourceType));
+}
+
+/**
+ * 获取源类型支持的所有子类型选项
+ */
+export function getSubTypeOptions(sourceType: string): Array<{ value: string; label: string }> {
+  const normalizedType = normalizeSourceType(sourceType);
+  
+  if (normalizedType === 'api') {
+    return [
+      { value: 'arxiv', label: 'ArXiv' },
+      { value: 'huggingface', label: 'Hugging Face' },
+      { value: 'paperswithcode', label: 'Papers with Code' },
+      { value: 'twitter', label: 'Twitter/X' },
+    ];
+  }
+  
+  return [];
 }
