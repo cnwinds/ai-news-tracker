@@ -194,7 +194,7 @@ export default function SourceManagement() {
     // 如果是邮件源，需要将表单字段转换为extra_config JSON
     if (values.source_type === 'email') {
       const emailConfig: any = {};
-      
+
       // 邮件服务器配置
       if (values.extra_config) {
         emailConfig.protocol = values.extra_config.protocol || 'imap';
@@ -205,14 +205,14 @@ export default function SourceManagement() {
         emailConfig.password = values.extra_config.password;
         emailConfig.folder = values.extra_config.folder || 'INBOX';
         emailConfig.max_emails = values.extra_config.max_emails || 50;
-        
+
         // 邮件过滤配置
         if (values.extra_config.title_filter) {
           emailConfig.title_filter = {
             type: values.extra_config.title_filter.type || 'keywords',
             filter_sender: values.extra_config.title_filter.filter_sender || false,
           };
-          
+
           // 关键词（用于标题或发件人）
           if (values.extra_config.title_filter.keywords) {
             const keywords = typeof values.extra_config.title_filter.keywords === 'string'
@@ -220,14 +220,24 @@ export default function SourceManagement() {
               : values.extra_config.title_filter.keywords;
             emailConfig.title_filter.keywords = keywords;
           }
-          
+
           // 标题正则表达式
           if (values.extra_config.title_filter.regex) {
             emailConfig.title_filter.regex = values.extra_config.title_filter.regex;
           }
         }
+
+        // 内容提取配置（正则解析器）
+        if (values.extra_config.content_extraction) {
+          emailConfig.content_extraction = {
+            use_regex_parser: values.extra_config.content_extraction.use_regex_parser || false,
+            parser_type: values.extra_config.content_extraction.parser_type || 'tldr',
+            from_html: values.extra_config.content_extraction.from_html !== undefined ? values.extra_config.content_extraction.from_html : false,
+            from_plain: values.extra_config.content_extraction.from_plain !== undefined ? values.extra_config.content_extraction.from_plain : true,
+          };
+        }
       }
-      
+
       // 设置URL为email://格式
       submitData.url = `email://${values.url}`;
       submitData.extra_config = JSON.stringify(emailConfig);
@@ -745,6 +755,57 @@ export default function SourceManagement() {
                         </Col>
                       </Row>
                     </Form.Item>
+                    <Divider orientation="left">内容提取</Divider>
+                    <Alert
+                      message="正则解析器配置"
+                      description="启用正则解析器可以从一封邮件中提取多篇文章（适用于TLDR等新闻邮件）。如未启用，整封邮件将作为一篇文章处理。"
+                      type="info"
+                      showIcon
+                      style={{ marginBottom: 16 }}
+                    />
+                    <Row gutter={16}>
+                      <Col span={12}>
+                        <Form.Item name={['extra_config', 'content_extraction', 'use_regex_parser']} label="使用正则解析器" valuePropName="checked" initialValue={false}>
+                          <Switch />
+                        </Form.Item>
+                      </Col>
+                      <Col span={12}>
+                        <Form.Item
+                          name={['extra_config', 'content_extraction', 'parser_type']}
+                          label="解析器类型"
+                          initialValue="tldr"
+                          dependencies={[['extra_config', 'content_extraction', 'use_regex_parser']]}
+                        >
+                          <Select disabled={!form.getFieldValue(['extra_config', 'content_extraction', 'use_regex_parser'])}>
+                            <Select.Option value="tldr">TLDR Newsletter</Select.Option>
+                          </Select>
+                        </Form.Item>
+                      </Col>
+                    </Row>
+                    <Row gutter={16}>
+                      <Col span={12}>
+                        <Form.Item
+                          name={['extra_config', 'content_extraction', 'from_html']}
+                          label="从HTML提取"
+                          valuePropName="checked"
+                          initialValue={false}
+                          dependencies={[['extra_config', 'content_extraction', 'use_regex_parser']]}
+                        >
+                          <Switch disabled={!form.getFieldValue(['extra_config', 'content_extraction', 'use_regex_parser'])} />
+                        </Form.Item>
+                      </Col>
+                      <Col span={12}>
+                        <Form.Item
+                          name={['extra_config', 'content_extraction', 'from_plain']}
+                          label="从纯文本提取"
+                          valuePropName="checked"
+                          initialValue={true}
+                          dependencies={[['extra_config', 'content_extraction', 'use_regex_parser']]}
+                        >
+                          <Switch disabled={!form.getFieldValue(['extra_config', 'content_extraction', 'use_regex_parser'])} />
+                        </Form.Item>
+                      </Col>
+                    </Row>
                     <Row gutter={16}>
                       <Col span={12}>
                         <Form.Item name={['extra_config', 'max_emails']} label="最大邮件数" initialValue={50}>

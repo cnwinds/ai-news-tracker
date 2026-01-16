@@ -311,31 +311,32 @@
   ],
   "email_sources": [
     {
-      "name": "TLDR (163邮箱)",
+      "name": "TLDR AI",
       "url": "email://your_email@163.com",
       "category": "newsletter",
       "enabled": true,
-      "language": "zh",
+      "language": "en",
       "priority": 2,
       "source_type": "email",
-      "description": "TLDR 邮件订阅源（163邮箱），过滤发件人包含'TLDR'的邮件",
-      "analysis_prompt": "这是一封包含多篇文章的邮件。请对邮件内容做如下处理：\n1. 识别邮件中的每一篇文章（通常每篇文章有标题、摘要、链接等）\n2. 将所有文章标题和文章摘要都翻译为中文，如果内容已经是中文，则保持原样\n3. 文章标题的超链接**一定要保留**，用户可以点击跳转\n4. 保持原有标题和摘要的排版格式（段落、列表、换行等）\n5. 广告赞助等无关内容过滤掉\n\n请将邮件内容解析为多篇文章，每篇文章一个item，输出JSON格式。\n\n输出格式示例：\n{\n  \"items\": [\n    {\n      \"title\": \"文章标题（保留Markdown链接格式）\",\n      \"content\": \"文章摘要或内容（保留Markdown格式）\",\n      \"url\": \"文章链接（如果有）\"\n    },\n    {\n      \"title\": \"第二篇文章标题\",\n      \"content\": \"第二篇文章摘要\",\n      \"url\": \"https://example.com/article2\"\n    }\n  ]\n}\n\n如果邮件中只有一篇文章，也请按照上述格式输出，items数组中只有一个item。\n如果邮件中没有文章内容，请返回空的items数组：{\"items\": []}\n\n邮件内容：\n{content}",
+      "description": "TLDR Newsletter - 使用正则解析器自动提取多篇文章",
       "extra_config": {
         "protocol": "pop3",
         "server": "pop.163.com",
         "port": 995,
         "use_ssl": true,
         "username": "your_email@163.com",
-        "password": "",
+        "password": "YOUR_PASSWORD_OR_AUTH_CODE",
+        "folder": "INBOX",
         "title_filter": {
-          "type": "sender",
-          "filter_sender": true,
+          "type": "keywords",
+          "filter_sender": false,
           "keywords": ["TLDR"]
         },
         "content_extraction": {
+          "use_regex_parser": true,
+          "parser_type": "tldr",
           "from_html": true,
-          "from_plain": true,
-          "from_attachments": false
+          "from_plain": false
         },
         "max_emails": 50
       }

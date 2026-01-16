@@ -1,6 +1,7 @@
 """
 邮件数据采集器
 支持IMAP和POP3协议，根据邮件标题过滤并提取文章内容
+支持使用正则解析器提取多篇文章
 """
 import imaplib
 import poplib
@@ -15,6 +16,14 @@ from bs4 import BeautifulSoup
 from backend.app.services.collector.base_collector import BaseCollector
 
 logger = logging.getLogger(__name__)
+
+# 导入正则解析器
+try:
+    from backend.app.services.collector.email_regex_parser import get_parser
+    REGEX_PARSER_AVAILABLE = True
+except ImportError:
+    REGEX_PARSER_AVAILABLE = False
+    logger.warning("⚠️  正则解析器模块不可用，将使用传统解析方式")
 
 
 def encode_imap_folder(folder_name: str) -> bytes:
@@ -389,10 +398,10 @@ class EmailCollector(BaseCollector):
                     if not self._match_email_filter(subject, from_addr, title_filter):
                         continue
 
-                    # 提取文章内容（传入接收时间）
-                    article = self._extract_article_from_email(msg, config.get("name", "Email"), subject, received_at=received_at)
-                    if article:
-                        articles.append(article)
+                    # 提取文章内容（传入接收时间和配置）
+                    article_list = self._extract_article_from_email(msg, config.get("name", "Email"), subject, received_at=received_at, config=config)
+                    if article_list:
+                        articles.extend(article_list)
 
                 except Exception as e:
                     logger.warning(f"⚠️  处理邮件失败 (ID: {email_id.decode()}): {e}")
@@ -469,10 +478,10 @@ class EmailCollector(BaseCollector):
                     if not self._match_email_filter(subject, from_addr, title_filter):
                         continue
 
-                    # 提取文章内容（使用提取的接收时间）
-                    article = self._extract_article_from_email(msg, config.get("name", "Email"), subject, received_at=received_at)
-                    if article:
-                        articles.append(article)
+                    # 提取文章内容（使用提取的接收时间和配置）
+                    article_list = self._extract_article_from_email(msg, config.get("name", "Email"), subject, received_at=received_at, config=config)
+                    if article_list:
+                        articles.extend(article_list)
 
                 except Exception as e:
                     logger.warning(f"⚠️  处理邮件失败 (序号: {i}): {e}")
@@ -545,29 +554,35 @@ class EmailCollector(BaseCollector):
         return True  # 默认通过
 
     def _extract_article_from_email(
-        self, 
-        msg: email.message.Message, 
+        self,
+        msg: email.message.Message,
         source_name: str,
         subject: str,
-        received_at: Optional[datetime] = None
-    ) -> Optional[Dict[str, Any]]:
+        received_at: Optional[datetime] = None,
+        config: Optional[Dict[str, Any]] = None
+    ) -> List[Dict[str, Any]]:
         """
         从邮件中提取文章内容
+
+        支持两种模式：
+        1. 正则解析器模式：从一封邮件中提取多篇文章
+        2. 传统模式：整封邮件作为一篇文章
 
         Args:
             msg: 邮件消息对象
             source_name: 源名称
             subject: 邮件标题
             received_at: 邮件接收时间（如果为None，则使用邮件的Date字段）
+            config: 采集配置（用于判断是否使用正则解析器）
 
         Returns:
-            文章字典
+            文章字典列表（传统模式返回包含1个元素的列表）
         """
         try:
             # 提取发送者和日期
             from_addr = self._decode_header(msg.get("From", ""))
             date_str = msg.get("Date", "")
-            
+
             # 优先使用接收时间，如果没有则使用发送时间
             if received_at:
                 published_at = received_at
@@ -577,34 +592,207 @@ class EmailCollector(BaseCollector):
                 if not published_at:
                     published_at = datetime.now()
 
-            # 提取邮件正文
-            content = self._extract_email_content(msg)
+            # 检查是否使用正则解析器
+            use_regex_parser = False
+            parser_type = None
 
-            if not content:
-                logger.warning(f"⚠️  邮件内容为空: {subject}")
-                return None
+            if config and REGEX_PARSER_AVAILABLE:
+                content_extraction = config.get("content_extraction", {})
+                use_regex_parser = content_extraction.get("use_regex_parser", False)
+                parser_type = content_extraction.get("parser_type", "tldr")
 
-            # 构建文章URL（使用mailto链接）
-            url = f"mailto:{msg.get('From', '')}?subject={subject}"
+            articles = []
 
-            return {
-                "title": subject,
-                "url": url,
-                "content": content,
-                "source": source_name,
-                "author": from_addr,
-                "published_at": published_at,
-                "category": "email",
-                "metadata": {
-                    "email_from": from_addr,
-                    "email_date": date_str,
-                    "email_received_at": received_at.isoformat() if received_at else None,
-                },
-            }
+            if use_regex_parser and parser_type:
+                # 使用正则解析器提取多篇文章
+                logger.info(f"📧 使用正则解析器 ({parser_type}) 提取文章")
+                articles = self._extract_with_regex_parser(
+                    msg, source_name, from_addr, published_at, parser_type, config
+                )
+
+                if not articles:
+                    logger.warning(f"⚠️  正则解析器未提取到文章，回退到传统模式")
+                    articles = self._extract_traditional_mode(
+                        msg, source_name, subject, from_addr, published_at, date_str, received_at
+                    )
+            else:
+                # 传统模式：整封邮件作为一篇文章
+                articles = self._extract_traditional_mode(
+                    msg, source_name, subject, from_addr, published_at, date_str, received_at
+                )
+
+            return articles
 
         except Exception as e:
             logger.error(f"❌ 提取邮件内容失败: {e}")
-            return None
+            import traceback
+            traceback.print_exc()
+            return []
+
+    def _extract_with_regex_parser(
+        self,
+        msg: email.message.Message,
+        source_name: str,
+        from_addr: str,
+        published_at: datetime,
+        parser_type: str,
+        config: Dict[str, Any]
+    ) -> List[Dict[str, Any]]:
+        """
+        使用正则解析器提取多篇文章
+
+        Args:
+            msg: 邮件消息对象
+            source_name: 源名称
+            from_addr: 发件人
+            published_at: 发布时间
+            parser_type: 解析器类型
+            config: 配置
+
+        Returns:
+            文章列表
+        """
+        try:
+            # 提取邮件内容
+            content_extraction = config.get("content_extraction", {})
+            use_html = content_extraction.get("from_html", False)
+            use_plain = content_extraction.get("from_plain", True)
+
+            # 获取解析器
+            parser = get_parser(parser_type)
+
+            # 提取内容
+            articles_data = []
+
+            if use_plain:
+                # 从纯文本提取
+                plain_content = self._get_plain_text_content(msg)
+                if plain_content:
+                    articles_data = parser.parse(plain_content, content_type="plain")
+                    logger.info(f"✅ 从纯文本解析到 {len(articles_data)} 篇文章")
+
+            if not articles_data and use_html:
+                # 从HTML提取（备选）
+                html_content = self._get_html_content(msg)
+                if html_content:
+                    articles_data = parser.parse(html_content, content_type="html")
+                    logger.info(f"✅ 从HTML解析到 {len(articles_data)} 篇文章")
+
+            # 转换为标准文章格式
+            articles = []
+            for article_data in articles_data:
+                article = {
+                    "title": article_data.get("title", ""),
+                    "url": article_data.get("url", ""),
+                    "content": article_data.get("content", ""),
+                    "source": source_name,
+                    "author": from_addr,
+                    "published_at": published_at,
+                    "category": "email",
+                    "metadata": {
+                        "email_from": from_addr,
+                        "parser_type": parser_type,
+                        "parsed_from": "plain" if use_plain else "html",
+                        **article_data.get("metadata", {})
+                    },
+                }
+                articles.append(article)
+
+            return articles
+
+        except Exception as e:
+            logger.error(f"❌ 正则解析器提取失败: {e}")
+            import traceback
+            traceback.print_exc()
+            return []
+
+    def _extract_traditional_mode(
+        self,
+        msg: email.message.Message,
+        source_name: str,
+        subject: str,
+        from_addr: str,
+        published_at: datetime,
+        date_str: str,
+        received_at: Optional[datetime]
+    ) -> List[Dict[str, Any]]:
+        """
+        传统模式：整封邮件作为一篇文章
+
+        Args:
+            msg: 邮件消息对象
+            source_name: 源名称
+            subject: 邮件标题
+            from_addr: 发件人
+            published_at: 发布时间
+            date_str: 日期字符串
+            received_at: 接收时间
+
+        Returns:
+            包含1个文章的列表
+        """
+        # 提取邮件正文
+        content = self._extract_email_content(msg)
+
+        if not content:
+            logger.warning(f"⚠️  邮件内容为空: {subject}")
+            return []
+
+        # 构建文章URL（使用mailto链接）
+        url = f"mailto:{msg.get('From', '')}?subject={subject}"
+
+        article = {
+            "title": subject,
+            "url": url,
+            "content": content,
+            "source": source_name,
+            "author": from_addr,
+            "published_at": published_at,
+            "category": "email",
+            "metadata": {
+                "email_from": from_addr,
+                "email_date": date_str,
+                "email_received_at": received_at.isoformat() if received_at else None,
+            },
+        }
+
+        return [article]
+
+    def _get_plain_text_content(self, msg: email.message.Message) -> Optional[str]:
+        """提取纯文本内容"""
+        if msg.is_multipart():
+            for part in msg.walk():
+                content_type = part.get_content_type()
+                if content_type == "text/plain":
+                    payload = part.get_payload(decode=True)
+                    if payload:
+                        return payload.decode("utf-8", errors="ignore")
+        else:
+            # 单部分邮件
+            content_type = msg.get_content_type()
+            payload = msg.get_payload(decode=True)
+            if payload and content_type != "text/html":
+                return payload.decode("utf-8", errors="ignore")
+
+        return None
+
+    def _get_html_content(self, msg: email.message.Message) -> Optional[str]:
+        """提取HTML内容"""
+        if msg.is_multipart():
+            for part in msg.walk():
+                content_type = part.get_content_type()
+                if content_type == "text/html":
+                    payload = part.get_payload(decode=True)
+                    if payload:
+                        return payload.decode("utf-8", errors="ignore")
+        else:
+            # 单部分邮件
+            content_type = msg.get_content_type()
+            payload = msg.get_payload(decode=True)
+            if payload and content_type == "text/html":
+                return payload.decode("utf-8", errors="ignore")
+
+        return None
 
     def _extract_email_content(self, msg: email.message.Message) -> str:
         """提取邮件正文内容，保留超链接信息"""
@@ -745,7 +933,7 @@ class EmailCollector(BaseCollector):
                 logger.debug(f"✅ 成功解析Received字段: {received_time}")
                 return received_time
             
-            logger.warning(f"⚠️  无法从Received字段提取时间: {last_received[:100]}...")
+            logger.debug(f"ℹ️  Received字段格式非标准，无法提取时间: {last_received[:100]}...")
             return None
             
         except Exception as e:

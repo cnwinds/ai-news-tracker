@@ -70,17 +70,26 @@ class AIAnalyzer:
             article = kwargs
         elif article is None:
             article = {}
-        
+
         try:
             title = article.get("title", "")
             content = article.get("content", "")
             url = article.get("url", "")
             source = article.get("source", "")
             category = article.get("category", "")
-            
+
             # 判断是否为邮件类型
             is_email = category == "email" or "email" in source.lower() or url.startswith("mailto:")
-            
+
+            # 智能判断是否需要AI总结
+            should_summarize = self._should_use_ai_summary(content)
+            language = self._detect_content_language(content)
+
+            if not should_summarize:
+                # 内容较短，直接使用或翻译
+                logger.info(f"📝 内容较短，直接使用{'并翻译' if language == 'en' else ''}: {title[:50]}...")
+                return self._handle_short_content(title, content, language)
+
             logger.info(f"🤖 正在分析文章: {title[:50]}...")
             
             # 构建提示词（如果提供了自定义提示词，使用自定义提示词）
@@ -225,6 +234,147 @@ class AIAnalyzer:
         except Exception as e:
             logger.error(f"❌ 文章分析失败: {e}")
             raise
+
+    def _should_use_ai_summary(self, content: str) -> bool:
+        """
+        判断是否需要使用AI进行总结
+
+        Args:
+            content: 文章内容
+
+        Returns:
+            True表示需要AI总结，False表示直接使用内容
+        """
+        if not content:
+            return False
+
+        language = self._detect_content_language(content)
+
+        if language == 'en':
+            # 英文：按单词数计算（大约200个单词）
+            words = content.split()
+            return len(words) > 200
+        else:
+            # 中文：按字符数计算（200个字）
+            # 移除空格和换行符
+            clean_content = content.replace(' ', '').replace('\n', '').replace('\r', '').replace('\t', '')
+            return len(clean_content) > 200
+
+    def _detect_content_language(self, content: str) -> str:
+        """
+        检测内容的主要语言
+
+        Args:
+            content: 文章内容
+
+        Returns:
+            'zh' 表示中文，'en' 表示英文
+        """
+        if not content:
+            return 'en'
+
+        import re
+        # 检查中文字符
+        chinese_chars = re.findall(r'[\u4e00-\u9fff]', content)
+        chinese_ratio = len(chinese_chars) / len(content) if content else 0
+
+        # 如果中文字符占比超过30%，认为是中文内容
+        if chinese_ratio > 0.3:
+            return 'zh'
+        else:
+            return 'en'
+
+    def _handle_short_content(self, title: str, content: str, language: str) -> Dict[str, Any]:
+        """
+        处理较短的内容：直接使用或翻译
+
+        Args:
+            title: 文章标题
+            content: 文章内容
+            language: 内容语言 ('zh' 或 'en')
+
+        Returns:
+            分析结果字典
+        """
+        result = {
+            "importance": "low",  # 短内容默认低重要性
+            "tags": [],
+            "target_audience": "general",
+        }
+
+        if language == 'en':
+            # 英文内容，需要翻译成中文
+            try:
+                logger.info(f"🌐 正在翻译英文内容...")
+                translated = self._translate_content_to_chinese(content)
+                result["summary"] = translated
+            except Exception as e:
+                logger.warning(f"⚠️  翻译失败，使用原文: {e}")
+                result["summary"] = content
+        else:
+            # 中文内容，直接使用
+            result["summary"] = content
+
+        # 如果标题是英文，翻译标题
+        if title and self._is_english_title(title):
+            try:
+                title_zh = self.translate_title_with_context(title, content)
+                if title_zh and title_zh != title:
+                    result["title_zh"] = title_zh
+            except Exception as e:
+                logger.warning(f"⚠️  标题翻译失败: {e}")
+
+        return result
+
+    def _translate_content_to_chinese(self, content: str) -> str:
+        """
+        将英文内容翻译成中文
+
+        Args:
+            content: 英文内容
+
+        Returns:
+            中文翻译
+        """
+        try:
+            # 截断过长的内容（保留前3000字符）
+            content_preview = content[:3000] if len(content) > 3000 else content
+
+            prompt = f"""请将以下文章内容翻译成准确、自然的中文。
+
+要求：
+1. 翻译要准确、流畅，符合中文表达习惯
+2. 保持原文的语气和风格
+3. 如果是技术内容，使用通用的中文技术术语
+4. 只返回翻译后的中文内容，不要添加任何解释
+
+英文内容：
+{content_preview}
+
+中文翻译："""
+
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "你是一个专业的翻译助手，擅长准确翻译技术文章内容。"
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                temperature=0.3,
+                max_tokens=4000,
+            )
+
+            translated = response.choices[0].message.content.strip()
+            return translated
+
+        except Exception as e:
+            logger.warning(f"⚠️  内容翻译失败: {e}")
+            return content
 
     def translate_title(self, title: str, target_language: str = "zh") -> str:
         """

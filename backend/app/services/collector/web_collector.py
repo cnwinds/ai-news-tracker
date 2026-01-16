@@ -356,6 +356,53 @@ class WebCollector(BaseCollector):
             logger.warning(f"⚠️  解析详情页内容失败 {url}: {e}")
             return {}
 
+    def _is_error_page(self, content: str, soup: BeautifulSoup) -> bool:
+        """
+        检查是否是错误页面（如需要JavaScript、访问被拒绝等）
+
+        Args:
+            content: 页面文本内容
+            soup: BeautifulSoup对象
+
+        Returns:
+            如果是错误页面返回True
+        """
+        # 常见错误页面的特征
+        error_indicators = [
+            "JavaScript is not available",
+            "JavaScript is disabled",
+            "Please enable JavaScript",
+            "Enable JavaScript to continue",
+            "Access Denied",
+            "Something went wrong",
+            "let's give it another shot",
+            "privacy related extensions may cause issues",
+        ]
+
+        content_lower = content.lower()
+
+        # 检查是否包含错误提示
+        for indicator in error_indicators:
+            if indicator.lower() in content_lower:
+                logger.warning(f"⚠️  检测到错误页面: '{indicator}'")
+                return True
+
+        # 检查页面标题是否包含错误信息
+        title_tag = soup.find('title')
+        if title_tag:
+            title_text = title_tag.get_text().lower()
+            for indicator in error_indicators:
+                if indicator.lower() in title_text:
+                    logger.warning(f"⚠️  页面标题显示错误: '{indicator}'")
+                    return True
+
+        # 检查页面内容过短（可能是错误页面）
+        if len(content.strip()) < 200:
+            logger.warning(f"⚠️  页面内容过短 ({len(content.strip())} 字符)，可能是错误页面")
+            return True
+
+        return False
+
     def fetch_full_content(self, url: str) -> str:
         """
         获取文章的完整内容（兼容旧接口）
@@ -368,7 +415,19 @@ class WebCollector(BaseCollector):
         """
         try:
             result = self._fetch_article_details(url, {})
-            return result.get("content", "")
+
+            # 检查是否是错误页面
+            content = result.get("content", "")
+            if content:
+                # 使用BeautifulSoup检查是否是错误页面
+                soup = BeautifulSoup(content, "html.parser") if "<html" in content.lower() or "<body" in content.lower() else None
+                if soup:
+                    page_text = soup.get_text()
+                    if self._is_error_page(page_text, soup):
+                        logger.warning(f"⚠️  URL返回错误页面，跳过: {url}")
+                        return ""
+
+            return content
         except Exception as e:
             logger.warning(f"⚠️  获取完整内容失败 {url}: {e}")
             return ""

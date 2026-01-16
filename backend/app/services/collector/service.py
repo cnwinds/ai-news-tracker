@@ -796,24 +796,26 @@ class CollectionService:
         return stats
 
     def _process_articles_from_source(
-        self, 
-        db, 
-        articles: List[ArticleDict], 
-        source_name: str, 
-        source_type: str, 
-        enable_ai_analysis: bool = False, 
-        task_id: Optional[int] = None
+        self,
+        db,
+        articles: List[ArticleDict],
+        source_name: str,
+        source_type: str,
+        enable_ai_analysis: bool = False,
+        task_id: Optional[int] = None,
+        fetch_full_content: bool = False
     ) -> CollectionStats:
         """
-        统一处理文章：保存 + AI分析
+        统一处理文章：抓取完整内容 + 保存 + AI分析
 
         Args:
             db: 数据库管理器
             articles: 文章列表
             source_name: 源名称
-            source_type: 源类型 (rss/api/web/social)
+            source_type: 源类型 (rss/api/web/social/email)
             enable_ai_analysis: 是否启用AI分析
             task_id: 任务ID
+            fetch_full_content: 是否抓取完整内容（默认False）
 
         Returns:
             {"total": int, "new": int, "ai_analyzed": int}
@@ -824,6 +826,45 @@ class CollectionService:
         # 统一修正所有文章的source字段为配置中的name，确保使用正确的源名称
         for article in articles:
             article["source"] = source_name
+
+        # 如果需要抓取完整内容
+        if fetch_full_content:
+            logger.info(f"  🌐 开始为文章抓取完整内容...")
+            articles_with_full_content = []
+
+            for i, article in enumerate(articles, 1):
+                url = article.get("url", "")
+                if not url or url.startswith("mailto:"):
+                    # 没有URL或mailto链接，保留原始内容
+                    articles_with_full_content.append(article)
+                    continue
+
+                try:
+                    # 使用web_collector抓取完整内容
+                    full_content = self.web_collector.fetch_full_content(url)
+
+                    if full_content and len(full_content) > len(article.get("content", "")):
+                        # 抓取成功：保留原始摘要作为summary，完整内容作为content
+                        article["summary"] = article.get("content", "")
+                        article["content"] = full_content
+                        logger.debug(f"  ✅ [{i}/{len(articles)}] 抓取成功: {article.get('title', 'Unknown')[:50]}")
+                    else:
+                        # 抓取失败或内容更短：使用摘要作为内容
+                        article["summary"] = article.get("content", "")
+                        article["content"] = article.get("content", "")
+                        logger.debug(f"  ⚠️  [{i}/{len(articles)}] 抓取失败或内容过短，使用摘要: {article.get('title', 'Unknown')[:50]}")
+
+                    articles_with_full_content.append(article)
+
+                except Exception as e:
+                    logger.warning(f"  ⚠️  [{i}/{len(articles)}] 抓取失败: {article.get('title', 'Unknown')[:50]}, 错误: {e}")
+                    # 抓取失败：使用摘要作为内容
+                    article["summary"] = article.get("content", "")
+                    article["content"] = article.get("content", "")
+                    articles_with_full_content.append(article)
+
+            logger.info(f"  ✅ 内容抓取完成: {len(articles_with_full_content)} 篇文章")
+            articles = articles_with_full_content
 
         new_count = 0
         saved_article_ids = []
@@ -981,7 +1022,11 @@ class CollectionService:
                     self._log_collection(db, name, "api", "error", 0, f"使用{collector_used}采集器未获取到文章", task_id=task_id)
                     continue
 
-                process_result = self._process_articles_from_source(db, articles, name, "api", enable_ai_analysis, task_id=task_id)
+                process_result = self._process_articles_from_source(
+                    db, articles, name, "api",
+                    enable_ai_analysis, task_id=task_id,
+                    fetch_full_content=False
+                )
 
                 self._log_collection(db, name, "api", "success", process_result["total"], task_id=task_id)
                 stats["sources_success"] += 1
@@ -1125,7 +1170,11 @@ class CollectionService:
                     self._log_collection(db, source_name, "web", "error", 0, "未获取到文章", task_id=task_id)
                     continue
 
-                process_result = self._process_articles_from_source(db, articles, source_name, "web", enable_ai_analysis, task_id=task_id)
+                process_result = self._process_articles_from_source(
+                    db, articles, source_name, "web",
+                    enable_ai_analysis, task_id=task_id,
+                    fetch_full_content=False
+                )
 
                 # 更新Web源的统计信息
                 with db.get_session() as session:
@@ -1267,7 +1316,12 @@ class CollectionService:
                     articles = self._extract_multiple_articles_from_emails(articles, analysis_prompt, source_name)
                     logger.info(f"  ✅ 多文章解析完成，提取到 {len(articles)} 篇文章")
 
-                process_result = self._process_articles_from_source(db, articles, source_name, "email", enable_ai_analysis, task_id=task_id)
+                # 统一在_process_articles_from_source中抓取完整内容
+                process_result = self._process_articles_from_source(
+                    db, articles, source_name, "email",
+                    enable_ai_analysis, task_id=task_id,
+                    fetch_full_content=True
+                )
 
                 # 更新邮件源的统计信息
                 source_id = config.get("id")
@@ -1353,10 +1407,12 @@ class CollectionService:
 
                     # 创建新文章
                     content = article.get("content", "")
+                    summary = article.get("summary", "")  # 从邮件中提取的摘要
                     new_article = Article(
                         title=article.get("title"),
                         url=article.get("url"),
                         content=content,
+                        summary=summary,  # 保存摘要
                         source=article.get("source"),
                         category=article.get("category"),
                         author=article.get("author"),

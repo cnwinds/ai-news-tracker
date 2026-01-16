@@ -322,6 +322,54 @@ class RSSCollector(BaseCollector):
             logger.warning(f"⚠️  提取日期失败: {e}")
             return None
 
+    def _is_error_page(self, content: str, soup: BeautifulSoup) -> bool:
+        """
+        检查是否是错误页面（如需要JavaScript、访问被拒绝等）
+
+        Args:
+            content: 页面文本内容
+            soup: BeautifulSoup对象
+
+        Returns:
+            如果是错误页面返回True
+        """
+        # 常见错误页面的特征
+        error_indicators = [
+            "JavaScript is not available",
+            "JavaScript is disabled",
+            "Please enable JavaScript",
+            "Enable JavaScript to continue",
+            "Access Denied",
+            "Something went wrong",
+            "let's give it another shot",
+            "privacy related extensions may cause issues",
+        ]
+
+        content_lower = content.lower()
+
+        # 检查是否包含错误提示
+        for indicator in error_indicators:
+            if indicator.lower() in content_lower:
+                logger.warning(f"⚠️  检测到错误页面: '{indicator}'")
+                return True
+
+        # 检查页面标题是否包含错误信息
+        title_tag = soup.find('title')
+        if title_tag:
+            title_text = title_tag.get_text().lower()
+            for indicator in error_indicators:
+                if indicator.lower() in title_text:
+                    logger.warning(f"⚠️  页面标题显示错误: '{indicator}'")
+                    return True
+
+        # 检查页面内容过短（可能是错误页面）
+        # 正常文章内容通常至少有500个字符
+        if len(content.strip()) < 200:
+            logger.warning(f"⚠️  页面内容过短 ({len(content.strip())} 字符)，可能是错误页面")
+            return True
+
+        return False
+
     def fetch_full_content(self, url: str) -> Tuple[str, Optional[datetime]]:
         """
         获取文章的完整页面内容和发布日期
@@ -340,6 +388,14 @@ class RSSCollector(BaseCollector):
 
             # 解析HTML
             soup = BeautifulSoup(response.content, "html.parser")
+
+            # 获取页面文本内容用于错误检测
+            page_text = soup.get_text()
+
+            # 检查是否是错误页面
+            if self._is_error_page(page_text, soup):
+                logger.warning(f"⚠️  URL返回错误页面，跳过内容提取: {url}")
+                return "", None
 
             # 尝试找到主要内容区域
             # 常见的文章内容选择器
