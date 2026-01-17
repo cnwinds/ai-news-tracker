@@ -1,4 +1,16 @@
 {
+  "permissions": {
+    "allow": [
+      "Edit",
+      "Bash(pip:*)",
+      "Bash(python:*)",
+      "Bash(cd:*)",
+      "Bash(git:*)",
+      "mcp__acp__Bash"
+    ],
+    "deny": [],
+    "ask": []
+  },
   "model": "anthropic/claude-sonnet-4.5",
   "enabledPlugins": {
     "document-skills@anthropic-agent-skills": true,
@@ -6,16 +18,5 @@
     "browser@happy-claude-skills": true,
     "glm-plan-usage@zai-coding-plugins": true
   },
-  "alwaysThinkingEnabled": true,
-  "permissions": {
-    "allow": [
-      "Edit",
-      "Bash(pip:*)",
-      "Bash(python:*)",
-      "Bash(cd:*)",
-      "Bash(git:*)"
-    ],
-    "deny": [],
-    "ask": []
-  }
+  "alwaysThinkingEnabled": true
 }

@@ -167,7 +167,7 @@ class EmailCollector(BaseCollector):
                 - username: 用户名
                 - password: 密码（建议从环境变量或加密存储读取）
                 - folder: IMAP文件夹（仅IMAP，默认"INBOX"）
-                - title_filter: 标题过滤配置
+                - email_filter: 邮件过滤配置
                 - content_extraction: 内容提取配置
                 - max_emails: 最大邮件数（可选，默认50）
 
@@ -213,7 +213,7 @@ class EmailCollector(BaseCollector):
         username = config.get("username")
         password = config.get("password")
         folder = config.get("folder", "INBOX")
-        title_filter = config.get("title_filter", {})
+        email_filter = config.get("email_filter", {})
         content_extraction = config.get("content_extraction", {})
 
         try:
@@ -395,7 +395,7 @@ class EmailCollector(BaseCollector):
                     # 检查过滤条件（标题或发件人）
                     subject = self._decode_header(msg.get("Subject", ""))
                     from_addr = self._decode_header(msg.get("From", ""))
-                    if not self._match_email_filter(subject, from_addr, title_filter):
+                    if not self._match_email_filter(subject, from_addr, email_filter):
                         continue
 
                     # 提取文章内容（传入接收时间和配置）
@@ -424,7 +424,7 @@ class EmailCollector(BaseCollector):
         use_ssl = config.get("use_ssl", True)
         username = config.get("username")
         password = config.get("password")
-        title_filter = config.get("title_filter", {})
+        email_filter = config.get("email_filter", {})
         content_extraction = config.get("content_extraction", {})
 
         try:
@@ -475,7 +475,7 @@ class EmailCollector(BaseCollector):
                     # 检查过滤条件（标题或发件人）
                     subject = self._decode_header(msg.get("Subject", ""))
                     from_addr = self._decode_header(msg.get("From", ""))
-                    if not self._match_email_filter(subject, from_addr, title_filter):
+                    if not self._match_email_filter(subject, from_addr, email_filter):
                         continue
 
                     # 提取文章内容（使用提取的接收时间和配置）
@@ -497,59 +497,102 @@ class EmailCollector(BaseCollector):
             traceback.print_exc()
             return []
 
-    def _match_email_filter(self, subject: str, from_addr: str, title_filter: Dict[str, Any]) -> bool:
+    def _match_email_filter(self, subject: str, from_addr: str, email_filter: Dict[str, Any]) -> bool:
         """
-        检查邮件是否匹配过滤条件（支持标题和发件人过滤）
+        检查邮件是否匹配过滤条件
 
         Args:
             subject: 邮件标题
             from_addr: 发件人地址
-            title_filter: 过滤配置，包含：
-                - type: "regex"/"keywords"/"both"/"sender"（sender表示过滤发件人）
-                - regex: 正则表达式（可选，用于标题）
-                - keywords: 关键词列表（可选，用于标题或发件人）
-                - filter_sender: 是否过滤发件人（可选，默认false）
+            email_filter: 邮件过滤配置，包含：
+                - type: "sender"/"title"
+                  * "sender": 按发件人过滤
+                  * "title": 按标题过滤
+                - keywords: 过滤条件（字符串），自动识别为正则表达式或关键字
 
         Returns:
             是否匹配
         """
-        if not title_filter:
+        if not email_filter:
             return True  # 没有过滤条件，全部通过
 
-        filter_type = title_filter.get("type", "both")
-        regex = title_filter.get("regex")
-        keywords = title_filter.get("keywords", [])
-        filter_sender = title_filter.get("filter_sender", False)  # 是否过滤发件人
+        filter_type = email_filter.get("type", "sender")
+        keywords = email_filter.get("keywords", "")
 
-        # 如果配置了filter_sender或type为"sender"，则检查发件人
-        if filter_sender or filter_type == "sender":
-            if keywords:
+        logger.info(f"🔍 邮件过滤: type={filter_type}, keywords='{keywords}', from_addr='{from_addr}', subject='{subject[:50]}...'")
+
+        if not keywords:
+            logger.warning(f"⚠️  过滤条件为空，默认通过")
+            return True  # 没有过滤条件，默认通过
+
+        # 发件人过滤
+        if filter_type == "sender":
+            # 发件人只使用关键字匹配（不支持正则）
+            if isinstance(keywords, str):
+                keyword_list = [k.strip() for k in keywords.split(',') if k.strip()]
+            else:
+                keyword_list = keywords if isinstance(keywords, list) else []
+
+            logger.info(f"🔍 发件人过滤: keyword_list={keyword_list}, from_addr={from_addr}")
+
+            if keyword_list:
                 from_addr_lower = from_addr.lower()
-                for keyword in keywords:
+                for keyword in keyword_list:
                     if keyword.lower() in from_addr_lower:
+                        logger.info(f"✅ 发件人匹配成功: '{keyword}' in '{from_addr}'")
                         return True
-                # 如果设置了发件人过滤但没有匹配，返回False
-                return False
+                logger.warning(f"❌ 发件人不匹配: {keyword_list} 都不在 '{from_addr}' 中")
+                return False  # 设置了发件人过滤但没有匹配
+            return True  # 没有关键词，默认通过
 
-        # 标题过滤（正则表达式匹配）
-        if filter_type in ["regex", "both"] and regex:
-            try:
-                if re.search(regex, subject, re.IGNORECASE):
-                    return True
-            except re.error as e:
-                logger.warning(f"⚠️  正则表达式错误: {e}")
+        # 标题过滤
+        if filter_type == "title":
+            if isinstance(keywords, str):
+                condition = keywords
+            else:
+                condition = ', '.join(keywords) if isinstance(keywords, list) else ""
 
-        # 标题过滤（关键词匹配）
-        if filter_type in ["keywords", "both"] and keywords and not filter_sender:
-            subject_lower = subject.lower()
-            for keyword in keywords:
-                if keyword.lower() in subject_lower:
-                    return True
+            logger.info(f"🔍 标题过滤: condition='{condition}', subject='{subject}'")
 
-        # 如果设置了过滤条件但没有匹配，返回False
-        if filter_type not in ["both", "sender"] and not filter_sender:
-            if (filter_type == "regex" and regex) or (filter_type == "keywords" and keywords):
-                return False
+            # 自动识别是正则表达式还是关键字
+            # 正则表达式特征：包含特殊字符如 .*+?|^$[]{}()\等
+            regex_pattern = r'^[\^]?.*[\.\*\+\?\|\^\$\[\]\{\}\(\)\|\\].*|.*[\.\*\+\?\|\^\$\[\]\{\}\(\)\|\\].*[\$]?$|^\(.+\)$|^\[.+\]|^\{.+\}'
+
+            if re.search(regex_pattern, condition):
+                # 识别为正则表达式
+                logger.info(f"🔍 识别为正则表达式: {condition}")
+                try:
+                    if re.search(condition, subject, re.IGNORECASE):
+                        logger.info(f"✅ 标题正则匹配成功")
+                        return True
+                    else:
+                        logger.warning(f"❌ 标题正则不匹配: '{condition}' 不匹配 '{subject}'")
+                        return False
+                except re.error as e:
+                    logger.warning(f"⚠️  正则表达式错误: {e}, 尝试作为关键字处理")
+                    # 正则表达式错误，回退到关键字匹配
+                    keyword_list = [k.strip() for k in condition.split(',') if k.strip()]
+                    subject_lower = subject.lower()
+                    for keyword in keyword_list:
+                        if keyword.lower() in subject_lower:
+                            logger.info(f"✅ 标题关键字匹配成功（回退模式）")
+                            return True
+                    logger.warning(f"❌ 标题关键字不匹配（回退模式）")
+                    return False
+            else:
+                # 识别为关键字（逗号分隔）
+                logger.info(f"🔍 识别为关键字")
+                keyword_list = [k.strip() for k in condition.split(',') if k.strip()]
+                if keyword_list:
+                    subject_lower = subject.lower()
+                    for keyword in keyword_list:
+                        if keyword.lower() in subject_lower:
+                            logger.info(f"✅ 标题关键字匹配成功: '{keyword}' in '{subject}'")
+                            return True
+                    logger.warning(f"❌ 标题关键字不匹配: {keyword_list} 都不在 '{subject}' 中")
+                    return False  # 设置了关键词过滤但没有匹配
+
+            return True  # 没有设置过滤条件，默认通过
 
         return True  # 默认通过
 
@@ -593,17 +636,16 @@ class EmailCollector(BaseCollector):
                     published_at = datetime.now()
 
             # 检查是否使用正则解析器
-            use_regex_parser = False
             parser_type = None
 
             if config and REGEX_PARSER_AVAILABLE:
                 content_extraction = config.get("content_extraction", {})
-                use_regex_parser = content_extraction.get("use_regex_parser", False)
-                parser_type = content_extraction.get("parser_type", "tldr")
+                parser_type = content_extraction.get("parser_type", "original")
 
             articles = []
 
-            if use_regex_parser and parser_type:
+            # 根据 parser_type 判断使用哪种解析模式
+            if parser_type == "tldr":
                 # 使用正则解析器提取多篇文章
                 logger.info(f"📧 使用正则解析器 ({parser_type}) 提取文章")
                 articles = self._extract_with_regex_parser(
@@ -657,6 +699,7 @@ class EmailCollector(BaseCollector):
             content_extraction = config.get("content_extraction", {})
             use_html = content_extraction.get("from_html", False)
             use_plain = content_extraction.get("from_plain", True)
+            extract_mode = content_extraction.get("extract_mode", "plain_preferred")
 
             # 获取解析器
             parser = get_parser(parser_type)
@@ -664,19 +707,40 @@ class EmailCollector(BaseCollector):
             # 提取内容
             articles_data = []
 
-            if use_plain:
-                # 从纯文本提取
-                plain_content = self._get_plain_text_content(msg)
-                if plain_content:
-                    articles_data = parser.parse(plain_content, content_type="plain")
-                    logger.info(f"✅ 从纯文本解析到 {len(articles_data)} 篇文章")
+            # 根据提取模式决定提取顺序
+            if extract_mode == "html_preferred":
+                # 优先HTML，备选纯文本
+                if use_html:
+                    html_content = self._get_html_content(msg)
+                    if html_content:
+                        articles_data = parser.parse(html_content, content_type="html")
+                        logger.info(f"✅ 从HTML解析到 {len(articles_data)} 篇文章")
 
-            if not articles_data and use_html:
-                # 从HTML提取（备选）
-                html_content = self._get_html_content(msg)
-                if html_content:
-                    articles_data = parser.parse(html_content, content_type="html")
-                    logger.info(f"✅ 从HTML解析到 {len(articles_data)} 篇文章")
+                if not articles_data and use_plain:
+                    plain_content = self._get_plain_text_content(msg)
+                    if plain_content:
+                        articles_data = parser.parse(plain_content, content_type="plain")
+                        logger.info(f"✅ 从纯文本解析到 {len(articles_data)} 篇文章")
+            elif extract_mode == "html_only":
+                # 仅HTML
+                if use_html:
+                    html_content = self._get_html_content(msg)
+                    if html_content:
+                        articles_data = parser.parse(html_content, content_type="html")
+                        logger.info(f"✅ 从HTML解析到 {len(articles_data)} 篇文章")
+            else:
+                # 默认：优先纯文本，备选HTML (plain_preferred, plain_only)
+                if use_plain:
+                    plain_content = self._get_plain_text_content(msg)
+                    if plain_content:
+                        articles_data = parser.parse(plain_content, content_type="plain")
+                        logger.info(f"✅ 从纯文本解析到 {len(articles_data)} 篇文章")
+
+                if not articles_data and use_html:
+                    html_content = self._get_html_content(msg)
+                    if html_content:
+                        articles_data = parser.parse(html_content, content_type="html")
+                        logger.info(f"✅ 从HTML解析到 {len(articles_data)} 篇文章")
 
             # 转换为标准文章格式
             articles = []
@@ -692,7 +756,7 @@ class EmailCollector(BaseCollector):
                     "metadata": {
                         "email_from": from_addr,
                         "parser_type": parser_type,
-                        "parsed_from": "plain" if use_plain else "html",
+                        "extract_mode": extract_mode,
                         **article_data.get("metadata", {})
                     },
                 }

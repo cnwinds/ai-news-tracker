@@ -327,10 +327,9 @@
         "username": "your_email@163.com",
         "password": "YOUR_PASSWORD_OR_AUTH_CODE",
         "folder": "INBOX",
-        "title_filter": {
-          "type": "keywords",
-          "filter_sender": false,
-          "keywords": ["TLDR"]
+        "email_filter": {
+          "type": "sender",
+          "keywords": ["TLDR AI"]
         },
         "content_extraction": {
           "use_regex_parser": true,

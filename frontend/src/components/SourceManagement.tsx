@@ -161,9 +161,46 @@ export default function SourceManagement() {
             formValues.url = source.url.replace('email://', '');
           }
           // 将数组转换为逗号分隔的字符串（用于表单显示）
-          if (extraConfig.title_filter) {
-            if (Array.isArray(extraConfig.title_filter.keywords)) {
-              extraConfig.title_filter.keywords = extraConfig.title_filter.keywords.join(', ');
+          if (extraConfig.email_filter) {
+            // 兼容处理：统一使用 condition 显示
+            if (extraConfig.email_filter.condition) {
+              // 已是condition格式，直接使用
+            } else if (extraConfig.email_filter.regex) {
+              extraConfig.email_filter.condition = extraConfig.email_filter.regex;
+            } else if (extraConfig.email_filter.keywords) {
+              if (Array.isArray(extraConfig.email_filter.keywords)) {
+                extraConfig.email_filter.condition = extraConfig.email_filter.keywords.join(', ');
+              } else if (typeof extraConfig.email_filter.keywords === 'string') {
+                extraConfig.email_filter.condition = extraConfig.email_filter.keywords;
+              }
+            }
+          }
+          // 兼容旧的 title_filter 字段名
+          if (extraConfig.title_filter && !extraConfig.email_filter) {
+            extraConfig.email_filter = extraConfig.title_filter;
+          }
+          // 兼容旧的内容提取配置
+          if (extraConfig.content_extraction) {
+            // 如果没有设置 parser_type，设置为 original
+            if (!extraConfig.content_extraction.parser_type) {
+              extraConfig.content_extraction.parser_type = 'original';
+            }
+
+            // 兼容旧的 from_html 和 from_plain，转换为 extract_mode
+            const fromPlain = extraConfig.content_extraction.from_plain !== undefined ? extraConfig.content_extraction.from_plain : true;
+            const fromHtml = extraConfig.content_extraction.from_html !== undefined ? extraConfig.content_extraction.from_html : false;
+
+            // 如果没有 extract_mode，根据 from_plain 和 from_html 推断
+            if (!extraConfig.content_extraction.extract_mode && extraConfig.content_extraction.parser_type === 'tldr') {
+              if (fromPlain && fromHtml) {
+                extraConfig.content_extraction.extract_mode = 'plain_preferred';
+              } else if (fromPlain && !fromHtml) {
+                extraConfig.content_extraction.extract_mode = 'plain_only';
+              } else if (!fromPlain && fromHtml) {
+                extraConfig.content_extraction.extract_mode = 'html_only';
+              } else {
+                extraConfig.content_extraction.extract_mode = 'plain_preferred';
+              }
             }
           }
         } else {
@@ -207,34 +244,57 @@ export default function SourceManagement() {
         emailConfig.max_emails = values.extra_config.max_emails || 50;
 
         // 邮件过滤配置
-        if (values.extra_config.title_filter) {
-          emailConfig.title_filter = {
-            type: values.extra_config.title_filter.type || 'keywords',
-            filter_sender: values.extra_config.title_filter.filter_sender || false,
-          };
+        if (values.extra_config.email_filter) {
+          const condition = values.extra_config.email_filter.condition;
 
-          // 关键词（用于标题或发件人）
-          if (values.extra_config.title_filter.keywords) {
-            const keywords = typeof values.extra_config.title_filter.keywords === 'string'
-              ? values.extra_config.title_filter.keywords.split(',').map((k: string) => k.trim()).filter((k: string) => k)
-              : values.extra_config.title_filter.keywords;
-            emailConfig.title_filter.keywords = keywords;
-          }
-
-          // 标题正则表达式
-          if (values.extra_config.title_filter.regex) {
-            emailConfig.title_filter.regex = values.extra_config.title_filter.regex;
+          if (!condition || (typeof condition === 'string' && condition.trim() === '')) {
+            // 如果没有设置过滤条件，不添加email_filter配置
+          } else {
+            emailConfig.email_filter = {
+              type: values.extra_config.email_filter.type || 'sender',
+              keywords: condition.trim(),  // 统一使用keywords字段，后端会自动识别
+            };
           }
         }
 
-        // 内容提取配置（正则解析器）
+        // 内容提取配置
         if (values.extra_config.content_extraction) {
+          const parserType = values.extra_config.content_extraction.parser_type || 'original';
+          const extractMode = values.extra_config.content_extraction.extract_mode || 'plain_preferred';
+
+          // 根据解析器类型设置配置
           emailConfig.content_extraction = {
-            use_regex_parser: values.extra_config.content_extraction.use_regex_parser || false,
-            parser_type: values.extra_config.content_extraction.parser_type || 'tldr',
-            from_html: values.extra_config.content_extraction.from_html !== undefined ? values.extra_config.content_extraction.from_html : false,
-            from_plain: values.extra_config.content_extraction.from_plain !== undefined ? values.extra_config.content_extraction.from_plain : true,
+            parser_type: parserType,
           };
+
+          // 只有TLDR解析器才需要设置extract_mode
+          if (parserType === 'tldr') {
+            switch (extractMode) {
+              case 'plain_preferred':
+                emailConfig.content_extraction.from_plain = true;
+                emailConfig.content_extraction.from_html = true;
+                break;
+              case 'html_preferred':
+                emailConfig.content_extraction.from_plain = true;
+                emailConfig.content_extraction.from_html = true;
+                break;
+              case 'plain_only':
+                emailConfig.content_extraction.from_plain = true;
+                emailConfig.content_extraction.from_html = false;
+                break;
+              case 'html_only':
+                emailConfig.content_extraction.from_plain = false;
+                emailConfig.content_extraction.from_html = true;
+                break;
+              default:
+                emailConfig.content_extraction.from_html = false;
+                emailConfig.content_extraction.from_plain = true;
+            }
+          } else {
+            // 原始模式不需要这些字段
+            emailConfig.content_extraction.from_html = false;
+            emailConfig.content_extraction.from_plain = true;
+          }
         }
       }
 
@@ -680,42 +740,40 @@ export default function SourceManagement() {
                         </Form.Item>
                       </Col>
                       <Col span={12}>
-                        <Form.Item name={['extra_config', 'folder']} label="文件夹（IMAP）" initialValue="INBOX">
+                        <Form.Item name={['extra_config', 'folder']} label="文件夹" initialValue="INBOX" tooltip="IMAP协议使用">
                           <Input placeholder="INBOX" />
                         </Form.Item>
                       </Col>
                     </Row>
-                    <Form.Item label="邮件服务器配置">
-                      <Row gutter={8}>
-                        <Col span={6}>
-                          <Form.Item name={['extra_config', 'protocol']} label="协议" initialValue="imap">
-                            <Select>
-                              <Select.Option value="imap">IMAP</Select.Option>
-                              <Select.Option value="pop3">POP3</Select.Option>
-                            </Select>
-                          </Form.Item>
-                        </Col>
-                        <Col span={10}>
-                          <Form.Item name={['extra_config', 'server']} label="服务器" rules={[{ required: true }]}>
-                            <Input placeholder="imap.163.com" />
-                          </Form.Item>
-                        </Col>
-                        <Col span={4}>
-                          <Form.Item name={['extra_config', 'port']} label="端口" initialValue={993}>
-                            <InputNumber min={1} max={65535} style={{ width: '100%' }} />
-                          </Form.Item>
-                        </Col>
-                        <Col span={4}>
-                          <Form.Item name={['extra_config', 'use_ssl']} label="SSL" valuePropName="checked" initialValue={true}>
-                            <Switch />
-                          </Form.Item>
-                        </Col>
-                      </Row>
-                    </Form.Item>
+                    <Row gutter={16}>
+                      <Col span={6}>
+                        <Form.Item name={['extra_config', 'protocol']} label="协议" initialValue="imap">
+                          <Select>
+                            <Select.Option value="imap">IMAP</Select.Option>
+                            <Select.Option value="pop3">POP3</Select.Option>
+                          </Select>
+                        </Form.Item>
+                      </Col>
+                      <Col span={10}>
+                        <Form.Item name={['extra_config', 'server']} label="服务器" rules={[{ required: true }]}>
+                          <Input placeholder="imap.163.com" />
+                        </Form.Item>
+                      </Col>
+                      <Col span={4}>
+                        <Form.Item name={['extra_config', 'port']} label="端口" initialValue={993}>
+                          <InputNumber min={1} max={65535} style={{ width: '100%' }} />
+                        </Form.Item>
+                      </Col>
+                      <Col span={4}>
+                        <Form.Item name={['extra_config', 'use_ssl']} label="SSL" valuePropName="checked" initialValue={true}>
+                          <Switch />
+                        </Form.Item>
+                      </Col>
+                    </Row>
                     <Row gutter={16}>
                       <Col span={12}>
                         <Form.Item name={['extra_config', 'username']} label="用户名" rules={[{ required: true }]}>
-                          <Input placeholder="邮箱地址或用户名" />
+                          <Input placeholder="通常为邮箱地址" />
                         </Form.Item>
                       </Col>
                       <Col span={12}>
@@ -726,93 +784,64 @@ export default function SourceManagement() {
                     </Row>
                     <Form.Item label="邮件过滤">
                       <Row gutter={16}>
-                        <Col span={12}>
-                          <Form.Item name={['extra_config', 'title_filter', 'type']} initialValue="keywords" style={{ marginBottom: 0 }}>
+                        <Col span={8}>
+                          <Form.Item name={['extra_config', 'email_filter', 'type']} label="过滤类型" initialValue="sender">
                             <Select>
-                              <Select.Option value="keywords">关键词</Select.Option>
-                              <Select.Option value="regex">正则表达式</Select.Option>
-                              <Select.Option value="both">两者</Select.Option>
                               <Select.Option value="sender">发件人</Select.Option>
+                              <Select.Option value="title">标题</Select.Option>
                             </Select>
                           </Form.Item>
                         </Col>
-                        <Col span={12}>
-                          <Form.Item name={['extra_config', 'title_filter', 'filter_sender']} valuePropName="checked" style={{ marginBottom: 0 }}>
-                            <Checkbox>过滤发件人（而非标题）</Checkbox>
-                          </Form.Item>
-                        </Col>
-                      </Row>
-                      <Row gutter={16}>
-                        <Col span={12}>
-                          <Form.Item name={['extra_config', 'title_filter', 'keywords']} label="关键词列表（逗号分隔）">
-                            <Input placeholder="TLDR AI, AI News" />
-                          </Form.Item>
-                        </Col>
-                        <Col span={12}>
-                          <Form.Item name={['extra_config', 'title_filter', 'regex']} label="标题正则表达式">
-                            <Input placeholder=".*AI.*News.*" />
+                        <Col span={16}>
+                          <Form.Item
+                            name={['extra_config', 'email_filter', 'condition']}
+                            label="过滤条件"
+                            tooltip="自动识别关键字或正则表达式。关键字示例: TLDR AI, AI News（逗号分隔）；正则示例: .*AI.*News.*"
+                            rules={[{ required: true, message: '请输入过滤条件' }]}
+                          >
+                            <Input placeholder="TLDR AI, AI News 或 .*AI.*News.*" />
                           </Form.Item>
                         </Col>
                       </Row>
                     </Form.Item>
-                    <Divider orientation="left">内容提取</Divider>
-                    <Alert
-                      message="正则解析器配置"
-                      description="启用正则解析器可以从一封邮件中提取多篇文章（适用于TLDR等新闻邮件）。如未启用，整封邮件将作为一篇文章处理。"
-                      type="info"
-                      showIcon
-                      style={{ marginBottom: 16 }}
-                    />
-                    <Row gutter={16}>
-                      <Col span={12}>
-                        <Form.Item name={['extra_config', 'content_extraction', 'use_regex_parser']} label="使用正则解析器" valuePropName="checked" initialValue={false}>
-                          <Switch />
-                        </Form.Item>
-                      </Col>
-                      <Col span={12}>
-                        <Form.Item
-                          name={['extra_config', 'content_extraction', 'parser_type']}
-                          label="解析器类型"
-                          initialValue="tldr"
-                          dependencies={[['extra_config', 'content_extraction', 'use_regex_parser']]}
-                        >
-                          <Select disabled={!form.getFieldValue(['extra_config', 'content_extraction', 'use_regex_parser'])}>
-                            <Select.Option value="tldr">TLDR Newsletter</Select.Option>
-                          </Select>
-                        </Form.Item>
-                      </Col>
-                    </Row>
-                    <Row gutter={16}>
-                      <Col span={12}>
-                        <Form.Item
-                          name={['extra_config', 'content_extraction', 'from_html']}
-                          label="从HTML提取"
-                          valuePropName="checked"
-                          initialValue={false}
-                          dependencies={[['extra_config', 'content_extraction', 'use_regex_parser']]}
-                        >
-                          <Switch disabled={!form.getFieldValue(['extra_config', 'content_extraction', 'use_regex_parser'])} />
-                        </Form.Item>
-                      </Col>
-                      <Col span={12}>
-                        <Form.Item
-                          name={['extra_config', 'content_extraction', 'from_plain']}
-                          label="从纯文本提取"
-                          valuePropName="checked"
-                          initialValue={true}
-                          dependencies={[['extra_config', 'content_extraction', 'use_regex_parser']]}
-                        >
-                          <Switch disabled={!form.getFieldValue(['extra_config', 'content_extraction', 'use_regex_parser'])} />
-                        </Form.Item>
-                      </Col>
-                    </Row>
-                    <Row gutter={16}>
-                      <Col span={12}>
-                        <Form.Item name={['extra_config', 'max_emails']} label="最大邮件数" initialValue={50}>
-                          <InputNumber min={1} max={200} style={{ width: '100%' }} />
-                        </Form.Item>
-                      </Col>
-                    </Row>
+                    <Form.Item label="内容提取">
+                      <Row gutter={16}>
+                        <Col span={12}>
+                          <Form.Item
+                            name={['extra_config', 'content_extraction', 'parser_type']}
+                            label="解析器类型"
+                            initialValue="original"
+                            tooltip="选择如何从邮件中提取文章内容"
+                          >
+                            <Select>
+                              <Select.Option value="original">原始邮件(整封邮件作为一篇文章)</Select.Option>
+                              <Select.Option value="tldr">TLDR解析器(从邮件中提取多篇文章)</Select.Option>
+                            </Select>
+                          </Form.Item>
+                        </Col>
+                        <Col span={6}>
+                          <Form.Item name={['extra_config', 'max_emails']} label="最大邮件数" initialValue={50}>
+                            <InputNumber min={1} max={200} style={{ width: '100%' }} />
+                          </Form.Item>
+                        </Col>
+                        <Col span={6}>
+                          <Form.Item
+                            name={['extra_config', 'content_extraction', 'extract_mode']}
+                            label="提取模式"
+                            initialValue="plain_preferred"
+                            dependencies={[['extra_config', 'content_extraction', 'parser_type']]}
+                            tooltip="仅TLDR解析器可用"
+                          >
+                            <Select disabled={form.getFieldValue(['extra_config', 'content_extraction', 'parser_type']) !== 'tldr'}>
+                              <Select.Option value="plain_preferred">优先纯文本</Select.Option>
+                              <Select.Option value="html_preferred">优先HTML</Select.Option>
+                              <Select.Option value="plain_only">仅纯文本</Select.Option>
+                              <Select.Option value="html_only">仅HTML</Select.Option>
+                            </Select>
+                          </Form.Item>
+                        </Col>
+                      </Row>
+                    </Form.Item>
                   </>
                 );
               }
@@ -855,14 +884,7 @@ export default function SourceManagement() {
               );
             }}
           </Form.Item>
-          
-          <Form.Item name="analysis_prompt" label="自定义AI分析提示词">
-            <Input.TextArea 
-              placeholder="为空则使用默认提示词。支持变量：{title}、{content}、{source}、{url}"
-              rows={4}
-            />
-          </Form.Item>
-          
+
           <Row gutter={16}>
             <Col span={12}>
               <Form.Item name="enabled" label="启用" valuePropName="checked" initialValue={true}>
