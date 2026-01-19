@@ -6,6 +6,7 @@ import type { ReactNode } from 'react';
 import type { Components } from 'react-markdown';
 import type { ThemeMode } from '@/contexts/ThemeContext';
 import { getThemeColor } from './theme';
+import remarkGfm from 'remark-gfm';
 
 interface MarkdownComponentProps {
   children?: ReactNode;
@@ -165,5 +166,62 @@ export function createMarkdownComponents(theme: ThemeMode): Components {
         {children}
       </a>
     ),
+    table: ({ children }: MarkdownComponentProps) => (
+      <div style={{ overflowX: 'auto', marginBottom: '1em' }}>
+        <table style={{
+          width: '100%',
+          borderCollapse: 'collapse',
+          border: `1px solid ${borderColor}`,
+          borderRadius: '4px',
+          overflow: 'hidden',
+        }}>
+          {children}
+        </table>
+      </div>
+    ),
+    thead: ({ children }: MarkdownComponentProps) => (
+      <thead style={{
+        backgroundColor: getThemeColor(theme, 'bgSecondary'),
+      }}>
+        {children}
+      </thead>
+    ),
+    tbody: ({ children }: MarkdownComponentProps) => (
+      <tbody>
+        {children}
+      </tbody>
+    ),
+    tr: ({ children }: MarkdownComponentProps) => (
+      <tr style={{
+        borderBottom: `1px solid ${borderColor}`,
+      }}>
+        {children}
+      </tr>
+    ),
+    th: ({ children }: MarkdownComponentProps) => (
+      <th style={{
+        padding: '8px 12px',
+        textAlign: 'left',
+        fontWeight: 600,
+        color: textColor,
+        borderRight: `1px solid ${borderColor}`,
+      }}>
+        {children}
+      </th>
+    ),
+    td: ({ children }: MarkdownComponentProps) => (
+      <td style={{
+        padding: '8px 12px',
+        color: textColor,
+        borderRight: `1px solid ${borderColor}`,
+      }}>
+        {children}
+      </td>
+    ),
   };
 }
+
+/**
+ * 导出 remarkGfm 插件，用于支持 GitHub Flavored Markdown（包括表格）
+ */
+export { remarkGfm };

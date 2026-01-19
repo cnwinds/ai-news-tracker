@@ -20,7 +20,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useDeleteArticle } from '@/hooks/useArticles';
 import { getThemeColor } from '@/utils/theme';
-import { createMarkdownComponents } from '@/utils/markdown';
+import { createMarkdownComponents, remarkGfm } from '@/utils/markdown';
 import { copyToClipboard } from '@/utils/clipboard';
 import ReactMarkdown from 'react-markdown';
 import dayjs from 'dayjs';
@@ -236,7 +236,10 @@ export default function ArticleDetailModal({
                     lineHeight: '1.8',
                   }}
                 >
-                  <ReactMarkdown components={createMarkdownComponents(theme)}>
+                  <ReactMarkdown 
+                    components={createMarkdownComponents(theme)}
+                    remarkPlugins={[remarkGfm]}
+                  >
                     {article.summary}
                   </ReactMarkdown>
                 </div>
@@ -277,7 +280,10 @@ export default function ArticleDetailModal({
                       wordBreak: 'break-word',
                     }}
                   >
-                    <ReactMarkdown components={createMarkdownComponents(theme)}>
+                    <ReactMarkdown 
+                      components={createMarkdownComponents(theme)}
+                      remarkPlugins={[remarkGfm]}
+                    >
                       {article.content}
                     </ReactMarkdown>
                   </div>

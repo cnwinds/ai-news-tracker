@@ -10,7 +10,7 @@ import type { Article } from '@/types';
 import { useAnalyzeArticle, useDeleteArticle, useFavoriteArticle, useUnfavoriteArticle, useUpdateArticle, useArticleDetails } from '@/hooks/useArticles';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
-import { createMarkdownComponents } from '@/utils/markdown';
+import { createMarkdownComponents, remarkGfm } from '@/utils/markdown';
 import { getThemeColor } from '@/utils/theme';
 import { getSummaryText, IMPORTANCE_COLORS, getImportanceLabel } from '@/utils/article';
 import { copyToClipboard } from '@/utils/clipboard';
@@ -253,7 +253,10 @@ export default function ArticleCard({ article }: ArticleCardProps) {
                     lineHeight: '1.6',
                   }}
                 >
-                  <ReactMarkdown components={createMarkdownComponents(theme)}>
+                  <ReactMarkdown 
+                    components={createMarkdownComponents(theme)}
+                    remarkPlugins={[remarkGfm]}
+                  >
                     {summaryText}
                   </ReactMarkdown>
                 </div>
@@ -302,7 +305,10 @@ export default function ArticleCard({ article }: ArticleCardProps) {
                         overflowY: 'auto',
                       }}
                     >
-                      <ReactMarkdown components={createMarkdownComponents(theme)}>
+                      <ReactMarkdown 
+                        components={createMarkdownComponents(theme)}
+                        remarkPlugins={[remarkGfm]}
+                      >
                         {articleWithLoadedData.content}
                       </ReactMarkdown>
                     </div>

@@ -10,7 +10,7 @@ import { apiService } from '@/services/api';
 import type { RAGQueryRequest, ArticleSearchResult } from '@/types';
 import dayjs from 'dayjs';
 import { useTheme } from '@/contexts/ThemeContext';
-import { createMarkdownComponents } from '@/utils/markdown';
+import { createMarkdownComponents, remarkGfm } from '@/utils/markdown';
 import { getMessageBubbleStyle, getSelectedStyle, getThemeColor } from '@/utils/theme';
 
 const { TextArea } = Input;
@@ -466,7 +466,10 @@ export default function RAGChat() {
                       >
                         {message.type === 'assistant' ? (
                           <div>
-                            <ReactMarkdown components={createMarkdownComponents(theme)}>
+                            <ReactMarkdown 
+                              components={createMarkdownComponents(theme)}
+                              remarkPlugins={[remarkGfm]}
+                            >
                               {processAnswerText(message.content)}
                             </ReactMarkdown>
                             {isStreaming && message.id === messages[messages.length - 1]?.id && (

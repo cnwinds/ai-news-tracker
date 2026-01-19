@@ -10,7 +10,7 @@ import { apiService } from '@/services/api';
 import type { RAGSearchRequest, ArticleSearchResult } from '@/types';
 import dayjs from 'dayjs';
 import { useTheme } from '@/contexts/ThemeContext';
-import { createMarkdownComponents } from '@/utils/markdown';
+import { createMarkdownComponents, remarkGfm } from '@/utils/markdown';
 import { getThemeColor } from '@/utils/theme';
 import { groupSourcesByType, SOURCE_TYPE_LABELS } from '@/utils/source';
 import { IMPORTANCE_COLORS, getImportanceLabel } from '@/utils/article';
@@ -240,7 +240,10 @@ export default function RAGSearch() {
                                 lineHeight: 1.6,
                               }}
                             >
-                              <ReactMarkdown components={createMarkdownComponents(theme)}>
+                              <ReactMarkdown 
+                                components={createMarkdownComponents(theme)}
+                                remarkPlugins={[remarkGfm]}
+                              >
                                 {item.summary}
                               </ReactMarkdown>
                             </div>

@@ -27,7 +27,7 @@ import weekOfYear from 'dayjs/plugin/weekOfYear';
 import isoWeek from 'dayjs/plugin/isoWeek';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
-import { createMarkdownComponents } from '@/utils/markdown';
+import { createMarkdownComponents, remarkGfm } from '@/utils/markdown';
 import { getThemeColor, getSelectedStyle } from '@/utils/theme';
 import { showError } from '@/utils/error';
 import ArticleCard from './ArticleCard';
@@ -360,7 +360,10 @@ export default function DailySummary() {
                                   color: getThemeColor(theme, 'text'),
                                 }}
                               >
-                                <ReactMarkdown components={createMarkdownComponents(theme)}>
+                                <ReactMarkdown 
+                                  components={createMarkdownComponents(theme)}
+                                  remarkPlugins={[remarkGfm]}
+                                >
                                   {details.summary_content || ''}
                                 </ReactMarkdown>
                               </div>

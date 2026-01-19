@@ -32,7 +32,7 @@ import { apiService } from '@/services/api';
 import type { RAGQueryRequest, ArticleSearchResult } from '@/types';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getThemeColor, getMessageBubbleStyle } from '@/utils/theme';
-import { createMarkdownComponents } from '@/utils/markdown';
+import { createMarkdownComponents, remarkGfm } from '@/utils/markdown';
 import ReactMarkdown from 'react-markdown';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
@@ -634,6 +634,7 @@ export default function AIConversationModal() {
                                   return <a href={href}>{children}</a>;
                                 },
                               }}
+                              remarkPlugins={[remarkGfm]}
                             >
                               {processAnswerText(message.content)}
                             </ReactMarkdown>
