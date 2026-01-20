@@ -39,7 +39,7 @@ export default function ArticleDetailModal({
   onClose 
 }: ArticleDetailModalProps) {
   const { theme } = useTheme();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, username } = useAuth();
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [isContentExpanded, setIsContentExpanded] = useState(false);
 
@@ -58,6 +58,20 @@ export default function ArticleDetailModal({
     enabled: open && articleId !== null,
     staleTime: 30000,
   });
+
+  // 当文章详情打开时，记录查看文章事件
+  useEffect(() => {
+    if (open && article) {
+      apiService.logAccess(
+        'click',
+        window.location.pathname,
+        `查看文章: ${article.title}`,
+        username || undefined
+      ).catch((error) => {
+        console.debug('Failed to log article view:', error);
+      });
+    }
+  }, [open, article, username]);
 
   const queryClient = useQueryClient();
 
@@ -121,12 +135,14 @@ export default function ArticleDetailModal({
       closable={false}
       width="100%"
       style={modalStyle}
-      bodyStyle={modalBodyStyle}
-      maskStyle={{
-        backgroundColor: theme === 'dark' 
-          ? 'rgba(0, 0, 0, 0.6)' 
-          : 'rgba(0, 0, 0, 0.4)',
-        backdropFilter: 'blur(10px)',
+      styles={{
+        body: modalBodyStyle,
+        mask: {
+          backgroundColor: theme === 'dark' 
+            ? 'rgba(0, 0, 0, 0.6)' 
+            : 'rgba(0, 0, 0, 0.4)',
+          backdropFilter: 'blur(10px)',
+        },
       }}
     >
       {/* 顶部栏 */}

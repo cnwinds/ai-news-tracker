@@ -296,7 +296,7 @@ export default function DailySummary() {
               <List.Item style={{ padding: 0, marginBottom: 8 }}>
                 <Card
                   style={{ width: '100%', marginBottom: 0 }}
-                  bodyStyle={{ padding: '12px 16px' }}
+                  styles={{ body: { padding: '12px 16px' } }}
                 >
                   <Space direction="vertical" size="small" style={{ width: '100%' }}>
                     {/* 第一行（概览）：标题 + 统计Tag + 展开按钮，整行可点击 */}

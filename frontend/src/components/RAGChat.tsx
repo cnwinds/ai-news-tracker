@@ -411,7 +411,7 @@ export default function RAGChat() {
           </Space>
         }
         style={{ flex: 1, minHeight: 600, display: 'flex', flexDirection: 'column' }}
-        bodyStyle={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
+        styles={{ body: { flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' } }}
       >
         {/* 消息列表 */}
         <div
@@ -639,7 +639,7 @@ export default function RAGChat() {
       <Card
         title="💭 聊天记录"
         style={{ width: 300, display: 'flex', flexDirection: 'column' }}
-        bodyStyle={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', padding: 0 }}
+        styles={{ body: { flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', padding: 0 } }}
       >
         <div style={{ flex: 1, overflowY: 'auto', padding: '8px' }}>
           {chatHistories.length === 0 ? (

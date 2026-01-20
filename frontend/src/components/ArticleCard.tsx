@@ -10,6 +10,7 @@ import type { Article } from '@/types';
 import { useAnalyzeArticle, useDeleteArticle, useFavoriteArticle, useUnfavoriteArticle, useUpdateArticle, useArticleDetails } from '@/hooks/useArticles';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { apiService } from '@/services/api';
 import { createMarkdownComponents, remarkGfm } from '@/utils/markdown';
 import { getThemeColor } from '@/utils/theme';
 import { getSummaryText, IMPORTANCE_COLORS, getImportanceLabel } from '@/utils/article';
@@ -34,7 +35,7 @@ export default function ArticleCard({ article }: ArticleCardProps) {
   const unfavoriteMutation = useUnfavoriteArticle();
   const updateMutation = useUpdateArticle();
   const { theme } = useTheme();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, username } = useAuth();
 
   // 按需加载：只在展开时一次性加载所有详细字段
   const { data: loadedDetails, isLoading: isLoadingDetails } = useArticleDetails(
@@ -59,6 +60,20 @@ export default function ArticleCard({ article }: ArticleCardProps) {
       setNotesValue(loadedDetails.user_notes || '');
     }
   }, [loadedDetails?.user_notes, isEditingNotes]);
+
+  // 当文章展开时，记录文章展开访问
+  useEffect(() => {
+    if (expanded && article) {
+      apiService.logAccess(
+        'page_view',  // 页面浏览量 = 文章展开
+        window.location.pathname,
+        `展开文章: ${article.title}`,
+        username || undefined
+      ).catch((error) => {
+        console.debug('Failed to log article expand:', error);
+      });
+    }
+  }, [expanded, article, username]);
 
   const summaryText = getSummaryText(articleWithLoadedData);
 
@@ -106,7 +121,7 @@ export default function ArticleCard({ article }: ArticleCardProps) {
   return (
     <Card
       style={{ marginBottom: 8 }}
-      bodyStyle={{ padding: '12px 16px' }}
+      styles={{ body: { padding: '12px 16px' } }}
     >
       <Space direction="vertical" size="small" style={{ width: '100%' }}>
         {/* 第一行（概览）：日期Tag + 重要程度Tag + 标题 + 来源Tag，整行可点击展开（除了来源Tag） */}

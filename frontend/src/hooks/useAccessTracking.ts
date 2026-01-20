@@ -14,7 +14,7 @@ function generateSessionId(): string {
 
 export function useAccessTracking() {
   const location = useLocation();
-  const { user } = useAuth();
+  const { username } = useAuth();
   const sessionIdRef = useRef<string>(generateSessionId());
   const lastPathRef = useRef<string>('');
 
@@ -28,7 +28,7 @@ export function useAccessTracking() {
         'page_view',
         currentPath,
         `浏览页面: ${currentPath}`,
-        user?.username || sessionIdRef.current
+        username || sessionIdRef.current
       ).catch((error) => {
         // 静默失败，不影响用户体验
         console.debug('Failed to log access:', error);
@@ -36,7 +36,7 @@ export function useAccessTracking() {
 
       lastPathRef.current = currentPath;
     }
-  }, [location.pathname, user]);
+  }, [location.pathname, username]);
 
   // 返回一个函数用于记录点击事件
   const trackClick = (action: string, pagePath?: string) => {
@@ -44,7 +44,7 @@ export function useAccessTracking() {
       'click',
       pagePath || location.pathname,
       action,
-      user?.username || sessionIdRef.current
+      username || sessionIdRef.current
     ).catch((error) => {
       console.debug('Failed to log click:', error);
     });

@@ -41,6 +41,7 @@ import type {
   SocialMediaReportRequest,
   SocialMediaStats,
   SocialMediaSettings,
+  AccessStatsResponse,
 } from '@/types';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1';
@@ -869,6 +870,32 @@ class ApiService {
             'Content-Type': 'multipart/form-data',
           },
         }
+      )
+    );
+  }
+
+  // 访问统计相关
+  async getAccessStats(days: number = 30): Promise<AccessStatsResponse> {
+    return this.handleRequest(
+      this.client.get<AccessStatsResponse>(`/analytics/access-stats?days=${days}`)
+    );
+  }
+
+  async logAccess(
+    accessType: 'page_view' | 'click' | 'api_call',
+    pagePath?: string,
+    action?: string,
+    userId?: string
+  ): Promise<{ message: string; id: number }> {
+    const params = new URLSearchParams();
+    params.append('access_type', accessType);
+    if (pagePath) params.append('page_path', pagePath);
+    if (action) params.append('action', action);
+    if (userId) params.append('user_id', userId);
+
+    return this.handleRequest(
+      this.client.post<{ message: string; id: number }>(
+        `/analytics/log-access?${params.toString()}`
       )
     );
   }

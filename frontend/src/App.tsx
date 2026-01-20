@@ -3,11 +3,12 @@
  */
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { ConfigProvider } from 'antd';
+import { ConfigProvider, App as AntdApp } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import { ThemeProvider, useTheme } from '@/contexts/ThemeContext';
 import { AIConversationProvider } from '@/contexts/AIConversationContext';
 import { AuthProvider } from '@/contexts/AuthContext';
+import AccessTracker from '@/components/AccessTracker';
 import Dashboard from '@/pages/Dashboard';
 import Login from '@/pages/Login';
 import ShareArticle from '@/pages/ShareArticle';
@@ -26,21 +27,24 @@ const queryClient = new QueryClient({
 
 function AppContent() {
   const { themeConfig } = useTheme();
-  
+
   return (
     <ConfigProvider locale={zhCN} theme={themeConfig}>
-      <BrowserRouter
-        future={{
-          v7_startTransition: true,
-          v7_relativeSplatPath: true,
-        }}
-      >
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/share/:id" element={<ShareArticle />} />
-        </Routes>
-      </BrowserRouter>
+      <AntdApp>
+        <BrowserRouter
+          future={{
+            v7_startTransition: true,
+            v7_relativeSplatPath: true,
+          }}
+        >
+          <AccessTracker />
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route path="/" element={<Dashboard />} />
+            <Route path="/share/:id" element={<ShareArticle />} />
+          </Routes>
+        </BrowserRouter>
+      </AntdApp>
     </ConfigProvider>
   );
 }

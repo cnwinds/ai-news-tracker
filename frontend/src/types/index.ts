@@ -400,4 +400,21 @@ export interface SocialMediaSettings {
   auto_report_time?: string;
 }
 
+// 访问统计相关类型定义
+export interface DailyAccessStats {
+  date: string; // YYYY-MM-DD
+  page_views: number; // 文章展开数
+  unique_users: number; // 独立用户数
+  clicks: number; // 详情查看数
+}
+
+export interface AccessStatsResponse {
+  daily_stats: DailyAccessStats[]; // 每日统计列表
+  total_page_views: number; // 总文章展开数
+  total_unique_users: number; // 总独立用户数
+  total_clicks: number; // 总详情查看数
+  avg_daily_page_views: number; // 平均日文章展开数
+  avg_daily_users: number; // 平均日独立用户数
+}
+
 

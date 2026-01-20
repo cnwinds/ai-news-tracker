@@ -141,7 +141,7 @@ export function AIConversationProvider({ children }: { children: ReactNode }) {
       setCurrentMessages([]);
     }
     setIsModalOpen(true);
-  }, [chatHistories]);
+  }, [chatHistories, setCurrentMessages]);
 
   const closeModal = useCallback(() => {
     setIsModalOpen(false);
@@ -154,12 +154,12 @@ export function AIConversationProvider({ children }: { children: ReactNode }) {
       setCurrentChatId(chatId);
       setCurrentMessages(history.messages);
     }
-  }, [chatHistories]);
+  }, [chatHistories, setCurrentMessages]);
 
   const createNewChat = useCallback(() => {
     setCurrentChatId(null);
     setCurrentMessages([]);
-  }, []);
+  }, [setCurrentMessages]);
 
   const updateChatHistory = useCallback((chatId: string, messages: Message[]) => {
     setChatHistories((prevHistories) => {
@@ -203,7 +203,7 @@ export function AIConversationProvider({ children }: { children: ReactNode }) {
       }
       return newHistories;
     });
-  }, [currentChatId, saveHistoriesToStorage]);
+  }, [currentChatId, saveHistoriesToStorage, setCurrentMessages]);
 
   return (
     <AIConversationContext.Provider

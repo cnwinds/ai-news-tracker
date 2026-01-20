@@ -137,6 +137,7 @@ class Settings:
             self._image_settings_loaded = False
             self._collector_settings_loaded = False
             self._notification_settings_loaded = False
+            self._social_media_settings_loaded = False
         
         self._load_collection_settings()
         self._load_summary_settings()
@@ -968,6 +969,10 @@ class Settings:
                 self.SOCIAL_MEDIA_AUTO_REPORT_TIME = AppSettingsRepository.get_setting(
                     session, "social_media_auto_report_time", "09:00"
                 )
+                
+                # 记录加载的配置值（用于调试）
+                logger.debug(f"社交平台配置加载: AUTO_REPORT_ENABLED={self.SOCIAL_MEDIA_AUTO_REPORT_ENABLED}, "
+                           f"AUTO_REPORT_TIME={self.SOCIAL_MEDIA_AUTO_REPORT_TIME}")
 
             # 兼容环境变量（如果数据库中没有配置，尝试从环境变量读取）
             if not self.YOUTUBE_API_KEY:

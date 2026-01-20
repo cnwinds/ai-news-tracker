@@ -356,17 +356,16 @@ export default function AIConversationModal() {
         ...modalStyle,
         position: 'relative',
       }}
-      bodyStyle={modalBodyStyle}
-      maskStyle={{
-        backgroundColor: theme === 'dark' 
-          ? 'rgba(0, 0, 0, 0.6)' 
-          : 'rgba(0, 0, 0, 0.4)',
-        backdropFilter: 'blur(10px)',
-      }}
       styles={{
         body: {
           ...modalBodyStyle,
           position: 'relative',
+        },
+        mask: {
+          backgroundColor: theme === 'dark' 
+            ? 'rgba(0, 0, 0, 0.6)' 
+            : 'rgba(0, 0, 0, 0.4)',
+          backdropFilter: 'blur(10px)',
         },
       }}
     >

@@ -419,12 +419,14 @@ export default function SourceManagement() {
           flexDirection: 'column',
           height: '100%',
         }}
-        bodyStyle={{ 
-          padding: 16,
-          flex: 1,
-          display: 'flex',
-          flexDirection: 'column',
-          minHeight: 0,
+        styles={{ 
+          body: { 
+            padding: 16,
+            flex: 1,
+            display: 'flex',
+            flexDirection: 'column',
+            minHeight: 0,
+          }
         }}
         actions={[
           <Button

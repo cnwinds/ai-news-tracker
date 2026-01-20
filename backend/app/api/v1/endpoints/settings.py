@@ -883,8 +883,37 @@ async def update_social_media_settings(
     # 重新加载配置
     settings.load_social_media_settings()
     
-    # 注意：调度器会在应用启动时自动加载配置，这里不需要手动更新
-    # 如果需要立即生效，需要重启应用或手动触发调度器重新加载
+    # 如果调度器正在运行，更新AI小报生成任务
+    try:
+        from backend.app.main import scheduler
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        if scheduler:
+            # 如果启用了定时生成AI小报，更新或添加任务
+            if new_settings.auto_report_enabled:
+                cron_expr = settings.get_social_media_auto_report_cron()
+                if cron_expr:
+                    logger.info(f"🔄 更新社交平台AI小报生成任务: {cron_expr}")
+                    scheduler.add_social_media_report_job(cron_expr)
+                    
+                    # 显示下次执行时间
+                    job = scheduler.scheduler.get_job("social_media_report_job")
+                    if job and job.next_run_time:
+                        logger.info(f"⏰ 下次执行时间: {job.next_run_time.strftime('%Y-%m-%d %H:%M:%S')}")
+                else:
+                    logger.warning("⚠️  定时生成AI小报配置无效，无法添加任务")
+            else:
+                # 如果禁用了，移除任务
+                try:
+                    scheduler.scheduler.remove_job("social_media_report_job")
+                    logger.info("✅ 已移除社交平台AI小报生成任务")
+                except Exception as e:
+                    logger.debug(f"移除任务失败（可能任务不存在）: {e}")
+    except Exception as e:
+        # 如果调度器未运行或更新失败，记录日志但不影响配置保存
+        import logging
+        logging.getLogger(__name__).warning(f"更新调度器任务失败: {e}")
 
     return SocialMediaSettings(
         youtube_api_key=settings.YOUTUBE_API_KEY or None,

@@ -1,7 +1,7 @@
 /**
  * 访问统计组件
  */
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import {
   Card,
   Row,
@@ -23,9 +23,19 @@ import {
 } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { apiService } from '@/services/api';
-import type { AccessStatsResponse, DailyAccessStats } from '@/types';
+import type { DailyAccessStats } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
 import dayjs from 'dayjs';
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+} from 'recharts';
 
 const { Title, Text } = Typography;
 
@@ -34,7 +44,7 @@ export default function AccessAnalytics() {
   const [days, setDays] = useState(30);
 
   // 获取访问统计数据
-  const { data: accessStats, isLoading, error, refetch } = useQuery({
+  const { data: accessStats, isLoading, error } = useQuery({
     queryKey: ['access-stats', days],
     queryFn: () => apiService.getAccessStats(days),
     enabled: isAuthenticated,
@@ -53,10 +63,10 @@ export default function AccessAnalytics() {
       defaultSortOrder: 'descend' as const,
     },
     {
-      title: '页面浏览量',
+      title: '文章展开数',
       dataIndex: 'page_views',
       key: 'page_views',
-      render: (value: number, record: DailyAccessStats, index: number) => {
+      render: (value: number, _record: DailyAccessStats, index: number) => {
         // 计算与前一天的差异
         const prevRecord = accessStats?.daily_stats[index + 1];
         let trend = null;
@@ -80,7 +90,7 @@ export default function AccessAnalytics() {
       title: '独立用户数',
       dataIndex: 'unique_users',
       key: 'unique_users',
-      render: (value: number, record: DailyAccessStats, index: number) => {
+      render: (value: number, _record: DailyAccessStats, index: number) => {
         // 计算与前一天的差异
         const prevRecord = accessStats?.daily_stats[index + 1];
         let trend = null;
@@ -101,10 +111,10 @@ export default function AccessAnalytics() {
       },
     },
     {
-      title: '点击量',
+      title: '详情查看数',
       dataIndex: 'clicks',
       key: 'clicks',
-      render: (value: number, record: DailyAccessStats, index: number) => {
+      render: (value: number, _record: DailyAccessStats, index: number) => {
         // 计算与前一天的差异
         const prevRecord = accessStats?.daily_stats[index + 1];
         let trend = null;
@@ -177,20 +187,20 @@ export default function AccessAnalytics() {
             <>
               {/* 汇总统计卡片 */}
               <Row gutter={16} style={{ marginBottom: 24 }}>
-                <Col span={6}>
+                <Col span={8}>
                   <Card>
                     <Statistic
-                      title="总页面浏览量"
+                      title="总文章展开数"
                       value={accessStats.total_page_views}
                       prefix={<EyeOutlined />}
                       valueStyle={{ color: '#1890ff' }}
                     />
                     <div style={{ marginTop: 8, fontSize: 12, color: '#8c8c8c' }}>
-                      平均日浏览量: {accessStats.avg_daily_page_views}
+                      平均日展开数: {accessStats.avg_daily_page_views}
                     </div>
                   </Card>
                 </Col>
-                <Col span={6}>
+                <Col span={8}>
                   <Card>
                     <Statistic
                       title="总独立用户数"
@@ -203,30 +213,78 @@ export default function AccessAnalytics() {
                     </div>
                   </Card>
                 </Col>
-                <Col span={6}>
+                <Col span={8}>
                   <Card>
                     <Statistic
-                      title="总点击量"
+                      title="总详情查看数"
                       value={accessStats.total_clicks}
                       prefix={<ThunderboltOutlined />}
                       valueStyle={{ color: '#fa8c16' }}
                     />
                   </Card>
                 </Col>
-                <Col span={6}>
-                  <Card>
-                    <Statistic
-                      title="统计天数"
-                      value={days}
-                      suffix="天"
-                      valueStyle={{ color: '#722ed1' }}
-                    />
-                    <div style={{ marginTop: 8, fontSize: 12, color: '#8c8c8c' }}>
-                      {dayjs().subtract(days - 1, 'day').format('YYYY-MM-DD')} 至 {dayjs().format('YYYY-MM-DD')}
-                    </div>
-                  </Card>
-                </Col>
               </Row>
+
+              {/* 每日访问趋势折线图 */}
+              <Title level={5}>每日访问趋势</Title>
+              <Card style={{ marginBottom: 24 }}>
+                <ResponsiveContainer width="100%" height={300}>
+                  <LineChart
+                    data={accessStats.daily_stats.map(stat => ({
+                      ...stat,
+                      date: dayjs(stat.date).format('MM-DD')
+                    }))}
+                    margin={{
+                      top: 5,
+                      right: 30,
+                      left: 20,
+                      bottom: 5,
+                    }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis
+                      dataKey="date"
+                      style={{ fontSize: 12 }}
+                    />
+                    <YAxis style={{ fontSize: 12 }} />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                        border: '1px solid #d9d9d9',
+                        borderRadius: '4px',
+                      }}
+                    />
+                    <Legend />
+                    <Line
+                      type="monotone"
+                      dataKey="page_views"
+                      stroke="#1890ff"
+                      strokeWidth={2}
+                      name="文章展开数"
+                      dot={{ fill: '#1890ff', r: 4 }}
+                      activeDot={{ r: 6 }}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="unique_users"
+                      stroke="#52c41a"
+                      strokeWidth={2}
+                      name="独立用户数"
+                      dot={{ fill: '#52c41a', r: 4 }}
+                      activeDot={{ r: 6 }}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="clicks"
+                      stroke="#fa8c16"
+                      strokeWidth={2}
+                      name="详情查看数"
+                      dot={{ fill: '#fa8c16', r: 4 }}
+                      activeDot={{ r: 6 }}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </Card>
 
               {/* 每日统计表格 */}
               <Title level={5}>每日访问明细</Title>

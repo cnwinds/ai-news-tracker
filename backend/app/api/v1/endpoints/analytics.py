@@ -1,7 +1,7 @@
 """
 访问统计API端点
 """
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -13,6 +13,9 @@ from backend.app.api.v1.endpoints.auth import verify_token, TokenData
 from backend.app.db.models import AccessLog
 
 router = APIRouter()
+
+# 中国时区（UTC+8）
+CHINA_TZ = timezone(timedelta(hours=8))
 
 
 class DailyAccessStats(BaseModel):
@@ -49,14 +52,20 @@ async def get_access_stats(
         每日访问统计列表和汇总数据
     """
     try:
-        # 计算日期范围
-        end_date = datetime.now().date()
+        # 计算日期范围 - 使用中国时区（UTC+8）
+        # 获取中国时区的当前日期
+        china_now = datetime.now(CHINA_TZ)
+        end_date = china_now.date()
         start_date = end_date - timedelta(days=days-1)
 
         # 查询每日统计数据
+        # 注意：access_date已经使用中国时区存储（在log_access中使用CHINA_TZ），
+        # 所以直接使用DATE()函数提取日期即可
+        date_expr = func.date(AccessLog.access_date)
+        
         daily_stats_query = (
             db.query(
-                func.date(AccessLog.access_date).label('date'),
+                date_expr.label('date'),
                 func.sum(
                     case(
                         (AccessLog.access_type == 'page_view', 1),
@@ -80,12 +89,12 @@ async def get_access_stats(
             )
             .filter(
                 and_(
-                    func.date(AccessLog.access_date) >= start_date,
-                    func.date(AccessLog.access_date) <= end_date
+                    date_expr >= start_date,
+                    date_expr <= end_date
                 )
             )
-            .group_by(func.date(AccessLog.access_date))
-            .order_by(func.date(AccessLog.access_date))
+            .group_by(date_expr)
+            .order_by(date_expr)
         )
 
         results = daily_stats_query.all()
@@ -114,6 +123,7 @@ async def get_access_stats(
             total_clicks += clicks
 
         # 获取总独立用户数（需要单独查询，因为上面的count(distinct)是按天分组的）
+        # 使用相同的日期表达式确保一致性
         total_users_query = (
             db.query(
                 func.count(
@@ -122,8 +132,8 @@ async def get_access_stats(
             )
             .filter(
                 and_(
-                    func.date(AccessLog.access_date) >= start_date,
-                    func.date(AccessLog.access_date) <= end_date,
+                    date_expr >= start_date,
+                    date_expr <= end_date,
                     AccessLog.access_type == 'page_view'
                 )
             )
@@ -172,9 +182,10 @@ async def log_access(
         if not user_id:
             user_id = "anonymous"
 
-        # 创建访问日志记录
+        # 创建访问日志记录 - 使用中国时区（UTC+8）
+        china_now = datetime.now(CHINA_TZ).replace(tzinfo=None)  # 转换为naive datetime存储
         access_log = AccessLog(
-            access_date=datetime.now(),
+            access_date=china_now,
             user_id=user_id,
             access_type=access_type,
             page_path=page_path,

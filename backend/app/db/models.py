@@ -349,3 +349,28 @@ class SocialMediaReport(Base):
 
     def __repr__(self):
         return f"<SocialMediaReport(id={self.id}, date={self.report_date}, total={self.total_count})>"
+
+
+class AccessLog(Base):
+    """访问日志表 - 记录用户访问行为"""
+    __tablename__ = "access_logs"
+
+    # 复合索引 - 优化常用查询
+    __table_args__ = (
+        Index('idx_access_date_user', 'access_date', 'user_id'),
+        Index('idx_access_date_type', 'access_date', 'access_type'),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    access_date = Column(DateTime, nullable=False, index=True)  # 访问日期（用于按日统计）
+    user_id = Column(String(200), nullable=False, index=True)  # 用户标识（可以是用户名或session_id）
+    access_type = Column(String(50), nullable=False, index=True)  # 访问类型：page_view/click/api_call
+    page_path = Column(String(500), nullable=True)  # 页面路径
+    action = Column(String(200), nullable=True)  # 具体操作（如：查看文章、点击按钮等）
+    ip_address = Column(String(50), nullable=True)  # IP地址
+    user_agent = Column(String(500), nullable=True)  # 用户代理（浏览器信息）
+    extra_data = Column(JSON, nullable=True)  # 额外数据
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+
+    def __repr__(self):
+        return f"<AccessLog(id={self.id}, date={self.access_date}, user={self.user_id}, type={self.access_type})>"

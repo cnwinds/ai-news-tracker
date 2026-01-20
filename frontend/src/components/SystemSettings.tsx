@@ -7,7 +7,6 @@ import {
   Form,
   Input,
   Button,
-  message,
   Space,
   Alert,
   Spin,
@@ -20,6 +19,7 @@ import {
   TimePicker,
   Typography,
   Divider,
+  App,
 } from 'antd';
 import { SaveOutlined, ReloadOutlined, PlusOutlined, EditOutlined, DeleteOutlined, LockOutlined, MinusCircleOutlined, DatabaseOutlined, SyncOutlined, DownloadOutlined, UploadOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
@@ -29,11 +29,13 @@ import { useAuth } from '@/contexts/AuthContext';
 import SourceManagement from '@/components/SourceManagement';
 import DataCleanup from '@/components/DataCleanup';
 import CollectionHistory from '@/components/CollectionHistory';
+import AccessAnalytics from '@/components/AccessAnalytics';
 import type { LLMSettings, NotificationSettings, SummarySettings, LLMProvider, LLMProviderCreate, LLMProviderUpdate, ImageSettings, ImageProvider, ImageProviderCreate, ImageProviderUpdate, SocialMediaSettings } from '@/types';
 
 export default function SystemSettings() {
   const queryClient = useQueryClient();
   const { isAuthenticated } = useAuth();
+  const { message } = App.useApp();
   const [llmForm] = Form.useForm();
   const [notificationForm] = Form.useForm();
   const [summaryForm] = Form.useForm();
@@ -402,29 +404,37 @@ export default function SystemSettings() {
 
   // 当配置加载完成后，初始化表单数据
   useEffect(() => {
-    if (llmSettings) {
+    if (llmSettings && llmForm) {
       // 将保存的提供商ID和模型组合成下拉框格式
       let selectedProviderAndModel: string | null = null;
       if (llmSettings.selected_llm_provider_id && llmSettings.selected_llm_models && llmSettings.selected_llm_models.length > 0) {
         selectedProviderAndModel = `${llmSettings.selected_llm_provider_id}:${llmSettings.selected_llm_models[0]}`;
       }
-      
+
       // 将保存的向量模型提供商ID和模型组合成下拉框格式
       let selectedEmbeddingProviderAndModel: string | null = null;
       if (llmSettings.selected_embedding_provider_id && llmSettings.selected_embedding_models && llmSettings.selected_embedding_models.length > 0) {
         selectedEmbeddingProviderAndModel = `${llmSettings.selected_embedding_provider_id}:${llmSettings.selected_embedding_models[0]}`;
       }
-      
-      llmForm.setFieldsValue({
-        ...llmSettings,
-        selected_llm_provider_id: selectedProviderAndModel,
-        selected_embedding_provider_id: selectedEmbeddingProviderAndModel,
-      });
+
+      // 使用 setTimeout 确保 Form 组件已挂载
+      const timer = setTimeout(() => {
+        try {
+          llmForm.setFieldsValue({
+            ...llmSettings,
+            selected_llm_provider_id: selectedProviderAndModel,
+            selected_embedding_provider_id: selectedEmbeddingProviderAndModel,
+          });
+        } catch (e) {
+          // 忽略表单未连接的错误
+        }
+      }, 0);
+      return () => clearTimeout(timer);
     }
-  }, [llmSettings, llmForm]);
+  }, [llmSettings]);
 
   useEffect(() => {
-    if (notificationSettings) {
+    if (notificationSettings && notificationForm) {
       // 将勿扰时段的时间字符串转换为dayjs对象
       const formValues = {
         ...notificationSettings,
@@ -433,50 +443,82 @@ export default function SystemSettings() {
           end_time: qh.end_time ? dayjs(qh.end_time, 'HH:mm') : null,
         })),
       };
-      notificationForm.setFieldsValue(formValues);
+      // 使用 setTimeout 确保 Form 组件已挂载
+      const timer = setTimeout(() => {
+        try {
+          notificationForm.setFieldsValue(formValues);
+        } catch (e) {
+          // 忽略表单未连接的错误
+        }
+      }, 0);
+      return () => clearTimeout(timer);
     }
-  }, [notificationSettings, notificationForm]);
+  }, [notificationSettings]);
 
   useEffect(() => {
-    if (summarySettings) {
-      summaryForm.setFieldsValue({
-        daily_summary_enabled: summarySettings.daily_summary_enabled,
-        daily_summary_time: summarySettings.daily_summary_time ? dayjs(summarySettings.daily_summary_time, 'HH:mm') : dayjs('09:00', 'HH:mm'),
-        weekly_summary_enabled: summarySettings.weekly_summary_enabled,
-        weekly_summary_time: summarySettings.weekly_summary_time ? dayjs(summarySettings.weekly_summary_time, 'HH:mm') : dayjs('09:00', 'HH:mm'),
-      });
+    if (summarySettings && summaryForm) {
+      // 使用 setTimeout 确保 Form 组件已挂载
+      const timer = setTimeout(() => {
+        try {
+          summaryForm.setFieldsValue({
+            daily_summary_enabled: summarySettings.daily_summary_enabled,
+            daily_summary_time: summarySettings.daily_summary_time ? dayjs(summarySettings.daily_summary_time, 'HH:mm') : dayjs('09:00', 'HH:mm'),
+            weekly_summary_enabled: summarySettings.weekly_summary_enabled,
+            weekly_summary_time: summarySettings.weekly_summary_time ? dayjs(summarySettings.weekly_summary_time, 'HH:mm') : dayjs('09:00', 'HH:mm'),
+          });
+        } catch (e) {
+          // 忽略表单未连接的错误
+        }
+      }, 0);
+      return () => clearTimeout(timer);
     }
-  }, [summarySettings, summaryForm]);
+  }, [summarySettings]);
 
   useEffect(() => {
-    if (imageSettings) {
+    if (imageSettings && imageForm) {
       // 将保存的提供商ID和模型组合成下拉框格式
       let selectedProviderAndModel: string | null = null;
       if (imageSettings.selected_image_provider_id && imageSettings.selected_image_models && imageSettings.selected_image_models.length > 0) {
         selectedProviderAndModel = `${imageSettings.selected_image_provider_id}:${imageSettings.selected_image_models[0]}`;
       }
-      
-      imageForm.setFieldsValue({
-        ...imageSettings,
-        selected_image_provider_id: selectedProviderAndModel,
-      });
+
+      // 使用 setTimeout 确保 Form 组件已挂载
+      const timer = setTimeout(() => {
+        try {
+          imageForm.setFieldsValue({
+            ...imageSettings,
+            selected_image_provider_id: selectedProviderAndModel,
+          });
+        } catch (e) {
+          // 忽略表单未连接的错误
+        }
+      }, 0);
+      return () => clearTimeout(timer);
     }
-  }, [imageSettings, imageForm]);
+  }, [imageSettings]);
 
   useEffect(() => {
-    if (socialMediaSettings) {
-      socialMediaForm.setFieldsValue({
-        youtube_api_key: socialMediaSettings.youtube_api_key || '',
-        tiktok_api_key: socialMediaSettings.tiktok_api_key || '',
-        twitter_api_key: socialMediaSettings.twitter_api_key || '',
-        reddit_client_id: socialMediaSettings.reddit_client_id || '',
-        reddit_client_secret: socialMediaSettings.reddit_client_secret || '',
-        reddit_user_agent: socialMediaSettings.reddit_user_agent || '',
-        auto_report_enabled: socialMediaSettings.auto_report_enabled || false,
-        auto_report_time: socialMediaSettings.auto_report_time ? dayjs(socialMediaSettings.auto_report_time, 'HH:mm') : undefined,
-      });
+    if (socialMediaSettings && socialMediaForm) {
+      // 使用 setTimeout 确保 Form 组件已挂载
+      const timer = setTimeout(() => {
+        try {
+          socialMediaForm.setFieldsValue({
+            youtube_api_key: socialMediaSettings.youtube_api_key || '',
+            tiktok_api_key: socialMediaSettings.tiktok_api_key || '',
+            twitter_api_key: socialMediaSettings.twitter_api_key || '',
+            reddit_client_id: socialMediaSettings.reddit_client_id || '',
+            reddit_client_secret: socialMediaSettings.reddit_client_secret || '',
+            reddit_user_agent: socialMediaSettings.reddit_user_agent || '',
+            auto_report_enabled: socialMediaSettings.auto_report_enabled || false,
+            auto_report_time: socialMediaSettings.auto_report_time ? dayjs(socialMediaSettings.auto_report_time, 'HH:mm') : undefined,
+          });
+        } catch (e) {
+          // 忽略表单未连接的错误
+        }
+      }, 0);
+      return () => clearTimeout(timer);
     }
-  }, [socialMediaSettings, socialMediaForm]);
+  }, [socialMediaSettings]);
 
   const handleLLMSave = (values: any) => {
     // 解析 selected_llm_provider_id，格式为 "provider_id:model_name"
@@ -1507,6 +1549,11 @@ export default function SystemSettings() {
       key: 'cleanup',
       label: '数据清理',
       children: <DataCleanup />,
+    },
+    {
+      key: 'access-analytics',
+      label: '访问统计',
+      children: <AccessAnalytics />,
     },
     {
       key: 'rag-index',

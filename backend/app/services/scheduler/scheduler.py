@@ -651,9 +651,14 @@ class TaskScheduler:
                 self.add_weekly_summary_job()
             
             # 添加社交平台AI小报生成任务
+            # 强制重新加载配置，确保获取最新值
             settings.load_social_media_settings()
+            logger.info(f"📊 社交平台AI小报定时生成状态: {'已启用' if settings.SOCIAL_MEDIA_AUTO_REPORT_ENABLED else '未启用'}")
             if settings.SOCIAL_MEDIA_AUTO_REPORT_ENABLED:
+                logger.info(f"⏰ 定时生成时间: {settings.SOCIAL_MEDIA_AUTO_REPORT_TIME}")
                 self.add_social_media_report_job()
+            else:
+                logger.info("ℹ️  社交平台AI小报定时生成未启用，跳过添加任务")
 
             # 启动调度器（BackgroundScheduler 在后台运行）
             self.scheduler.start()
