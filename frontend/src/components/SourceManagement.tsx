@@ -12,7 +12,6 @@ import {
   Input,
   Switch,
   InputNumber,
-  message,
   Popconfirm,
   Checkbox,
   Divider,
@@ -27,12 +26,14 @@ import { PlusOutlined, EditOutlined, DeleteOutlined, ImportOutlined } from '@ant
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiService } from '@/services/api';
 import { useAuth } from '@/contexts/AuthContext';
+import { useMessage } from '@/hooks/useMessage';
 import type { RSSSource, RSSSourceCreate, RSSSourceUpdate } from '@/types';
 import { groupSourcesByType, SOURCE_TYPE_LABELS, sourceTypeSupportsSubType, getSubTypeOptions } from '@/utils/source';
 import { getDaysAgo, getDaysAgoText, formatDate, getDaysAgoColor } from '@/utils/date';
 
 export default function SourceManagement() {
   const { isAuthenticated } = useAuth();
+  const message = useMessage();
   const [modalVisible, setModalVisible] = useState(false);
   const [importModalVisible, setImportModalVisible] = useState(false);
   const [fixHistoryModalVisible, setFixHistoryModalVisible] = useState(false);

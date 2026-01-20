@@ -2,9 +2,10 @@
  * RAG主组件 - 整合搜索和对话功能
  */
 import { useState } from 'react';
-import { Tabs, Card, Statistic, Row, Col, Alert, Button, message, Modal } from 'antd';
+import { Tabs, Card, Statistic, Row, Col, Alert, Button, Modal } from 'antd';
 import { SearchOutlined, MessageOutlined, DatabaseOutlined, SyncOutlined } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMessage } from '@/hooks/useMessage';
 import RAGSearch from './RAGSearch';
 import RAGChat from './RAGChat';
 import { apiService } from '@/services/api';
@@ -12,6 +13,7 @@ import { apiService } from '@/services/api';
 export default function RAG() {
   const [activeTab, setActiveTab] = useState('search');
   const queryClient = useQueryClient();
+  const message = useMessage();
 
   // 获取RAG统计信息
   const { data: stats, isLoading: statsLoading } = useQuery({

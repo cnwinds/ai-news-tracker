@@ -2,10 +2,11 @@
  * 数据清理组件
  */
 import { useMemo } from 'react';
-import { Card, Form, InputNumber, Switch, Button, message, Alert, Select } from 'antd';
+import { Card, Form, InputNumber, Switch, Button, Alert, Select } from 'antd';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { apiService } from '@/services/api';
 import { useAuth } from '@/contexts/AuthContext';
+import { useMessage } from '@/hooks/useMessage';
 import { groupSourcesByType, SOURCE_TYPE_LABELS } from '@/utils/source';
 
 const { Option, OptGroup } = Select;
@@ -13,6 +14,7 @@ const { Option, OptGroup } = Select;
 export default function DataCleanup() {
   const [form] = Form.useForm();
   const { isAuthenticated } = useAuth();
+  const message = useMessage();
 
   // 获取所有订阅源列表
   const { data: sources } = useQuery({

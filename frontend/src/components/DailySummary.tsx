@@ -13,13 +13,13 @@ import {
   Form,
   Radio,
   DatePicker,
-  message,
   Spin,
   Alert,
 } from 'antd';
 import { PlusOutlined, ReloadOutlined, DeleteOutlined, DownOutlined, UpOutlined } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiService } from '@/services/api';
+import { useMessage } from '@/hooks/useMessage';
 import type { SummaryGenerateRequest, Article, DailySummaryListItem, SummaryFieldsResponse } from '@/types';
 import ReactMarkdown from 'react-markdown';
 import dayjs from 'dayjs';
@@ -75,6 +75,7 @@ export default function DailySummary() {
   const [generateModalVisible, setGenerateModalVisible] = useState(false);
   const [form] = Form.useForm();
   const queryClient = useQueryClient();
+  const message = useMessage();
   const [expandedSummaries, setExpandedSummaries] = useState<Set<number>>(new Set());
   const [selectedWeekDate, setSelectedWeekDate] = useState<dayjs.Dayjs | null>(null);
   const [hoveredWeekDate, setHoveredWeekDate] = useState<dayjs.Dayjs | null>(null);

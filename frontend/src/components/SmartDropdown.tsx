@@ -3,7 +3,7 @@
  * 支持零态（历史记录）和输入态（意图分流）
  */
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { List, Typography, Empty, Spin, Divider, Tag, message } from 'antd';
+import { List, Typography, Empty, Spin, Divider, Tag } from 'antd';
 import { 
   MessageOutlined, 
   FileTextOutlined,
@@ -17,6 +17,7 @@ import {
 import { useAIConversation } from '@/contexts/AIConversationContext';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiService } from '@/services/api';
+import { useMessage } from '@/hooks/useMessage';
 import type { ArticleSearchResult } from '@/types';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getThemeColor } from '@/utils/theme';
@@ -82,6 +83,7 @@ export default function SmartDropdown({
   const { theme } = useTheme();
   const { chatHistories } = useAIConversation();
   const queryClient = useQueryClient();
+  const message = useMessage();
   const [highlightedIndex, setHighlightedIndex] = useState(0);
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
   const [isCollecting, setIsCollecting] = useState(false);

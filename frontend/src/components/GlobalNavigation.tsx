@@ -3,11 +3,12 @@
  * 包含搜索框和快捷键支持
  */
 import { useState, useRef, useEffect } from 'react';
-import { Layout, Input, Button, Space, message } from 'antd';
+import { Layout, Input, Button, Space } from 'antd';
 import { SearchOutlined, SunOutlined, MoonOutlined, SettingOutlined } from '@ant-design/icons';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAIConversation } from '@/contexts/AIConversationContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { useMessage } from '@/hooks/useMessage';
 import SmartDropdown from './SmartDropdown';
 import ArticleDetailModal from './ArticleDetailModal';
 import { getThemeColor } from '@/utils/theme';
@@ -23,6 +24,7 @@ export default function GlobalNavigation({ onSettingsClick }: GlobalNavigationPr
   const { theme, toggleTheme } = useTheme();
   const { openModal, setSearchQuery, searchQuery } = useAIConversation();
   const { isAuthenticated } = useAuth();
+  const message = useMessage();
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [, setIsFocused] = useState(false);
   const [articleDetailModalOpen, setArticleDetailModalOpen] = useState(false);
