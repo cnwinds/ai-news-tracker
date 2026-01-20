@@ -9,9 +9,37 @@ from typing import Optional
 from backend.app.core.settings import settings
 
 
-def setup_logger(name: str = "", log_file: Optional[str] = None) -> logging.Logger:
+def _create_file_handler(log_path: Path, log_level: int) -> logging.FileHandler:
+    """创建文件处理器
+    
+    Args:
+        log_path: 日志文件路径
+        log_level: 日志级别
+        
+    Returns:
+        配置好的文件处理器
     """
-    设置并返回日志记录器（配置根 logger 以支持所有模块）
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    file_handler = logging.FileHandler(log_path, encoding="utf-8")
+    file_handler.setLevel(log_level)
+    file_handler.setFormatter(_get_formatter())
+    return file_handler
+
+
+def _get_formatter() -> logging.Formatter:
+    """获取日志格式化器
+    
+    Returns:
+        配置好的日志格式化器
+    """
+    return logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S"
+    )
+
+
+def setup_logger(name: str = "", log_file: Optional[str] = None) -> logging.Logger:
+    """设置并返回日志记录器（配置根 logger 以支持所有模块）
 
     Args:
         name: 日志记录器名称（默认为空，配置根 logger）
@@ -21,57 +49,38 @@ def setup_logger(name: str = "", log_file: Optional[str] = None) -> logging.Logg
         配置好的日志记录器
     """
     logger = logging.getLogger(name)
-
-    # 配置根 logger，让所有子 logger 都能继承配置
     root_logger = logging.getLogger()
 
-    # 如果根 logger 已经配置过，直接返回
     if root_logger.handlers:
         return logger
 
-    # 设置日志级别
     log_level = getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO)
     root_logger.setLevel(log_level)
 
-    # 日志格式
-    formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S"
-    )
+    formatter = _get_formatter()
 
-    # 控制台处理器
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(log_level)
     console_handler.setFormatter(formatter)
     root_logger.addHandler(console_handler)
 
-    # 设置 watchfiles 模块的日志级别为 DEBUG（减少烦人的文件变化日志）
     watchfiles_logger = logging.getLogger("watchfiles")
     watchfiles_logger.setLevel(logging.DEBUG)
 
-    # 文件处理器（如果指定了日志文件）
+    log_path: Optional[Path] = None
     if log_file:
         log_path = Path(log_file)
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        file_handler = logging.FileHandler(log_path, encoding="utf-8")
-        file_handler.setLevel(log_level)
-        file_handler.setFormatter(formatter)
-        root_logger.addHandler(file_handler)
     elif settings.LOG_FILE:
-        # 使用配置的日志文件
         log_path = Path(settings.LOG_FILE)
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        file_handler = logging.FileHandler(log_path, encoding="utf-8")
-        file_handler.setLevel(log_level)
-        file_handler.setFormatter(formatter)
-        root_logger.addHandler(file_handler)
+
+    if log_path:
+        root_logger.addHandler(_create_file_handler(log_path, log_level))
 
     return logger
 
 
 def get_logger(name: str) -> logging.Logger:
-    """
-    获取日志记录器（使用全局配置）
+    """获取日志记录器（使用全局配置）
 
     Args:
         name: 日志记录器名称

@@ -1,11 +1,12 @@
 """
 统一配置管理模块
 """
-import os
 import json
 import logging
+import os
 from pathlib import Path
-from typing import Optional, List, Dict
+from typing import Any, Dict, List, Optional
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -147,112 +148,180 @@ class Settings:
         self._load_notification_settings()
         self._load_social_media_settings()
     
+    def _get_db_session(self):
+        """获取数据库会话（如果数据库已初始化）
+        
+        Returns:
+            数据库会话上下文管理器，如果数据库未初始化则返回 None
+        """
+        try:
+            from backend.app.db import get_db
+            from backend.app.db.repositories import AppSettingsRepository
+            
+            db = get_db()
+            if not hasattr(db, 'engine'):
+                return None
+            
+            return db.get_session()
+        except Exception:
+            return None
+    
+    def _load_setting(self, session, key: str, default_value: Any, setting_type: str = "string") -> Any:
+        """从数据库加载单个配置项
+        
+        Args:
+            session: 数据库会话
+            key: 配置键
+            default_value: 默认值
+            setting_type: 配置类型（用于类型转换）
+            
+        Returns:
+            配置值
+        """
+        from backend.app.db.repositories import AppSettingsRepository
+        
+        value = AppSettingsRepository.get_setting(session, key, default_value)
+        
+        if setting_type == "int" and value is not None:
+            return int(value)
+        elif setting_type == "bool" and value is not None:
+            return bool(value)
+        
+        return value
+    
     def _load_collection_settings(self):
         """加载采集配置（从数据库读取，支持运行时修改）"""
         if self._collection_settings_loaded:
             return
         
+        session = self._get_db_session()
+        if session is None:
+            try:
+                self._migrate_from_json_if_needed()
+            except Exception:
+                pass
+            return
+        
         try:
-            from backend.app.db import get_db
-            from backend.app.db.repositories import AppSettingsRepository
-            
-            db = get_db()
-            # 确保数据库已初始化
-            if not hasattr(db, 'engine'):
-                return
-            
-            with db.get_session() as session:
-                self.MAX_ARTICLE_AGE_DAYS = AppSettingsRepository.get_setting(
-                    session, "max_article_age_days", self.MAX_ARTICLE_AGE_DAYS
+            with session:
+                self.MAX_ARTICLE_AGE_DAYS = self._load_setting(
+                    session, "max_article_age_days", self.MAX_ARTICLE_AGE_DAYS, "int"
                 )
-                self.MAX_ANALYSIS_AGE_DAYS = AppSettingsRepository.get_setting(
-                    session, "max_analysis_age_days", self.MAX_ANALYSIS_AGE_DAYS
+                self.MAX_ANALYSIS_AGE_DAYS = self._load_setting(
+                    session, "max_analysis_age_days", self.MAX_ANALYSIS_AGE_DAYS, "int"
                 )
-                self.AUTO_COLLECTION_ENABLED = AppSettingsRepository.get_setting(
-                    session, "auto_collection_enabled", self.AUTO_COLLECTION_ENABLED
+                self.AUTO_COLLECTION_ENABLED = self._load_setting(
+                    session, "auto_collection_enabled", self.AUTO_COLLECTION_ENABLED, "bool"
                 )
             
             self._collection_settings_loaded = True
         except Exception as e:
-            # 如果数据库未初始化或读取失败，使用默认值
-            # 尝试从JSON文件迁移（仅一次，延迟执行）
+            logger.debug(f"加载采集配置失败: {e}")
             try:
                 self._migrate_from_json_if_needed()
-            except:
+            except Exception:
                 pass
     
-    def save_collection_settings(self, max_article_age_days: int, max_analysis_age_days: int):
-        """保存采集配置到数据库"""
+    def _save_setting(
+        self, session, key: str, value: Any, setting_type: str, description: str
+    ) -> None:
+        """保存单个配置项到数据库
+        
+        Args:
+            session: 数据库会话
+            key: 配置键
+            value: 配置值
+            setting_type: 配置类型
+            description: 配置描述
+        """
+        from backend.app.db.repositories import AppSettingsRepository
+        
+        AppSettingsRepository.set_setting(session, key, value, setting_type, description)
+    
+    def save_collection_settings(self, max_article_age_days: int, max_analysis_age_days: int) -> bool:
+        """保存采集配置到数据库
+        
+        Args:
+            max_article_age_days: 文章采集最大天数
+            max_analysis_age_days: AI分析最大天数
+            
+        Returns:
+            是否保存成功
+        """
         try:
             from backend.app.db import get_db
-            from backend.app.db.repositories import AppSettingsRepository
             
             db = get_db()
             with db.get_session() as session:
-                AppSettingsRepository.set_setting(
+                self._save_setting(
                     session, "max_article_age_days", max_article_age_days, "int",
                     "文章采集最大天数"
                 )
-                AppSettingsRepository.set_setting(
+                self._save_setting(
                     session, "max_analysis_age_days", max_analysis_age_days, "int",
                     "AI分析最大天数"
                 )
             
-            # 更新内存中的值
             self.MAX_ARTICLE_AGE_DAYS = max_article_age_days
             self.MAX_ANALYSIS_AGE_DAYS = max_analysis_age_days
             return True
         except Exception as e:
-            print(f"保存采集配置失败: {e}")
+            logger.error(f"保存采集配置失败: {e}")
             return False
     
     def save_auto_collection_settings(
-        self, 
-        enabled: bool, 
-        interval_hours: int = None,
-        max_articles_per_source: int = None,
-        request_timeout: int = None
-    ):
-        """保存自动采集配置到数据库"""
+        self,
+        enabled: bool,
+        interval_hours: Optional[int] = None,
+        max_articles_per_source: Optional[int] = None,
+        request_timeout: Optional[int] = None
+    ) -> bool:
+        """保存自动采集配置到数据库
+        
+        Args:
+            enabled: 是否启用自动采集
+            interval_hours: 采集间隔（小时）
+            max_articles_per_source: 每次采集每源最多获取文章数
+            request_timeout: 请求超时（秒）
+            
+        Returns:
+            是否保存成功
+        """
         try:
             from backend.app.db import get_db
-            from backend.app.db.repositories import AppSettingsRepository
             
             db = get_db()
             with db.get_session() as session:
-                AppSettingsRepository.set_setting(
+                self._save_setting(
                     session, "auto_collection_enabled", enabled, "bool",
                     "是否启用自动采集"
                 )
-                # 如果提供了 interval_hours，更新它；否则使用当前的 COLLECTION_INTERVAL_HOURS
+                
                 if interval_hours is not None:
-                    AppSettingsRepository.set_setting(
+                    self._save_setting(
                         session, "collection_interval_hours", interval_hours, "int",
                         "采集间隔（小时）"
                     )
                     self.COLLECTION_INTERVAL_HOURS = interval_hours
                 
-                # 如果提供了 max_articles_per_source，更新它
                 if max_articles_per_source is not None:
-                    AppSettingsRepository.set_setting(
+                    self._save_setting(
                         session, "max_articles_per_source", max_articles_per_source, "int",
                         "每次采集每源最多获取文章数"
                     )
                     self.MAX_ARTICLES_PER_SOURCE = max_articles_per_source
                 
-                # 如果提供了 request_timeout，更新它
                 if request_timeout is not None:
-                    AppSettingsRepository.set_setting(
+                    self._save_setting(
                         session, "request_timeout", request_timeout, "int",
                         "请求超时（秒）"
                     )
                     self.REQUEST_TIMEOUT = request_timeout
             
-            # 更新内存中的值
             self.AUTO_COLLECTION_ENABLED = enabled
             return True
         except Exception as e:
-            print(f"保存自动采集配置失败: {e}")
+            logger.error(f"保存自动采集配置失败: {e}")
             return False
     
     def _load_summary_settings(self):
@@ -260,67 +329,72 @@ class Settings:
         if self._summary_settings_loaded:
             return
         
+        session = self._get_db_session()
+        if session is None:
+            return
+        
         try:
-            from backend.app.db import get_db
-            from backend.app.db.repositories import AppSettingsRepository
-            
-            db = get_db()
-            # 确保数据库已初始化
-            if not hasattr(db, 'engine'):
-                return
-            
-            with db.get_session() as session:
-                self.DAILY_SUMMARY_ENABLED = AppSettingsRepository.get_setting(
-                    session, "daily_summary_enabled", self.DAILY_SUMMARY_ENABLED
+            with session:
+                self.DAILY_SUMMARY_ENABLED = self._load_setting(
+                    session, "daily_summary_enabled", self.DAILY_SUMMARY_ENABLED, "bool"
                 )
-                self.DAILY_SUMMARY_TIME = AppSettingsRepository.get_setting(
-                    session, "daily_summary_time", self.DAILY_SUMMARY_TIME
+                self.DAILY_SUMMARY_TIME = self._load_setting(
+                    session, "daily_summary_time", self.DAILY_SUMMARY_TIME, "string"
                 )
-                self.WEEKLY_SUMMARY_ENABLED = AppSettingsRepository.get_setting(
-                    session, "weekly_summary_enabled", self.WEEKLY_SUMMARY_ENABLED
+                self.WEEKLY_SUMMARY_ENABLED = self._load_setting(
+                    session, "weekly_summary_enabled", self.WEEKLY_SUMMARY_ENABLED, "bool"
                 )
-                self.WEEKLY_SUMMARY_TIME = AppSettingsRepository.get_setting(
-                    session, "weekly_summary_time", self.WEEKLY_SUMMARY_TIME
+                self.WEEKLY_SUMMARY_TIME = self._load_setting(
+                    session, "weekly_summary_time", self.WEEKLY_SUMMARY_TIME, "string"
                 )
             
             self._summary_settings_loaded = True
         except Exception as e:
-            # 如果数据库未初始化或读取失败，使用默认值
-            pass
+            logger.debug(f"加载总结配置失败: {e}")
     
-    def save_summary_settings(self, daily_enabled: bool, daily_time: str, weekly_enabled: bool, weekly_time: str):
-        """保存总结配置到数据库"""
+    def save_summary_settings(
+        self, daily_enabled: bool, daily_time: str, weekly_enabled: bool, weekly_time: str
+    ) -> bool:
+        """保存总结配置到数据库
+        
+        Args:
+            daily_enabled: 是否启用每日总结
+            daily_time: 每日总结时间（格式：HH:MM）
+            weekly_enabled: 是否启用每周总结
+            weekly_time: 每周总结时间（格式：HH:MM，在周六执行）
+            
+        Returns:
+            是否保存成功
+        """
         try:
             from backend.app.db import get_db
-            from backend.app.db.repositories import AppSettingsRepository
             
             db = get_db()
             with db.get_session() as session:
-                AppSettingsRepository.set_setting(
+                self._save_setting(
                     session, "daily_summary_enabled", daily_enabled, "bool",
                     "是否启用每日总结"
                 )
-                AppSettingsRepository.set_setting(
+                self._save_setting(
                     session, "daily_summary_time", daily_time, "string",
                     "每日总结时间（格式：HH:MM）"
                 )
-                AppSettingsRepository.set_setting(
+                self._save_setting(
                     session, "weekly_summary_enabled", weekly_enabled, "bool",
                     "是否启用每周总结"
                 )
-                AppSettingsRepository.set_setting(
+                self._save_setting(
                     session, "weekly_summary_time", weekly_time, "string",
                     "每周总结时间（格式：HH:MM，在周六执行）"
                 )
             
-            # 更新内存中的值
             self.DAILY_SUMMARY_ENABLED = daily_enabled
             self.DAILY_SUMMARY_TIME = daily_time
             self.WEEKLY_SUMMARY_ENABLED = weekly_enabled
             self.WEEKLY_SUMMARY_TIME = weekly_time
             return True
         except Exception as e:
-            print(f"保存总结配置失败: {e}")
+            logger.error(f"保存总结配置失败: {e}")
             return False
 
     def _migrate_from_json_if_needed(self):
@@ -344,7 +418,7 @@ class Settings:
                     migrated = AppSettingsRepository.get_setting(session, "_migrated_from_json", False)
                     if migrated:
                         return
-                except:
+                except Exception:
                     # 如果表不存在，稍后再试
                     return
                 
@@ -409,8 +483,12 @@ class Settings:
             # 迁移失败不影响系统运行
             logger.warning(f"从JSON迁移配置失败: {e}")
     
-    def get_auto_collection_interval_hours(self) -> int:
-        """获取自动采集间隔时间（小时）"""
+    def get_auto_collection_interval_hours(self) -> Optional[int]:
+        """获取自动采集间隔时间（小时）
+        
+        Returns:
+            采集间隔（小时），如果未启用则返回 None
+        """
         if not self.AUTO_COLLECTION_ENABLED:
             return None
         return self.COLLECTION_INTERVAL_HOURS
@@ -769,32 +847,27 @@ class Settings:
         if self._collector_settings_loaded:
             return
         
+        session = self._get_db_session()
+        if session is None:
+            return
+        
         try:
-            from backend.app.db import get_db
-            from backend.app.db.repositories import AppSettingsRepository
-            
-            db = get_db()
-            # 确保数据库已初始化
-            if not hasattr(db, 'engine'):
-                return
-            
-            with db.get_session() as session:
-                self.COLLECTION_CRON = AppSettingsRepository.get_setting(
-                    session, "collection_cron", self.COLLECTION_CRON
+            with session:
+                self.COLLECTION_CRON = self._load_setting(
+                    session, "collection_cron", self.COLLECTION_CRON, "string"
                 )
-                self.COLLECTION_INTERVAL_HOURS = AppSettingsRepository.get_setting(
-                    session, "collection_interval_hours", self.COLLECTION_INTERVAL_HOURS
+                self.COLLECTION_INTERVAL_HOURS = self._load_setting(
+                    session, "collection_interval_hours", self.COLLECTION_INTERVAL_HOURS, "int"
                 )
-                self.MAX_ARTICLES_PER_SOURCE = AppSettingsRepository.get_setting(
-                    session, "max_articles_per_source", self.MAX_ARTICLES_PER_SOURCE
+                self.MAX_ARTICLES_PER_SOURCE = self._load_setting(
+                    session, "max_articles_per_source", self.MAX_ARTICLES_PER_SOURCE, "int"
                 )
-                self.REQUEST_TIMEOUT = AppSettingsRepository.get_setting(
-                    session, "request_timeout", self.REQUEST_TIMEOUT
+                self.REQUEST_TIMEOUT = self._load_setting(
+                    session, "request_timeout", self.REQUEST_TIMEOUT, "int"
                 )
             
             self._collector_settings_loaded = True
         except Exception as e:
-            # 如果数据库未初始化或读取失败，使用默认值（环境变量）
             logger.debug(f"从数据库加载采集器配置失败，使用环境变量: {e}")
     
     def load_collector_settings(self):
@@ -802,28 +875,37 @@ class Settings:
         self._collector_settings_loaded = False
         self._load_collector_settings()
     
-    def save_collector_settings(self, collection_interval_hours: int, max_articles_per_source: int, request_timeout: int):
-        """保存采集器配置到数据库"""
+    def save_collector_settings(
+        self, collection_interval_hours: int, max_articles_per_source: int, request_timeout: int
+    ) -> bool:
+        """保存采集器配置到数据库
+        
+        Args:
+            collection_interval_hours: 采集间隔（小时）
+            max_articles_per_source: 每次采集每源最多获取文章数
+            request_timeout: 请求超时（秒）
+            
+        Returns:
+            是否保存成功
+        """
         try:
             from backend.app.db import get_db
-            from backend.app.db.repositories import AppSettingsRepository
             
             db = get_db()
             with db.get_session() as session:
-                AppSettingsRepository.set_setting(
+                self._save_setting(
                     session, "collection_interval_hours", collection_interval_hours, "int",
                     "采集间隔（小时）"
                 )
-                AppSettingsRepository.set_setting(
+                self._save_setting(
                     session, "max_articles_per_source", max_articles_per_source, "int",
                     "每次采集每源最多获取文章数"
                 )
-                AppSettingsRepository.set_setting(
+                self._save_setting(
                     session, "request_timeout", request_timeout, "int",
                     "请求超时（秒）"
                 )
             
-            # 更新内存中的值
             self.COLLECTION_INTERVAL_HOURS = collection_interval_hours
             self.MAX_ARTICLES_PER_SOURCE = max_articles_per_source
             self.REQUEST_TIMEOUT = request_timeout
@@ -837,46 +919,39 @@ class Settings:
         if self._notification_settings_loaded:
             return
         
+        session = self._get_db_session()
+        if session is None:
+            return
+        
         try:
-            from backend.app.db import get_db
-            from backend.app.db.repositories import AppSettingsRepository
-            
-            db = get_db()
-            # 确保数据库已初始化
-            if not hasattr(db, 'engine'):
-                return
-            
-            with db.get_session() as session:
-                self.NOTIFICATION_PLATFORM = AppSettingsRepository.get_setting(
-                    session, "notification_platform", self.NOTIFICATION_PLATFORM
+            with session:
+                self.NOTIFICATION_PLATFORM = self._load_setting(
+                    session, "notification_platform", self.NOTIFICATION_PLATFORM, "string"
                 )
-                self.NOTIFICATION_WEBHOOK_URL = AppSettingsRepository.get_setting(
-                    session, "notification_webhook_url", self.NOTIFICATION_WEBHOOK_URL
+                self.NOTIFICATION_WEBHOOK_URL = self._load_setting(
+                    session, "notification_webhook_url", self.NOTIFICATION_WEBHOOK_URL, "string"
                 )
-                self.NOTIFICATION_SECRET = AppSettingsRepository.get_setting(
-                    session, "notification_secret", self.NOTIFICATION_SECRET
+                self.NOTIFICATION_SECRET = self._load_setting(
+                    session, "notification_secret", self.NOTIFICATION_SECRET, "string"
                 )
-                self.INSTANT_NOTIFICATION_ENABLED = AppSettingsRepository.get_setting(
-                    session, "instant_notification_enabled", self.INSTANT_NOTIFICATION_ENABLED
+                self.INSTANT_NOTIFICATION_ENABLED = self._load_setting(
+                    session, "instant_notification_enabled", self.INSTANT_NOTIFICATION_ENABLED, "bool"
                 )
-                # 加载勿扰时段（JSON格式）
-                quiet_hours_json = AppSettingsRepository.get_setting(
-                    session, "notification_quiet_hours", "[]"
+                
+                quiet_hours_json = self._load_setting(
+                    session, "notification_quiet_hours", "[]", "string"
                 )
                 try:
-                    import json
                     self.QUIET_HOURS = json.loads(quiet_hours_json) if quiet_hours_json else []
                 except (json.JSONDecodeError, TypeError):
                     self.QUIET_HOURS = []
             
-            # 兼容旧配置：如果数据库中没有配置，但环境变量中有 FEISHU_BOT_WEBHOOK，使用它
             if not self.NOTIFICATION_WEBHOOK_URL and self.FEISHU_BOT_WEBHOOK:
                 self.NOTIFICATION_WEBHOOK_URL = self.FEISHU_BOT_WEBHOOK
                 self.NOTIFICATION_PLATFORM = "feishu"
             
             self._notification_settings_loaded = True
         except Exception as e:
-            # 如果数据库未初始化或读取失败，使用默认值
             logger.debug(f"从数据库加载通知配置失败，使用默认值: {e}")
     
     def save_notification_settings(
@@ -886,39 +961,47 @@ class Settings:
         secret: str = "",
         instant_notification_enabled: bool = True,
         quiet_hours: Optional[List[Dict[str, str]]] = None
-    ):
-        """保存通知配置到数据库"""
+    ) -> bool:
+        """保存通知配置到数据库
+        
+        Args:
+            platform: 通知平台（feishu/dingtalk）
+            webhook_url: 通知Webhook URL
+            secret: 钉钉加签密钥（可选）
+            instant_notification_enabled: 是否启用即时通知
+            quiet_hours: 勿扰时段列表
+            
+        Returns:
+            是否保存成功
+        """
         try:
-            import json
             from backend.app.db import get_db
-            from backend.app.db.repositories import AppSettingsRepository
+            
+            quiet_hours_list = quiet_hours if quiet_hours is not None else []
             
             db = get_db()
             with db.get_session() as session:
-                AppSettingsRepository.set_setting(
+                self._save_setting(
                     session, "notification_platform", platform, "string",
                     "通知平台（feishu/dingtalk）"
                 )
-                AppSettingsRepository.set_setting(
+                self._save_setting(
                     session, "notification_webhook_url", webhook_url, "string",
                     "通知Webhook URL"
                 )
-                AppSettingsRepository.set_setting(
+                self._save_setting(
                     session, "notification_secret", secret, "string",
                     "钉钉加签密钥（可选）"
                 )
-                AppSettingsRepository.set_setting(
+                self._save_setting(
                     session, "instant_notification_enabled", instant_notification_enabled, "bool",
                     "是否启用即时通知"
                 )
-                # 保存勿扰时段（JSON格式）
-                quiet_hours_list = quiet_hours if quiet_hours is not None else []
-                AppSettingsRepository.set_setting(
+                self._save_setting(
                     session, "notification_quiet_hours", json.dumps(quiet_hours_list), "string",
                     "勿扰时段列表（JSON格式）"
                 )
             
-            # 更新内存中的值
             self.NOTIFICATION_PLATFORM = platform
             self.NOTIFICATION_WEBHOOK_URL = webhook_url
             self.NOTIFICATION_SECRET = secret
@@ -934,69 +1017,62 @@ class Settings:
         if self._social_media_settings_loaded:
             return
 
+        session = self._get_db_session()
+        if session is None:
+            self._load_social_media_from_env()
+            return
+
         try:
-            from backend.app.db import get_db
-            from backend.app.db.repositories import AppSettingsRepository
+            with session:
+                self.YOUTUBE_API_KEY = self._load_setting(
+                    session, "youtube_api_key", None, "string"
+                )
+                self.TIKTOK_API_KEY = self._load_setting(
+                    session, "tiktok_api_key", None, "string"
+                )
+                self.TWITTER_API_KEY = self._load_setting(
+                    session, "twitter_api_key", None, "string"
+                )
+                self.REDDIT_CLIENT_ID = self._load_setting(
+                    session, "reddit_client_id", None, "string"
+                )
+                self.REDDIT_CLIENT_SECRET = self._load_setting(
+                    session, "reddit_client_secret", None, "string"
+                )
+                self.REDDIT_USER_AGENT = self._load_setting(
+                    session, "reddit_user_agent", None, "string"
+                )
+                self.SOCIAL_MEDIA_AUTO_REPORT_ENABLED = self._load_setting(
+                    session, "social_media_auto_report_enabled", False, "bool"
+                )
+                self.SOCIAL_MEDIA_AUTO_REPORT_TIME = self._load_setting(
+                    session, "social_media_auto_report_time", "09:00", "string"
+                )
+            
+            logger.debug(
+                f"社交平台配置加载: AUTO_REPORT_ENABLED={self.SOCIAL_MEDIA_AUTO_REPORT_ENABLED}, "
+                f"AUTO_REPORT_TIME={self.SOCIAL_MEDIA_AUTO_REPORT_TIME}"
+            )
 
-            db = get_db()
-            # 确保数据库已初始化
-            if not hasattr(db, 'engine'):
-                return
-
-            with db.get_session() as session:
-                self.YOUTUBE_API_KEY = AppSettingsRepository.get_setting(
-                    session, "youtube_api_key", None
-                )
-                self.TIKTOK_API_KEY = AppSettingsRepository.get_setting(
-                    session, "tiktok_api_key", None
-                )
-                self.TWITTER_API_KEY = AppSettingsRepository.get_setting(
-                    session, "twitter_api_key", None
-                )
-                self.REDDIT_CLIENT_ID = AppSettingsRepository.get_setting(
-                    session, "reddit_client_id", None
-                )
-                self.REDDIT_CLIENT_SECRET = AppSettingsRepository.get_setting(
-                    session, "reddit_client_secret", None
-                )
-                self.REDDIT_USER_AGENT = AppSettingsRepository.get_setting(
-                    session, "reddit_user_agent", None
-                )
-                # 加载定时任务配置
-                self.SOCIAL_MEDIA_AUTO_REPORT_ENABLED = AppSettingsRepository.get_setting(
-                    session, "social_media_auto_report_enabled", False
-                )
-                self.SOCIAL_MEDIA_AUTO_REPORT_TIME = AppSettingsRepository.get_setting(
-                    session, "social_media_auto_report_time", "09:00"
-                )
-                
-                # 记录加载的配置值（用于调试）
-                logger.debug(f"社交平台配置加载: AUTO_REPORT_ENABLED={self.SOCIAL_MEDIA_AUTO_REPORT_ENABLED}, "
-                           f"AUTO_REPORT_TIME={self.SOCIAL_MEDIA_AUTO_REPORT_TIME}")
-
-            # 兼容环境变量（如果数据库中没有配置，尝试从环境变量读取）
-            if not self.YOUTUBE_API_KEY:
-                self.YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY", None)
-            if not self.TIKTOK_API_KEY:
-                self.TIKTOK_API_KEY = os.getenv("TIKTOK_API_KEY", None)
-            if not self.TWITTER_API_KEY:
-                self.TWITTER_API_KEY = os.getenv("TWITTER_API_KEY", None)
-            if not self.REDDIT_CLIENT_ID:
-                self.REDDIT_CLIENT_ID = os.getenv("REDDIT_CLIENT_ID", None)
-            if not self.REDDIT_CLIENT_SECRET:
-                self.REDDIT_CLIENT_SECRET = os.getenv("REDDIT_CLIENT_SECRET", None)
-            if not self.REDDIT_USER_AGENT:
-                self.REDDIT_USER_AGENT = os.getenv("REDDIT_USER_AGENT", None)
-
+            self._load_social_media_from_env()
             self._social_media_settings_loaded = True
         except Exception as e:
-            # 如果数据库未初始化或读取失败，尝试从环境变量读取
             logger.debug(f"从数据库加载社交平台配置失败，尝试从环境变量读取: {e}")
+            self._load_social_media_from_env()
+    
+    def _load_social_media_from_env(self) -> None:
+        """从环境变量加载社交平台配置（作为后备）"""
+        if not self.YOUTUBE_API_KEY:
             self.YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY", None)
+        if not self.TIKTOK_API_KEY:
             self.TIKTOK_API_KEY = os.getenv("TIKTOK_API_KEY", None)
+        if not self.TWITTER_API_KEY:
             self.TWITTER_API_KEY = os.getenv("TWITTER_API_KEY", None)
+        if not self.REDDIT_CLIENT_ID:
             self.REDDIT_CLIENT_ID = os.getenv("REDDIT_CLIENT_ID", None)
+        if not self.REDDIT_CLIENT_SECRET:
             self.REDDIT_CLIENT_SECRET = os.getenv("REDDIT_CLIENT_SECRET", None)
+        if not self.REDDIT_USER_AGENT:
             self.REDDIT_USER_AGENT = os.getenv("REDDIT_USER_AGENT", None)
     
     def load_social_media_settings(self):
@@ -1014,66 +1090,50 @@ class Settings:
         reddit_user_agent: Optional[str] = None,
         auto_report_enabled: Optional[bool] = None,
         auto_report_time: Optional[str] = None
-    ):
-        """保存社交平台配置到数据库"""
+    ) -> bool:
+        """保存社交平台配置到数据库
+        
+        Args:
+            youtube_api_key: YouTube API密钥
+            tiktok_api_key: TikTok API密钥
+            twitter_api_key: Twitter API密钥
+            reddit_client_id: Reddit客户端ID
+            reddit_client_secret: Reddit客户端密钥
+            reddit_user_agent: Reddit用户代理
+            auto_report_enabled: 是否启用定时生成AI小报
+            auto_report_time: 定时生成时间（格式：HH:MM）
+            
+        Returns:
+            是否保存成功
+        """
         try:
             from backend.app.db import get_db
-            from backend.app.db.repositories import AppSettingsRepository
-
+            
             db = get_db()
             with db.get_session() as session:
-                if youtube_api_key is not None:
-                    AppSettingsRepository.set_setting(
-                        session, "youtube_api_key", youtube_api_key, "string",
-                        "YouTube API密钥"
-                    )
-                    self.YOUTUBE_API_KEY = youtube_api_key
-
-                if tiktok_api_key is not None:
-                    AppSettingsRepository.set_setting(
-                        session, "tiktok_api_key", tiktok_api_key, "string",
-                        "TikTok API密钥"
-                    )
-                    self.TIKTOK_API_KEY = tiktok_api_key
-
-                if twitter_api_key is not None:
-                    AppSettingsRepository.set_setting(
-                        session, "twitter_api_key", twitter_api_key, "string",
-                        "Twitter API密钥"
-                    )
-                    self.TWITTER_API_KEY = twitter_api_key
-
-                if reddit_client_id is not None:
-                    AppSettingsRepository.set_setting(
-                        session, "reddit_client_id", reddit_client_id, "string",
-                        "Reddit客户端ID"
-                    )
-                    self.REDDIT_CLIENT_ID = reddit_client_id
-
-                if reddit_client_secret is not None:
-                    AppSettingsRepository.set_setting(
-                        session, "reddit_client_secret", reddit_client_secret, "string",
-                        "Reddit客户端密钥"
-                    )
-                    self.REDDIT_CLIENT_SECRET = reddit_client_secret
-
-                if reddit_user_agent is not None:
-                    AppSettingsRepository.set_setting(
-                        session, "reddit_user_agent", reddit_user_agent, "string",
-                        "Reddit用户代理"
-                    )
-                    self.REDDIT_USER_AGENT = reddit_user_agent
-
-                # 保存定时任务配置
+                settings_map = [
+                    (youtube_api_key, "youtube_api_key", "YouTube API密钥", "YOUTUBE_API_KEY"),
+                    (tiktok_api_key, "tiktok_api_key", "TikTok API密钥", "TIKTOK_API_KEY"),
+                    (twitter_api_key, "twitter_api_key", "Twitter API密钥", "TWITTER_API_KEY"),
+                    (reddit_client_id, "reddit_client_id", "Reddit客户端ID", "REDDIT_CLIENT_ID"),
+                    (reddit_client_secret, "reddit_client_secret", "Reddit客户端密钥", "REDDIT_CLIENT_SECRET"),
+                    (reddit_user_agent, "reddit_user_agent", "Reddit用户代理", "REDDIT_USER_AGENT"),
+                ]
+                
+                for value, key, description, attr_name in settings_map:
+                    if value is not None:
+                        self._save_setting(session, key, value, "string", description)
+                        setattr(self, attr_name, value)
+                
                 if auto_report_enabled is not None:
-                    AppSettingsRepository.set_setting(
+                    self._save_setting(
                         session, "social_media_auto_report_enabled", auto_report_enabled, "bool",
                         "是否启用定时生成AI小报"
                     )
                     self.SOCIAL_MEDIA_AUTO_REPORT_ENABLED = auto_report_enabled
 
                 if auto_report_time is not None:
-                    AppSettingsRepository.set_setting(
+                    self._save_setting(
                         session, "social_media_auto_report_time", auto_report_time, "string",
                         "定时生成时间（格式：HH:MM）"
                     )

@@ -3,6 +3,7 @@ WebSocket 端点 - 实时推送采集进度和状态更新
 """
 import asyncio
 import json
+import logging
 from datetime import datetime
 from typing import List
 
@@ -12,6 +13,7 @@ from sqlalchemy.orm import Session
 from backend.app.db import get_db
 from backend.app.db.models import CollectionTask
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -36,7 +38,7 @@ class ConnectionManager:
         try:
             await websocket.send_json(message)
         except Exception as e:
-            print(f"发送消息失败: {e}")
+            logger.error(f"发送消息失败: {e}")
             self.disconnect(websocket)
     
     async def broadcast(self, message: dict):
@@ -46,7 +48,7 @@ class ConnectionManager:
             try:
                 await connection.send_json(message)
             except Exception as e:
-                print(f"广播消息失败: {e}")
+                logger.error(f"广播消息失败: {e}")
                 disconnected.append(connection)
         
         # 移除断开的连接
@@ -119,7 +121,7 @@ async def heartbeat_loop(websocket: WebSocket):
     except asyncio.CancelledError:
         pass
     except Exception as e:
-        print(f"心跳循环错误: {e}")
+        logger.error(f"心跳循环错误: {e}")
 
 
 async def monitor_collection_status(websocket: WebSocket):
@@ -178,7 +180,7 @@ async def monitor_collection_status(websocket: WebSocket):
     except asyncio.CancelledError:
         pass
     except Exception as e:
-        print(f"状态监控错误: {e}")
+        logger.error(f"状态监控错误: {e}")
 
 
 # 全局函数，用于从其他模块广播消息

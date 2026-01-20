@@ -3,9 +3,13 @@
 从配置文件加载默认的订阅源列表（支持rss/api/web/email所有类型）
 """
 import json
+import logging
 from pathlib import Path
-from typing import List, Dict, Union
+from typing import Dict, List, Union
+
 from backend.app.core.paths import APP_ROOT
+
+logger = logging.getLogger(__name__)
 
 # 获取配置文件路径（sources.json 在 backend/app 目录）
 CONFIG_PATH = APP_ROOT / "sources.json"
@@ -108,13 +112,13 @@ def load_sources(source_type: str = "rss") -> List[Dict[str, Union[str, int, boo
 
         return formatted_sources
     except FileNotFoundError:
-        print(f"⚠️ 配置文件未找到: {CONFIG_PATH}")
+        logger.warning(f"配置文件未找到: {CONFIG_PATH}")
         return []
     except json.JSONDecodeError as e:
-        print(f"❌ JSON解析错误: {e}")
+        logger.error(f"JSON解析错误: {e}")
         return []
     except Exception as e:
-        print(f"❌ 加载订阅源失败: {e}")
+        logger.error(f"加载订阅源失败: {e}")
         return []
 
 

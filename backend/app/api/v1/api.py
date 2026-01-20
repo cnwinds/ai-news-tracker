@@ -2,34 +2,45 @@
 API v1 路由聚合
 """
 from fastapi import APIRouter
+
 from backend.app.api.v1.endpoints import (
+    analytics,
     articles,
+    auth,
+    cleanup,
     collection,
-    summary,
+    rag,
+    settings,
+    social_media,
     sources,
     statistics,
-    cleanup,
-    settings,
+    summary,
     websocket,
-    rag,
-    auth,
-    social_media,
-    analytics,
 )
 
 api_router = APIRouter()
 
-# 注册各个端点
-api_router.include_router(articles.router, prefix="/articles", tags=["articles"])
-api_router.include_router(collection.router, prefix="/collection", tags=["collection"])
-api_router.include_router(summary.router, prefix="/summary", tags=["summary"])
-api_router.include_router(sources.router, prefix="/sources", tags=["sources"])
-api_router.include_router(statistics.router, prefix="/statistics", tags=["statistics"])
-api_router.include_router(cleanup.router, prefix="/cleanup", tags=["cleanup"])
-api_router.include_router(settings.router, prefix="/settings", tags=["settings"])
-api_router.include_router(websocket.router, prefix="/ws", tags=["websocket"])
-api_router.include_router(rag.router, prefix="/rag", tags=["rag"])
-api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
-api_router.include_router(social_media.router, prefix="/social-media", tags=["social-media"])
-api_router.include_router(analytics.router, prefix="/analytics", tags=["analytics"])
+# 路由配置：[(router, prefix, tags), ...]
+_ROUTES = [
+    (articles, "/articles", ["articles"]),
+    (collection, "/collection", ["collection"]),
+    (summary, "/summary", ["summary"]),
+    (sources, "/sources", ["sources"]),
+    (statistics, "/statistics", ["statistics"]),
+    (cleanup, "/cleanup", ["cleanup"]),
+    (settings, "/settings", ["settings"]),
+    (websocket, "/ws", ["websocket"]),
+    (rag, "/rag", ["rag"]),
+    (auth, "/auth", ["auth"]),
+    (social_media, "/social-media", ["social-media"]),
+    (analytics, "/analytics", ["analytics"]),
+]
+
+# 注册所有路由
+for router_module, prefix, tags in _ROUTES:
+    api_router.include_router(
+        router_module.router,
+        prefix=prefix,
+        tags=tags
+    )
 

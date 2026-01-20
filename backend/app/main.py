@@ -6,11 +6,19 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
-# 添加项目根目录到 Python 路径，使其可以在任何目录运行
-# 必须在所有 backend.app 导入之前执行
-_project_root = Path(__file__).parent.parent.parent
-if str(_project_root) not in sys.path:
-    sys.path.insert(0, str(_project_root))
+# 在导入 backend 模块之前，先设置 Python 路径
+# 计算项目根目录：backend/app/main.py -> backend/app -> backend -> 项目根
+_current_file = Path(__file__).resolve()
+_project_root = _current_file.parent.parent.parent
+_project_root_str = str(_project_root)
+if _project_root_str not in sys.path:
+    sys.path.insert(0, _project_root_str)
+
+# 现在可以安全地导入 backend 模块
+from backend.app.core.paths import setup_python_path
+
+# 确保项目根目录在 Python 路径中（双重保险）
+setup_python_path()
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -30,64 +38,85 @@ logger = setup_logger(__name__)
 scheduler: Optional["SchedulerService"] = None
 
 
+def _initialize_database() -> None:
+    """初始化数据库"""
+    from backend.app.db import get_db
+    
+    db = get_db()
+    logger.info("✅ 数据库已初始化")
+    return db
+
+
+def _load_settings_and_init_vectors() -> None:
+    """从数据库加载配置并初始化向量表"""
+    from backend.app.core.settings import settings as app_settings
+    from backend.app.db import get_db
+    
+    app_settings.load_settings_from_db()
+    logger.info("✅ 配置已从数据库加载")
+    
+    db = get_db()
+    try:
+        db.init_sqlite_vec_table(embedding_model=app_settings.OPENAI_EMBEDDING_MODEL)
+        logger.info("✅ vec0虚拟表初始化完成")
+    except Exception as e:
+        logger.warning(f"⚠️  vec0虚拟表初始化失败: {e}")
+
+
+def _start_scheduler() -> Optional["SchedulerService"]:
+    """启动定时任务调度器
+    
+    Returns:
+        调度器实例，如果启动失败则返回 None
+    """
+    from backend.app.services.scheduler.scheduler import create_scheduler
+    
+    scheduler_instance = create_scheduler()
+    logger.info("✅ 定时任务调度器已启动")
+    
+    if scheduler_instance and scheduler_instance.scheduler:
+        jobs = scheduler_instance.scheduler.get_jobs()
+        if jobs:
+            logger.info(f"📋 已注册 {len(jobs)} 个定时任务:")
+            for job in jobs:
+                logger.info(f"   - {job.name} (ID: {job.id}, Next: {job.next_run_time})")
+        else:
+            logger.info("ℹ️  调度器已启动，但当前没有启用的定时任务")
+    else:
+        logger.warning("⚠️  调度器初始化失败")
+    
+    return scheduler_instance
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """应用生命周期管理（启动和关闭事件）"""
+    """应用生命周期管理（启动和关闭事件）
+    
+    Args:
+        app: FastAPI 应用实例
+    """
     global scheduler
     
-    # 启动事件
     logger.info("🚀 应用启动中...")
     
-    # 初始化数据库（确保数据库已创建）
     try:
-        from backend.app.db import get_db
-        db = get_db()
-        logger.info("✅ 数据库已初始化")
+        _initialize_database()
     except Exception as e:
         logger.warning(f"⚠️  数据库初始化失败: {e}")
         raise
     
-    # 从数据库加载配置
-    app_settings = None
     try:
-        from backend.app.core.settings import settings as app_settings_module
-        app_settings = app_settings_module
-        app_settings.load_settings_from_db()
-        logger.info("✅ 配置已从数据库加载")
-        
-        # 第二阶段：初始化 vec0 虚拟表（需要配置加载后才能确定维度）
-        try:
-            db.init_sqlite_vec_table(embedding_model=app_settings.OPENAI_EMBEDDING_MODEL)
-            logger.info("✅ vec0虚拟表初始化完成")
-        except Exception as e:
-            logger.warning(f"⚠️  vec0虚拟表初始化失败: {e}")
+        _load_settings_and_init_vectors()
     except Exception as e:
         logger.warning(f"⚠️  从数据库加载配置失败: {e}")
     
-    # 启动定时任务调度器
-    # 调度器会检查配置并只添加已启用的任务
     try:
-        from backend.app.services.scheduler.scheduler import create_scheduler
-        scheduler = create_scheduler()
-        logger.info("✅ 定时任务调度器已启动")
-        
-        # 检查调度器中的任务
-        if scheduler and scheduler.scheduler:
-            jobs = scheduler.scheduler.get_jobs()
-            if jobs:
-                logger.info(f"📋 已注册 {len(jobs)} 个定时任务:")
-                for job in jobs:
-                    logger.info(f"   - {job.name} (ID: {job.id}, Next: {job.next_run_time})")
-            else:
-                logger.info("ℹ️  调度器已启动，但当前没有启用的定时任务")
-        else:
-            logger.warning("⚠️  调度器初始化失败")
+        scheduler = _start_scheduler()
     except Exception as e:
         logger.error(f"❌ 启动定时任务调度器失败: {e}", exc_info=True)
     
     yield
     
-    # 关闭事件
     logger.info("⏹️  应用关闭中...")
     
     if scheduler:
@@ -120,14 +149,24 @@ app.include_router(api_router, prefix=settings.API_V1_STR)
 async def validation_exception_handler(
     request: Request, exc: RequestValidationError
 ) -> JSONResponse:
-    """捕获请求验证错误并记录详细信息"""
-    logger.error(f"请求验证失败: URL={request.url}, method={request.method}")
-    logger.error(f"查询参数: {request.query_params}")
-    logger.error(f"路径参数: {request.path_params}")
+    """捕获请求验证错误并记录详细信息
+    
+    Args:
+        request: FastAPI 请求对象
+        exc: 验证错误异常
+        
+    Returns:
+        JSON 响应，包含错误详情
+    """
+    logger.error(
+        f"请求验证失败: URL={request.url}, method={request.method}, "
+        f"查询参数={request.query_params}, 路径参数={request.path_params}"
+    )
     logger.error(f"验证错误详情: {exc.errors()}")
     
     body = await request.body()
-    logger.error(f"请求体: {body}")
+    if body:
+        logger.error(f"请求体: {body}")
     
     return JSONResponse(
         status_code=422,
@@ -142,7 +181,11 @@ async def validation_exception_handler(
 
 @app.get("/")
 async def root() -> JSONResponse:
-    """根路径"""
+    """根路径
+    
+    Returns:
+        API 基本信息
+    """
     return JSONResponse({
         "message": "AI News Tracker API",
         "version": settings.VERSION,
@@ -152,7 +195,11 @@ async def root() -> JSONResponse:
 
 @app.get("/health")
 async def health_check() -> JSONResponse:
-    """健康检查"""
+    """健康检查端点
+    
+    Returns:
+        健康状态信息
+    """
     return JSONResponse({"status": "healthy"})
 
 

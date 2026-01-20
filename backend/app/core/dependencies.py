@@ -10,14 +10,22 @@ from backend.app.utils import create_ai_analyzer
 
 
 def get_database() -> Generator[Session, None, None]:
-    """获取数据库会话"""
+    """获取数据库会话
+    
+    Yields:
+        Session: SQLAlchemy 数据库会话
+    """
     db = get_db()
     with db.get_session() as session:
         yield session
 
 
 def get_collection_service() -> CollectionService:
-    """获取采集服务实例"""
+    """获取采集服务实例
+    
+    Returns:
+        CollectionService: 采集服务实例
+    """
     ai_analyzer = create_ai_analyzer()
     return CollectionService(ai_analyzer=ai_analyzer)
 
