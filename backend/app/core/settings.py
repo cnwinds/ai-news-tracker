@@ -1121,9 +1121,17 @@ class Settings:
                 ]
                 
                 for value, key, description, attr_name in settings_map:
+                    # 允许保存None和空字符串，None表示不更新，空字符串表示清空
+                    # 使用一个特殊标记来区分"不更新"和"清空"
+                    # 如果value是None，表示不更新该字段
+                    # 如果value是空字符串，表示清空该字段
+                    # 这里我们使用一个技巧：如果前端发送了字段（即使是空字符串），我们就保存
+                    # 但为了兼容，我们检查value是否为None
                     if value is not None:
+                        # 保存值（包括空字符串）
                         self._save_setting(session, key, value, "string", description)
                         setattr(self, attr_name, value)
+                    # 如果value是None，不更新该字段（保持原值）
                 
                 if auto_report_enabled is not None:
                     self._save_setting(

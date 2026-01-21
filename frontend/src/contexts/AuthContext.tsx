@@ -1,5 +1,4 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
-import { App } from 'antd';
 import { apiService } from '@/services/api';
 
 interface AuthContextType {
@@ -16,7 +15,6 @@ const TOKEN_KEY = 'auth_token';
 const USERNAME_KEY = 'auth_username';
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const { message } = App.useApp();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [username, setUsername] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -71,13 +69,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       apiService.setToken(response.access_token);
       setIsAuthenticated(true);
       setUsername(username);
-      message.success('登录成功');
       return true;
     } catch (error) {
-      const errorMessage = error instanceof Error 
-        ? error.message 
-        : '登录失败，请检查用户名和密码';
-      message.error(errorMessage);
       return false;
     }
   };
@@ -86,7 +79,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     clearAuth();
     setIsAuthenticated(false);
     setUsername(null);
-    message.success('已登出');
   };
 
   return (

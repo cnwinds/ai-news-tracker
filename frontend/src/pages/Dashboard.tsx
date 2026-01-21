@@ -22,6 +22,7 @@ import SocialMediaReport from '@/components/SocialMediaReport';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useQueryClient } from '@tanstack/react-query';
+import { useMessage } from '@/hooks/useMessage';
 
 const { Content } = Layout;
 
@@ -32,6 +33,7 @@ export default function Dashboard() {
   const { isAuthenticated, username, logout } = useAuth();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const message = useMessage();
 
   // 当打开设置页面时，自动刷新数据
   useEffect(() => {
@@ -119,6 +121,7 @@ export default function Dashboard() {
                     icon={<LogoutOutlined />}
                     onClick={() => {
                       logout();
+                      message.success('已登出');
                       navigate('/');
                     }}
                   >

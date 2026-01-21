@@ -7,6 +7,7 @@ import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useMessage } from '@/hooks/useMessage';
 
 const { Title, Text } = Typography;
 
@@ -15,14 +16,23 @@ export default function Login() {
   const { login } = useAuth();
   const navigate = useNavigate();
   const { theme } = useTheme();
+  const message = useMessage();
 
   const onFinish = async (values: { username: string; password: string }) => {
     setLoading(true);
     try {
       const success = await login(values.username, values.password);
       if (success) {
+        message.success('登录成功');
         navigate('/');
+      } else {
+        message.error('登录失败，请检查用户名和密码');
       }
+    } catch (error) {
+      const errorMessage = error instanceof Error 
+        ? error.message 
+        : '登录失败，请检查用户名和密码';
+      message.error(errorMessage);
     } finally {
       setLoading(false);
     }

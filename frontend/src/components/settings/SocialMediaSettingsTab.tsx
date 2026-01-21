@@ -66,13 +66,15 @@ export default function SocialMediaSettingsTab() {
   }, [socialMediaSettings, socialMediaForm]);
 
   const handleSocialMediaSave = (values: SocialMediaFormValues) => {
+    // 对于字符串字段，如果值为空字符串，发送空字符串（表示清空该配置）
+    // Ant Design Form会确保所有字段都存在，即使是空字符串
     const socialMediaData: SocialMediaSettings = {
-      youtube_api_key: values.youtube_api_key || undefined,
-      tiktok_api_key: values.tiktok_api_key || undefined,
-      twitter_api_key: values.twitter_api_key || undefined,
-      reddit_client_id: values.reddit_client_id || undefined,
-      reddit_client_secret: values.reddit_client_secret || undefined,
-      reddit_user_agent: values.reddit_user_agent || undefined,
+      youtube_api_key: values.youtube_api_key ?? '',
+      tiktok_api_key: values.tiktok_api_key ?? '',
+      twitter_api_key: values.twitter_api_key ?? '',
+      reddit_client_id: values.reddit_client_id ?? '',
+      reddit_client_secret: values.reddit_client_secret ?? '',
+      reddit_user_agent: values.reddit_user_agent ?? '',
       auto_report_enabled: values.auto_report_enabled || false,
       auto_report_time: values.auto_report_time ? dayjs(values.auto_report_time).format('HH:mm') : undefined,
     };

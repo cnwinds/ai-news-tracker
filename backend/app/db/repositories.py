@@ -353,6 +353,11 @@ class AppSettingsRepository:
         if not setting:
             return default_value
         
+        # 如果setting.value是None，返回default_value
+        # 但如果setting.value是空字符串，应该返回空字符串（表示用户明确清空了该字段）
+        if setting.value is None:
+            return default_value
+        
         # 根据类型转换值
         if setting.value_type == "int":
             return int(setting.value) if setting.value else default_value
@@ -362,7 +367,8 @@ class AppSettingsRepository:
             import json
             return json.loads(setting.value) if setting.value else default_value
         else:
-            return setting.value if setting.value else default_value
+            # 对于字符串类型，如果setting存在，返回其值（即使是空字符串）
+            return setting.value
 
     @staticmethod
     def set_setting(session: Session, key: str, value, value_type: str = "string", description: str = None):
