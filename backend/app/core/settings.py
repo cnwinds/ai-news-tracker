@@ -317,11 +317,15 @@ class Settings:
                         "请求超时（秒）"
                     )
                     self.REQUEST_TIMEOUT = request_timeout
+                
+                # 显式刷新确保数据被写入（提交由上下文管理器处理）
+                session.flush()
             
             self.AUTO_COLLECTION_ENABLED = enabled
+            logger.info(f"✅ 自动采集配置已保存: enabled={enabled}, interval_hours={interval_hours}, max_articles_per_source={max_articles_per_source}, request_timeout={request_timeout}")
             return True
         except Exception as e:
-            logger.error(f"保存自动采集配置失败: {e}")
+            logger.error(f"保存自动采集配置失败: {e}", exc_info=True)
             return False
     
     def _load_summary_settings(self):
@@ -1146,7 +1150,11 @@ class Settings:
                         "定时生成时间（格式：HH:MM）"
                     )
                     self.SOCIAL_MEDIA_AUTO_REPORT_TIME = auto_report_time
-
+                
+                # 显式刷新确保数据被写入（提交由上下文管理器处理）
+                session.flush()
+            
+            logger.info(f"✅ 社交平台配置已保存: youtube_api_key={'***' if youtube_api_key else None}, tiktok_api_key={'***' if tiktok_api_key else None}, twitter_api_key={'***' if twitter_api_key else None}, reddit_client_id={'***' if reddit_client_id else None}, auto_report_enabled={auto_report_enabled}, auto_report_time={auto_report_time}")
             return True
         except Exception as e:
             logger.error(f"保存社交平台配置失败: {e}", exc_info=True)

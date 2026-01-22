@@ -360,12 +360,21 @@ class AppSettingsRepository:
         
         # 根据类型转换值
         if setting.value_type == "int":
-            return int(setting.value) if setting.value else default_value
+            try:
+                return int(setting.value) if setting.value else default_value
+            except (ValueError, TypeError):
+                return default_value
         elif setting.value_type == "bool":
-            return setting.value.lower() in ("true", "1", "yes") if setting.value else default_value
+            # 正确处理 bool 类型：只有 "true", "1", "yes" 为 True，其他都为 False
+            if setting.value is None or setting.value == "":
+                return default_value
+            return str(setting.value).lower() in ("true", "1", "yes")
         elif setting.value_type == "json":
             import json
-            return json.loads(setting.value) if setting.value else default_value
+            try:
+                return json.loads(setting.value) if setting.value else default_value
+            except (json.JSONDecodeError, TypeError):
+                return default_value
         else:
             # 对于字符串类型，如果setting存在，返回其值（即使是空字符串）
             return setting.value

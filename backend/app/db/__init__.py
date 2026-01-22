@@ -89,6 +89,20 @@ class DatabaseManager:
             echo=False,
         )
         
+        # 为 SQLite 连接注册事件监听器，确保数据被持久化
+        if database_url.startswith("sqlite:///"):
+            @event.listens_for(self.engine, "connect")
+            def set_sqlite_pragma(dbapi_conn, connection_record):
+                """设置 SQLite 连接参数，确保数据持久化"""
+                cursor = dbapi_conn.cursor()
+                # 启用外键约束
+                cursor.execute("PRAGMA foreign_keys=ON")
+                # 使用 DELETE 日志模式（默认，确保数据持久化）
+                cursor.execute("PRAGMA journal_mode=DELETE")
+                # 确保同步写入（牺牲一些性能，但确保数据不丢失）
+                cursor.execute("PRAGMA synchronous=FULL")
+                cursor.close()
+        
         # 为 SQLite 连接注册事件监听器，在每次连接时加载 sqlite-vec 扩展
         if database_url.startswith("sqlite:///"):
             self._setup_sqlite_vec_loader()
