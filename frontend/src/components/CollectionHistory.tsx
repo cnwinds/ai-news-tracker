@@ -143,15 +143,21 @@ export default function CollectionHistory() {
     }),
   });
 
-  // 初始化表单
+  // 初始化表单 - 当模态框打开时，使用最新的配置值
   useEffect(() => {
-    if (autoCollectionSettings && autoCollectionModalVisible) {
-      autoCollectionForm.setFieldsValue({
-        enabled: autoCollectionSettings.enabled,
-        interval_hours: autoCollectionSettings.interval_hours,
-        max_articles_per_source: autoCollectionSettings.max_articles_per_source,
-        request_timeout: autoCollectionSettings.request_timeout,
-      });
+    if (autoCollectionModalVisible) {
+      if (autoCollectionSettings) {
+        // 如果配置已加载，使用配置值
+        autoCollectionForm.setFieldsValue({
+          enabled: autoCollectionSettings.enabled ?? false,
+          interval_hours: autoCollectionSettings.interval_hours ?? 1,
+          max_articles_per_source: autoCollectionSettings.max_articles_per_source ?? 50,
+          request_timeout: autoCollectionSettings.request_timeout ?? 30,
+        });
+      } else {
+        // 如果配置还未加载，重置为默认值
+        autoCollectionForm.resetFields();
+      }
     }
   }, [autoCollectionSettings, autoCollectionModalVisible, autoCollectionForm]);
 
@@ -549,6 +555,12 @@ export default function CollectionHistory() {
         <Form
           form={autoCollectionForm}
           layout="vertical"
+          initialValues={{
+            enabled: autoCollectionSettings?.enabled ?? false,
+            interval_hours: autoCollectionSettings?.interval_hours ?? 1,
+            max_articles_per_source: autoCollectionSettings?.max_articles_per_source ?? 50,
+            request_timeout: autoCollectionSettings?.request_timeout ?? 30,
+          }}
           onFinish={(values) => {
             updateAutoCollectionMutation.mutate({
               enabled: values.enabled,
@@ -562,7 +574,6 @@ export default function CollectionHistory() {
             name="enabled"
             label="启用采集日志"
             valuePropName="checked"
-            initialValue={false}
           >
             <Switch />
           </Form.Item>

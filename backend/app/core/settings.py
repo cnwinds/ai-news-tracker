@@ -180,13 +180,19 @@ class Settings:
         """
         from backend.app.db.repositories import AppSettingsRepository
         
+        # AppSettingsRepository.get_setting 已经根据 value_type 进行了正确的类型转换
+        # 所以这里不需要再次转换，直接返回即可
         value = AppSettingsRepository.get_setting(session, key, default_value)
         
+        # 对于 int 类型，确保返回的是整数（如果 value_type 不是 int，可能需要转换）
         if setting_type == "int" and value is not None:
-            return int(value)
-        elif setting_type == "bool" and value is not None:
-            return bool(value)
+            try:
+                return int(value) if not isinstance(value, int) else value
+            except (ValueError, TypeError):
+                return default_value
         
+        # 对于 bool 类型，AppSettingsRepository 已经正确转换了，直接返回
+        # 注意：不要使用 bool(value)，因为 bool("False") 会返回 True
         return value
     
     def _load_collection_settings(self):
@@ -203,15 +209,15 @@ class Settings:
             return
         
         try:
-            with session:
+            with session as s:
                 self.MAX_ARTICLE_AGE_DAYS = self._load_setting(
-                    session, "max_article_age_days", self.MAX_ARTICLE_AGE_DAYS, "int"
+                    s, "max_article_age_days", self.MAX_ARTICLE_AGE_DAYS, "int"
                 )
                 self.MAX_ANALYSIS_AGE_DAYS = self._load_setting(
-                    session, "max_analysis_age_days", self.MAX_ANALYSIS_AGE_DAYS, "int"
+                    s, "max_analysis_age_days", self.MAX_ANALYSIS_AGE_DAYS, "int"
                 )
                 self.AUTO_COLLECTION_ENABLED = self._load_setting(
-                    session, "auto_collection_enabled", self.AUTO_COLLECTION_ENABLED, "bool"
+                    s, "auto_collection_enabled", self.AUTO_COLLECTION_ENABLED, "bool"
                 )
             
             self._collection_settings_loaded = True
@@ -277,25 +283,30 @@ class Settings:
         request_timeout: Optional[int] = None
     ) -> bool:
         """保存自动采集配置到数据库
-        
+
         Args:
             enabled: 是否启用自动采集
             interval_hours: 采集间隔（小时）
             max_articles_per_source: 每次采集每源最多获取文章数
             request_timeout: 请求超时（秒）
-            
+
         Returns:
             是否保存成功
         """
         try:
             from backend.app.db import get_db
-            
+
             db = get_db()
             with db.get_session() as session:
+                logger.info(f"🔧 准备保存 auto_collection_enabled={enabled} (类型: {type(enabled).__name__})")
                 self._save_setting(
                     session, "auto_collection_enabled", enabled, "bool",
                     "是否启用自动采集"
                 )
+                # 验证保存的值
+                from backend.app.db.repositories import AppSettingsRepository
+                saved_value = AppSettingsRepository.get_setting(session, "auto_collection_enabled", None)
+                logger.info(f"✅ 验证保存后的值: auto_collection_enabled={saved_value} (类型: {type(saved_value).__name__})")
                 
                 if interval_hours is not None:
                     self._save_setting(
@@ -338,18 +349,18 @@ class Settings:
             return
         
         try:
-            with session:
+            with session as s:
                 self.DAILY_SUMMARY_ENABLED = self._load_setting(
-                    session, "daily_summary_enabled", self.DAILY_SUMMARY_ENABLED, "bool"
+                    s, "daily_summary_enabled", self.DAILY_SUMMARY_ENABLED, "bool"
                 )
                 self.DAILY_SUMMARY_TIME = self._load_setting(
-                    session, "daily_summary_time", self.DAILY_SUMMARY_TIME, "string"
+                    s, "daily_summary_time", self.DAILY_SUMMARY_TIME, "string"
                 )
                 self.WEEKLY_SUMMARY_ENABLED = self._load_setting(
-                    session, "weekly_summary_enabled", self.WEEKLY_SUMMARY_ENABLED, "bool"
+                    s, "weekly_summary_enabled", self.WEEKLY_SUMMARY_ENABLED, "bool"
                 )
                 self.WEEKLY_SUMMARY_TIME = self._load_setting(
-                    session, "weekly_summary_time", self.WEEKLY_SUMMARY_TIME, "string"
+                    s, "weekly_summary_time", self.WEEKLY_SUMMARY_TIME, "string"
                 )
             
             self._summary_settings_loaded = True
@@ -856,18 +867,18 @@ class Settings:
             return
         
         try:
-            with session:
+            with session as s:
                 self.COLLECTION_CRON = self._load_setting(
-                    session, "collection_cron", self.COLLECTION_CRON, "string"
+                    s, "collection_cron", self.COLLECTION_CRON, "string"
                 )
                 self.COLLECTION_INTERVAL_HOURS = self._load_setting(
-                    session, "collection_interval_hours", self.COLLECTION_INTERVAL_HOURS, "int"
+                    s, "collection_interval_hours", self.COLLECTION_INTERVAL_HOURS, "int"
                 )
                 self.MAX_ARTICLES_PER_SOURCE = self._load_setting(
-                    session, "max_articles_per_source", self.MAX_ARTICLES_PER_SOURCE, "int"
+                    s, "max_articles_per_source", self.MAX_ARTICLES_PER_SOURCE, "int"
                 )
                 self.REQUEST_TIMEOUT = self._load_setting(
-                    session, "request_timeout", self.REQUEST_TIMEOUT, "int"
+                    s, "request_timeout", self.REQUEST_TIMEOUT, "int"
                 )
             
             self._collector_settings_loaded = True
@@ -928,22 +939,22 @@ class Settings:
             return
         
         try:
-            with session:
+            with session as s:
                 self.NOTIFICATION_PLATFORM = self._load_setting(
-                    session, "notification_platform", self.NOTIFICATION_PLATFORM, "string"
+                    s, "notification_platform", self.NOTIFICATION_PLATFORM, "string"
                 )
                 self.NOTIFICATION_WEBHOOK_URL = self._load_setting(
-                    session, "notification_webhook_url", self.NOTIFICATION_WEBHOOK_URL, "string"
+                    s, "notification_webhook_url", self.NOTIFICATION_WEBHOOK_URL, "string"
                 )
                 self.NOTIFICATION_SECRET = self._load_setting(
-                    session, "notification_secret", self.NOTIFICATION_SECRET, "string"
+                    s, "notification_secret", self.NOTIFICATION_SECRET, "string"
                 )
                 self.INSTANT_NOTIFICATION_ENABLED = self._load_setting(
-                    session, "instant_notification_enabled", self.INSTANT_NOTIFICATION_ENABLED, "bool"
+                    s, "instant_notification_enabled", self.INSTANT_NOTIFICATION_ENABLED, "bool"
                 )
-                
+
                 quiet_hours_json = self._load_setting(
-                    session, "notification_quiet_hours", "[]", "string"
+                    s, "notification_quiet_hours", "[]", "string"
                 )
                 try:
                     self.QUIET_HOURS = json.loads(quiet_hours_json) if quiet_hours_json else []
@@ -1027,30 +1038,30 @@ class Settings:
             return
 
         try:
-            with session:
+            with session as s:
                 self.YOUTUBE_API_KEY = self._load_setting(
-                    session, "youtube_api_key", None, "string"
+                    s, "youtube_api_key", None, "string"
                 )
                 self.TIKTOK_API_KEY = self._load_setting(
-                    session, "tiktok_api_key", None, "string"
+                    s, "tiktok_api_key", None, "string"
                 )
                 self.TWITTER_API_KEY = self._load_setting(
-                    session, "twitter_api_key", None, "string"
+                    s, "twitter_api_key", None, "string"
                 )
                 self.REDDIT_CLIENT_ID = self._load_setting(
-                    session, "reddit_client_id", None, "string"
+                    s, "reddit_client_id", None, "string"
                 )
                 self.REDDIT_CLIENT_SECRET = self._load_setting(
-                    session, "reddit_client_secret", None, "string"
+                    s, "reddit_client_secret", None, "string"
                 )
                 self.REDDIT_USER_AGENT = self._load_setting(
-                    session, "reddit_user_agent", None, "string"
+                    s, "reddit_user_agent", None, "string"
                 )
                 self.SOCIAL_MEDIA_AUTO_REPORT_ENABLED = self._load_setting(
-                    session, "social_media_auto_report_enabled", False, "bool"
+                    s, "social_media_auto_report_enabled", False, "bool"
                 )
                 self.SOCIAL_MEDIA_AUTO_REPORT_TIME = self._load_setting(
-                    session, "social_media_auto_report_time", "09:00", "string"
+                    s, "social_media_auto_report_time", "09:00", "string"
                 )
             
             logger.debug(

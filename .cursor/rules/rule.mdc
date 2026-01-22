@@ -1,0 +1,26 @@
+---
+alwaysApply: true
+---
+# Overview
+
+# 命令行问题
+
+* 命令行多个命令之间使用分号分隔，不要使用 && 分隔。
+* 命令行中的中文会有编码问题，测试命令不要使用中文。
+
+# 编码问题
+* get_db().get_session() 返回的是 context manager（GeneratorContextManager），而不是 Session 对象。
+
+错误用法：
+session = self._get_db_session()  # 返回 context manager
+with session:  # ❌ session 仍是 context manager
+    self.AUTO_COLLECTION_ENABLED = self._load_setting(
+        session, "auto_collection_enabled", ...  # ❌ 传递 context manager，不是 Session
+    )
+
+正确用法：
+session = self._get_db_session()  # 返回 context manager
+with session as s:  # ✅ s 是真正的 Session 对象
+    self.AUTO_COLLECTION_ENABLED = self._load_setting(
+        s, "auto_collection_enabled", ...  # ✅ 传递 Session
+    )
