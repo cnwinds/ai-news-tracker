@@ -322,16 +322,17 @@ class SummaryGenerator:
         articles_str = ""
         for i, article in enumerate(important_articles, 1):
             importance_emoji = "🔴" if article.get("importance") == "high" else "🟡" if article.get("importance") == "medium" else "⚪"
+            article_id = article.get('id', 'N/A')
             # 周报需要更详细的信息
             if summary_type == "weekly":
                 articles_str += f"""
-{i}. {importance_emoji} [{article.get('source', 'Unknown')}] {article.get('title', 'N/A')}
+{i}. {importance_emoji} [ID: {article_id}] [{article.get('source', 'Unknown')}] {article.get('title', 'N/A')}
    发布时间: {article.get('published_at', datetime.now()).strftime('%Y-%m-%d %H:%M')}
    摘要: {article.get('summary', '')[:1000]}
 """
             else:
                 articles_str += f"""
-{i}. {importance_emoji} [{article.get('source', 'Unknown')}] {article.get('title', 'N/A')}
+{i}. {importance_emoji} [ID: {article_id}] [{article.get('source', 'Unknown')}] {article.get('title', 'N/A')}
    发布时间: {article.get('published_at', datetime.now()).strftime('%Y-%m-%d %H:%M')}
    摘要: {article.get('summary', '')[:1000]}...
 """
