@@ -314,9 +314,9 @@ class SummaryGenerator:
 
         # 选择最重要的文章（周报使用更多文章，日报保持原样）
         if summary_type == "weekly":
-            important_articles = articles_data[:50]  # 周报使用更多文章进行分析
+            important_articles = articles_data[:300]  # 周报使用更多文章进行分析
         else:
-            important_articles = articles_data[:20]
+            important_articles = articles_data[:100]
 
         # 构建文章列表
         articles_str = ""
@@ -327,13 +327,13 @@ class SummaryGenerator:
                 articles_str += f"""
 {i}. {importance_emoji} [{article.get('source', 'Unknown')}] {article.get('title', 'N/A')}
    发布时间: {article.get('published_at', datetime.now()).strftime('%Y-%m-%d %H:%M')}
-   摘要: {article.get('summary', '')[:300]}
+   摘要: {article.get('summary', '')[:1000]}
 """
             else:
                 articles_str += f"""
 {i}. {importance_emoji} [{article.get('source', 'Unknown')}] {article.get('title', 'N/A')}
    发布时间: {article.get('published_at', datetime.now()).strftime('%Y-%m-%d %H:%M')}
-   摘要: {article.get('summary', '')[:200]}...
+   摘要: {article.get('summary', '')[:1000]}...
 """
 
         settings.load_settings_from_db()
