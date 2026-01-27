@@ -168,22 +168,53 @@ class SummaryGenerator:
             temperature = 0.3
             max_tokens = 2000
         
-        summary_content = self.ai_analyzer.client.chat.completions.create(
-            model=self.ai_analyzer.model,
-            messages=[
-                {
-                    "role": "system",
-                    "content": system_prompt
-                },
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ],
-            temperature=temperature,
-            max_tokens=max_tokens
-        )
-        summary_text = summary_content.choices[0].message.content
+        try:
+            logger.info(f"🤖 调用LLM生成{summary_type}总结，模型: {self.ai_analyzer.model}, 文章数: {len(articles_data)}")
+            logger.debug(f"   提示词长度: {len(prompt)} 字符")
+            logger.debug(f"   系统提示词长度: {len(system_prompt)} 字符")
+            
+            summary_content = self.ai_analyzer.client.chat.completions.create(
+                model=self.ai_analyzer.model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": system_prompt
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                temperature=temperature,
+                max_tokens=max_tokens
+            )
+            summary_text = summary_content.choices[0].message.content
+            logger.info(f"✅ LLM生成成功，响应长度: {len(summary_text)} 字符")
+        except Exception as e:
+            # 记录详细的错误信息
+            error_type = type(e).__name__
+            error_msg = str(e)
+            logger.error(f"❌ LLM调用失败: {error_type}: {error_msg}")
+            logger.error(f"   摘要类型: {summary_type}")
+            logger.error(f"   模型: {self.ai_analyzer.model}")
+            logger.error(f"   文章数: {len(articles_data)}")
+            logger.error(f"   提示词长度: {len(prompt)} 字符")
+            logger.error(f"   系统提示词长度: {len(system_prompt)} 字符")
+            logger.error(f"   temperature: {temperature}, max_tokens: {max_tokens}")
+            
+            # 如果是 API 错误，尝试获取更多详细信息
+            if hasattr(e, 'response'):
+                try:
+                    if hasattr(e.response, 'text'):
+                        logger.error(f"   API响应内容: {e.response.text[:500]}")
+                    if hasattr(e.response, 'status_code'):
+                        logger.error(f"   HTTP状态码: {e.response.status_code}")
+                except Exception:
+                    pass
+            
+            # 记录完整的异常堆栈
+            logger.exception("完整异常堆栈:")
+            raise
 
         # 提取关键主题
         key_topics = self._extract_topics(articles_data)

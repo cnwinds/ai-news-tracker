@@ -2,11 +2,14 @@
 摘要相关 API 端点
 """
 import asyncio
+import logging
 from datetime import datetime, timedelta
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 from backend.app.api.v1.endpoints.settings import require_auth
 from backend.app.core.dependencies import get_collection_service, get_database
@@ -200,5 +203,10 @@ async def generate_summary(
     except HTTPException:
         raise
     except Exception as e:
+        # 记录详细的错误信息
+        logger.error(f"❌ 生成摘要失败: {str(e)}", exc_info=True)
+        logger.error(f"   摘要类型: {request.summary_type}")
+        logger.error(f"   日期/周: {request.date or request.week or '默认'}")
+        logger.error(f"   错误类型: {type(e).__name__}")
         raise HTTPException(status_code=500, detail=f"生成摘要失败: {str(e)}")
 
