@@ -105,19 +105,23 @@ export default function DailySummary() {
     queryKey: ['summaryPromptSettings'],
     queryFn: () => apiService.getSummaryPromptSettings(),
     enabled: generateModalVisible,
+    staleTime: 0, // 禁用缓存，每次都重新获取
+    gcTime: 0, // React Query v5 使用 gcTime 替代 cacheTime
+    refetchOnMount: true, // 每次挂载时重新获取
   });
   
   // 存储已加载的摘要详情
   const [loadedDetails, setLoadedDetails] = useState<Map<number, SummaryFieldsResponse>>(new Map());
 
   useEffect(() => {
-    if (summaryPromptSettings) {
+    // 当对话框打开且数据加载完成时，设置表单值
+    if (generateModalVisible && summaryPromptSettings && !summaryPromptLoading) {
       promptForm.setFieldsValue({
-        daily_summary_prompt: summaryPromptSettings.daily_summary_prompt,
-        weekly_summary_prompt: summaryPromptSettings.weekly_summary_prompt,
+        daily_summary_prompt: summaryPromptSettings.daily_summary_prompt || '',
+        weekly_summary_prompt: summaryPromptSettings.weekly_summary_prompt || '',
       });
     }
-  }, [summaryPromptSettings, promptForm]);
+  }, [generateModalVisible, summaryPromptSettings, summaryPromptLoading, promptForm]);
 
   const generateMutation = useMutation({
     mutationFn: (data: SummaryGenerateRequest) =>
@@ -517,6 +521,8 @@ export default function DailySummary() {
             setGenerateModalVisible(false);
             setPromptSettingsVisible(false);
             form.resetFields();
+            // 提示词表单在对话框打开时会自动从服务器加载，所以这里可以清空
+            // 但不清空也可以，因为下次打开时会重新加载
             promptForm.resetFields();
             setSelectedWeekDate(null);
             setHoveredWeekDate(null);
