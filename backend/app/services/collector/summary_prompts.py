@@ -69,9 +69,6 @@ DEFAULT_WEEKLY_SUMMARY_PROMPT_TEMPLATE = """# 任务 (Mission)
 **三、 未来展望 (Future Outlook)**
 *   （综合本周观察，我们判断未来几周内，行业需要密切关注...。特别是...方面的动向，可能会成为下一个引爆点。）
 
-**四、 本周重点文章链接 (Key Articles Links)**
-*   列出本周最重要的5-10篇文章，使用Markdown链接格式：[文章标题（来源）](链接)。
-
 ---
 
 # 关键要求 (Key Requirements)
@@ -80,7 +77,6 @@ DEFAULT_WEEKLY_SUMMARY_PROMPT_TEMPLATE = """# 任务 (Mission)
 *   **观点鲜明**：在分析和解读部分，要敢于提出你基于信息的判断和观点。
 *   **逻辑清晰**：确保现象、解读和影响之间的逻辑链条是清晰且有说服力的。
 *   **语言专业**：使用专业、精炼、客观的商业分析语言。
-*   **链接要求**：如果输出中提到具体文章标题，必须使用Markdown链接，链接使用输入中提供的“链接”字段。
 
 # 本周新闻素材 (Weekly News Input)
 
