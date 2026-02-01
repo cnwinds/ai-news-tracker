@@ -543,10 +543,15 @@ class TaskScheduler:
                                 if existing_post.has_value is not None:
                                     temp_post.has_value = existing_post.has_value
 
-            # AI分析(异步执行) - 只对新保存的帖子进行分析
+            # AI分析(后台执行) - 只对新保存的帖子进行分析
             if saved_post_ids:
-                import asyncio
-                asyncio.create_task(self._analyze_posts_async(collector, saved_post_ids))
+                import threading
+                threading.Thread(
+                    target=self._analyze_posts,
+                    args=(collector, saved_post_ids),
+                    name="social-media-post-analyzer",
+                    daemon=True,
+                ).start()
 
             # 生成报告
             report_date = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
@@ -576,10 +581,9 @@ class TaskScheduler:
         except Exception as e:
             logger.error(f"❌ 社交平台AI小报生成任务执行失败: {e}", exc_info=True)
 
-    def _analyze_posts_async(self, collector, post_ids):
-        """异步分析帖子"""
+    def _analyze_posts(self, collector, post_ids):
+        """后台分析帖子"""
         try:
-            import asyncio
             from backend.app.db import get_db
             db = get_db()
             with db.get_session() as session:
