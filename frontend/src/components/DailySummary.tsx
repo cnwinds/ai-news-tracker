@@ -17,7 +17,7 @@ import {
   Alert,
   Input,
 } from 'antd';
-import { PlusOutlined, ReloadOutlined, DeleteOutlined, DownOutlined, UpOutlined, SettingOutlined } from '@ant-design/icons';
+import { PlusOutlined, ReloadOutlined, DeleteOutlined, DownOutlined, UpOutlined, SettingOutlined, ShareAltOutlined } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiService } from '@/services/api';
 import { useMessage } from '@/hooks/useMessage';
@@ -37,6 +37,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { createMarkdownComponents, remarkGfm } from '@/utils/markdown';
 import { getThemeColor, getSelectedStyle } from '@/utils/theme';
+import { copyToClipboard } from '@/utils/clipboard';
 
 dayjs.extend(weekOfYear);
 dayjs.extend(isoWeek);
@@ -241,6 +242,18 @@ export default function DailySummary() {
 
     // 调用重新生成
     regenerateMutation.mutate(requestData);
+  };
+
+  const handleShareLink = (summaryId: number) => {
+    const shareUrl = `${window.location.origin}/share/summary/${summaryId}`;
+    void copyToClipboard(
+      shareUrl,
+      {
+        onSuccess: (msg) => message.success(msg),
+        onInfo: (msg) => message.info(msg),
+      },
+      '分享链接已复制'
+    );
   };
 
   const handleDelete = (id: number) => {
@@ -485,6 +498,13 @@ export default function DailySummary() {
                               </Button>
                             </>
                           )}
+                          <Button
+                            type="default"
+                            icon={<ShareAltOutlined />}
+                            onClick={() => handleShareLink(summary.id)}
+                          >
+                            分享
+                          </Button>
                           <Button
                             type="default"
                             icon={<UpOutlined />}

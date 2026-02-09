@@ -9,6 +9,7 @@ import AccessTracker from '@/components/AccessTracker';
 import Dashboard from '@/pages/Dashboard';
 import Login from '@/pages/Login';
 import ShareArticle from '@/pages/ShareArticle';
+import ShareSummary from '@/pages/ShareSummary';
 import './App.css';
 
 const STALE_TIME = 5 * 60 * 1000;
@@ -40,6 +41,7 @@ function AppContent() {
             <Route path="/login" element={<Login />} />
             <Route path="/" element={<Dashboard />} />
             <Route path="/share/:id" element={<ShareArticle />} />
+            <Route path="/share/summary/:id" element={<ShareSummary />} />
           </Routes>
         </BrowserRouter>
       </AntdApp>
