@@ -9,6 +9,7 @@ from backend.app.api.v1.endpoints import (
     auth,
     cleanup,
     collection,
+    exploration,
     rag,
     settings,
     social_media,
@@ -34,6 +35,7 @@ _ROUTES = [
     (auth, "/auth", ["auth"]),
     (social_media, "/social-media", ["social-media"]),
     (analytics, "/analytics", ["analytics"]),
+    (exploration, "/exploration", ["exploration"]),
 ]
 
 # 注册所有路由

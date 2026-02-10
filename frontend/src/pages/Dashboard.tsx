@@ -10,6 +10,7 @@ import {
   LoginOutlined,
   LogoutOutlined,
   ShareAltOutlined,
+  RocketOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import ArticleList from '@/components/ArticleList';
@@ -19,6 +20,7 @@ import SystemSettings from '@/components/SystemSettings';
 import GlobalNavigation from '@/components/GlobalNavigation';
 import AIConversationModal from '@/components/AIConversationModal';
 import SocialMediaReport from '@/components/SocialMediaReport';
+import ModelExplorer from '@/components/ModelExplorer';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useQueryClient } from '@tanstack/react-query';
@@ -64,6 +66,16 @@ export default function Dashboard() {
         </span>
       ),
       children: <DailySummary />,
+    },
+    {
+      key: 'exploration',
+      label: (
+        <span>
+          <RocketOutlined />
+          模型先知
+        </span>
+      ),
+      children: <ModelExplorer />,
     },
     {
       key: 'social-media',

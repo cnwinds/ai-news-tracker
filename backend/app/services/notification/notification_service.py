@@ -434,6 +434,50 @@ class NotificationService:
                 )
             return False
 
+    def send_exploration_report_alert(
+        self,
+        report_data: Dict[str, Any],
+        db: Optional[Union[Session, DatabaseManager]] = None,
+    ) -> bool:
+        """
+        发送模型先知报告通知
+
+        Args:
+            report_data: 报告信息
+            db: 数据库会话（可选）
+
+        Returns:
+            是否发送成功
+        """
+        try:
+            if self.platform == "feishu":
+                content = self._build_feishu_exploration_report_message(report_data)
+            else:  # dingtalk
+                content = self._build_dingtalk_exploration_report_message(report_data)
+
+            success = self._send_message(content)
+
+            if db:
+                self._log_notification(
+                    db=db,
+                    notification_type="exploration_report",
+                    status="success" if success else "error",
+                    articles_count=1,
+                    error_message=None if success else "发送失败",
+                )
+            return success
+        except Exception as e:
+            logger.error(f"❌ 发送模型先知报告通知失败: {e}", exc_info=True)
+            if db:
+                self._log_notification(
+                    db=db,
+                    notification_type="exploration_report",
+                    status="error",
+                    articles_count=1,
+                    error_message=str(e),
+                )
+            return False
+
     def _build_feishu_summary_message(
         self,
         summary_content: str
@@ -543,3 +587,92 @@ class NotificationService:
         }
         
         return content
+
+    def _build_feishu_exploration_report_message(self, report_data: Dict[str, Any]) -> Dict[str, Any]:
+        """构建飞书模型先知报告通知消息"""
+        model_name = str(report_data.get("model_name") or "未知模型")
+        source_platform = str(report_data.get("source_platform") or "unknown")
+        final_score = report_data.get("final_score")
+        release_confidence = report_data.get("release_confidence")
+        report_id = str(report_data.get("report_id") or "")
+        summary = str(report_data.get("summary") or "报告已生成，可进入系统查看详情。").strip()
+        export_url = str(report_data.get("export_url") or "").strip()
+
+        try:
+            final_score_text = f"{float(final_score):.1f}/100"
+        except (TypeError, ValueError):
+            final_score_text = "N/A"
+        try:
+            confidence_text = f"{float(release_confidence):.1f}/100"
+        except (TypeError, ValueError):
+            confidence_text = "N/A"
+
+        lines = [
+            "## 🔭 模型先知新报告",
+            f"- 模型：**{model_name}**",
+            f"- 来源：{source_platform}",
+            f"- 综合评分：{final_score_text}",
+            f"- 发布置信度：{confidence_text}",
+        ]
+        if report_id:
+            lines.append(f"- 报告ID：`{report_id}`")
+        lines.extend(["", summary[:400]])
+        if export_url:
+            lines.extend(["", f"[导出报告]({export_url})"])
+
+        return {
+            "msg_type": "interactive",
+            "card": {
+                "config": {"wide_screen_mode": True},
+                "elements": [
+                    {
+                        "tag": "div",
+                        "text": {
+                            "tag": "lark_md",
+                            "content": "\n".join(lines),
+                        },
+                    }
+                ],
+            },
+        }
+
+    def _build_dingtalk_exploration_report_message(self, report_data: Dict[str, Any]) -> Dict[str, Any]:
+        """构建钉钉模型先知报告通知消息"""
+        model_name = str(report_data.get("model_name") or "未知模型")
+        source_platform = str(report_data.get("source_platform") or "unknown")
+        final_score = report_data.get("final_score")
+        release_confidence = report_data.get("release_confidence")
+        report_id = str(report_data.get("report_id") or "")
+        summary = str(report_data.get("summary") or "报告已生成，可进入系统查看详情。").strip()
+        export_url = str(report_data.get("export_url") or "").strip()
+
+        try:
+            final_score_text = f"{float(final_score):.1f}/100"
+        except (TypeError, ValueError):
+            final_score_text = "N/A"
+        try:
+            confidence_text = f"{float(release_confidence):.1f}/100"
+        except (TypeError, ValueError):
+            confidence_text = "N/A"
+
+        text_lines = [
+            "## 🔭 模型先知新报告",
+            "",
+            f"- 模型：**{model_name}**",
+            f"- 来源：{source_platform}",
+            f"- 综合评分：{final_score_text}",
+            f"- 发布置信度：{confidence_text}",
+        ]
+        if report_id:
+            text_lines.append(f"- 报告ID：`{report_id}`")
+        text_lines.extend(["", summary[:400]])
+        if export_url:
+            text_lines.extend(["", f"[导出报告]({export_url})"])
+
+        return {
+            "msgtype": "markdown",
+            "markdown": {
+                "title": "模型先知新报告",
+                "text": "\n".join(text_lines),
+            },
+        }

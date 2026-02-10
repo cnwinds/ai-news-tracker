@@ -40,6 +40,18 @@ import type {
   SocialMediaStats,
   SocialMediaSettings,
   AccessStatsResponse,
+  ExplorationTaskCreateRequest,
+  ExplorationTaskStartResponse,
+  ExplorationTask,
+  ExplorationTaskListResponse,
+  ExplorationConfig,
+  DiscoveredModelListResponse,
+  ExplorationModelDetailResponse,
+  ExplorationReportListResponse,
+  ExplorationReport,
+  ExplorationStatistics,
+  ExplorationModelMarkRequest,
+  ExplorationGenerateReportResponse,
 } from '@/types';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1';
@@ -818,6 +830,150 @@ class ApiService {
 
     return this.handleRequest(
       this.client.get<SocialMediaPost[]>(`/social-media/posts?${queryParams.toString()}`)
+    );
+  }
+
+  // 自主探索相关
+  async getExplorationConfig(): Promise<ExplorationConfig> {
+    return this.handleRequest(
+      this.client.get<ExplorationConfig>('/exploration/config')
+    );
+  }
+
+  async updateExplorationConfig(data: ExplorationConfig): Promise<ExplorationConfig> {
+    return this.handleRequest(
+      this.client.put<ExplorationConfig>('/exploration/config', data)
+    );
+  }
+
+  async startExplorationTask(request: ExplorationTaskCreateRequest): Promise<ExplorationTaskStartResponse> {
+    return this.handleRequest(
+      this.client.post<ExplorationTaskStartResponse>('/exploration/start', request)
+    );
+  }
+
+  async getExplorationTask(taskId: string): Promise<ExplorationTask> {
+    return this.handleRequest(
+      this.client.get<ExplorationTask>(`/exploration/tasks/${taskId}`)
+    );
+  }
+
+  async getExplorationTasks(params?: {
+    status?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<ExplorationTaskListResponse> {
+    const queryParams = new URLSearchParams();
+    if (params?.status) queryParams.append('status', params.status);
+    if (params?.limit) queryParams.append('limit', params.limit.toString());
+    if (params?.offset) queryParams.append('offset', params.offset.toString());
+    const suffix = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return this.handleRequest(
+      this.client.get<ExplorationTaskListResponse>(`/exploration/tasks${suffix}`)
+    );
+  }
+
+  async getDiscoveredModels(params?: {
+    sort_by?: 'final_score' | 'release_date' | 'github_stars' | 'created_at';
+    order?: 'asc' | 'desc';
+    min_score?: number;
+    min_release_confidence?: number;
+    model_type?: string;
+    source_platform?: string;
+    is_notable?: boolean;
+    has_report?: boolean;
+    q?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<DiscoveredModelListResponse> {
+    const queryParams = new URLSearchParams();
+    if (params?.sort_by) queryParams.append('sort_by', params.sort_by);
+    if (params?.order) queryParams.append('order', params.order);
+    if (params?.min_score !== undefined) queryParams.append('min_score', params.min_score.toString());
+    if (params?.min_release_confidence !== undefined) {
+      queryParams.append('min_release_confidence', params.min_release_confidence.toString());
+    }
+    if (params?.model_type) queryParams.append('model_type', params.model_type);
+    if (params?.source_platform) queryParams.append('source_platform', params.source_platform);
+    if (params?.is_notable !== undefined) queryParams.append('is_notable', String(params.is_notable));
+    if (params?.has_report !== undefined) queryParams.append('has_report', String(params.has_report));
+    if (params?.q) queryParams.append('q', params.q);
+    if (params?.limit) queryParams.append('limit', params.limit.toString());
+    if (params?.offset) queryParams.append('offset', params.offset.toString());
+    const suffix = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return this.handleRequest(
+      this.client.get<DiscoveredModelListResponse>(`/exploration/models${suffix}`)
+    );
+  }
+
+  async getExplorationModel(modelId: number): Promise<ExplorationModelDetailResponse> {
+    return this.handleRequest(
+      this.client.get<ExplorationModelDetailResponse>(`/exploration/models/${modelId}`)
+    );
+  }
+
+  async markExplorationModel(modelId: number, data: ExplorationModelMarkRequest): Promise<{ message: string; model_id: number }> {
+    return this.handleRequest(
+      this.client.post<{ message: string; model_id: number }>(`/exploration/models/${modelId}/mark`, data)
+    );
+  }
+
+  async generateExplorationReport(
+    modelId: number,
+    params?: { run_mode?: 'auto' | 'agent' | 'deterministic' }
+  ): Promise<ExplorationGenerateReportResponse> {
+    const queryParams = new URLSearchParams();
+    if (params?.run_mode) queryParams.append('run_mode', params.run_mode);
+    const suffix = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return this.handleRequest(
+      this.client.post<ExplorationGenerateReportResponse>(`/exploration/models/${modelId}/generate-report${suffix}`)
+    );
+  }
+
+  async getExplorationReports(params?: {
+    model_id?: number;
+    sort_by?: 'generated_at';
+    order?: 'asc' | 'desc';
+    limit?: number;
+    offset?: number;
+  }): Promise<ExplorationReportListResponse> {
+    const queryParams = new URLSearchParams();
+    if (params?.model_id !== undefined) queryParams.append('model_id', params.model_id.toString());
+    if (params?.sort_by) queryParams.append('sort_by', params.sort_by);
+    if (params?.order) queryParams.append('order', params.order);
+    if (params?.limit) queryParams.append('limit', params.limit.toString());
+    if (params?.offset) queryParams.append('offset', params.offset.toString());
+    const suffix = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return this.handleRequest(
+      this.client.get<ExplorationReportListResponse>(`/exploration/reports${suffix}`)
+    );
+  }
+
+  async getExplorationReport(reportId: string): Promise<ExplorationReport> {
+    return this.handleRequest(
+      this.client.get<ExplorationReport>(`/exploration/reports/${reportId}`)
+    );
+  }
+
+  async deleteExplorationReport(reportId: string): Promise<{
+    message: string;
+    report_id: string;
+    model_id?: number;
+    remaining_reports?: number;
+  }> {
+    return this.handleRequest(
+      this.client.delete<{
+        message: string;
+        report_id: string;
+        model_id?: number;
+        remaining_reports?: number;
+      }>(`/exploration/reports/${reportId}`)
+    );
+  }
+
+  async getExplorationStatistics(): Promise<ExplorationStatistics> {
+    return this.handleRequest(
+      this.client.get<ExplorationStatistics>('/exploration/statistics')
     );
   }
 

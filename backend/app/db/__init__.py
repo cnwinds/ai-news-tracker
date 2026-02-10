@@ -143,7 +143,10 @@ class DatabaseManager:
             
             # 迁移：添加 detailed_summary 字段并迁移现有 summary 数据
             self._migrate_add_detailed_summary()
-            
+
+            # 升级：探索模型唯一标识（从 model_name 迁移到 source_platform+source_uid）
+            self._upgrade_exploration_model_identity()
+             
             logger.info("✅ 数据库基础表初始化成功")
         except Exception as e:
             logger.error(f"❌ 数据库初始化失败: {e}")
@@ -302,6 +305,19 @@ class DatabaseManager:
         except Exception as e:
             # 如果升级失败，记录但不中断
             logger.warning(f"⚠️  升级sub_type字段失败: {e}")
+
+    def _upgrade_exploration_model_identity(self):
+        """升级：探索模型唯一标识改为 source_platform+source_uid"""
+        try:
+            from backend.app.db.migrations.upgrade_exploration_model_identity import (
+                upgrade_exploration_model_identity,
+            )
+
+            upgraded = upgrade_exploration_model_identity(self.engine)
+            if upgraded:
+                logger.info("✅ exploration 模型标识升级完成")
+        except Exception as e:
+            logger.warning(f"⚠️  exploration 模型标识升级失败: {e}")
 
     def _migrate_add_detailed_summary(self):
         """迁移：为 articles 表添加 detailed_summary 字段，并将现有 summary 数据迁移到 detailed_summary"""

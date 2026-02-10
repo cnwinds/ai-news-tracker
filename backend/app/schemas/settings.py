@@ -1,7 +1,7 @@
 """
 配置相关的 Pydantic 模型
 """
-from typing import Optional, List
+from typing import Literal, Optional, List
 from pydantic import BaseModel, Field
 
 
@@ -36,7 +36,10 @@ class SummaryPromptSettings(BaseModel):
 class LLMProviderBase(BaseModel):
     """LLM提供商基础模型"""
     name: str = Field(..., description="提供商名称")
-    provider_type: str = Field(default="大模型(OpenAI)", description="提供商类型：大模型(OpenAI)")
+    provider_type: str = Field(
+        default="大模型(OpenAI)",
+        description="提供商类型：大模型(OpenAI)/大模型(Anthropic)",
+    )
     api_key: str = Field(..., description="API密钥")
     api_base: str = Field(..., description="API基础URL")
     llm_model: str = Field(..., description="大模型名称")
@@ -52,7 +55,10 @@ class LLMProviderCreate(LLMProviderBase):
 class LLMProviderUpdate(BaseModel):
     """更新LLM提供商模型"""
     name: Optional[str] = Field(None, description="提供商名称")
-    provider_type: Optional[str] = Field(None, description="提供商类型：大模型(OpenAI)")
+    provider_type: Optional[str] = Field(
+        None,
+        description="提供商类型：大模型(OpenAI)/大模型(Anthropic)",
+    )
     api_key: Optional[str] = Field(None, description="API密钥")
     api_base: Optional[str] = Field(None, description="API基础URL")
     llm_model: Optional[str] = Field(None, description="大模型名称")
@@ -74,6 +80,22 @@ class LLMSettings(BaseModel):
     selected_embedding_provider_id: Optional[int] = Field(None, description="选定的向量模型提供商ID")
     selected_llm_models: Optional[List[str]] = Field(None, description="选定的LLM模型列表")
     selected_embedding_models: Optional[List[str]] = Field(None, description="选定的向量模型列表")
+    exploration_execution_mode: Optional[Literal["auto", "agent", "deterministic"]] = Field(
+        default="auto",
+        description="自主探索执行模式",
+    )
+    exploration_use_independent_provider: Optional[bool] = Field(
+        default=False,
+        description="自主探索是否使用独立模型提供商",
+    )
+    selected_exploration_provider_id: Optional[int] = Field(
+        default=None,
+        description="自主探索独立模型提供商ID",
+    )
+    selected_exploration_models: Optional[List[str]] = Field(
+        default=None,
+        description="自主探索独立模型列表",
+    )
 
 
 class CollectorSettings(BaseModel):

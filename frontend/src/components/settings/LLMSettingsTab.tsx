@@ -124,10 +124,17 @@ export default function LLMSettingsTab() {
         ? `${llmSettings.selected_embedding_provider_id}:${llmSettings.selected_embedding_models[0]}`
         : null;
 
+      const selectedExplorationProviderAndModel = llmSettings.selected_exploration_provider_id && llmSettings.selected_exploration_models?.length
+        ? `${llmSettings.selected_exploration_provider_id}:${llmSettings.selected_exploration_models[0]}`
+        : null;
+
       safeSetFieldsValue(llmForm, {
         ...llmSettings,
         selected_llm_provider_id: selectedProviderAndModel,
         selected_embedding_provider_id: selectedEmbeddingProviderAndModel,
+        selected_exploration_provider_id: selectedExplorationProviderAndModel,
+        exploration_execution_mode: llmSettings.exploration_execution_mode || 'auto',
+        exploration_use_independent_provider: llmSettings.exploration_use_independent_provider || false,
       });
     }
   }, [llmSettings, llmForm]);
@@ -158,12 +165,27 @@ export default function LLMSettingsTab() {
         selected_embedding_models = [modelName];
       }
     }
+
+    const explorationProviderAndModel = values.selected_exploration_provider_id;
+    let selected_exploration_provider_id: number | null = null;
+    let selected_exploration_models: string[] = [];
+    if (explorationProviderAndModel && typeof explorationProviderAndModel === 'string') {
+      const [providerId, modelName] = explorationProviderAndModel.split(':');
+      if (providerId && modelName) {
+        selected_exploration_provider_id = parseInt(providerId, 10);
+        selected_exploration_models = [modelName];
+      }
+    }
     
     updateLLMMutation.mutate({
       selected_llm_provider_id,
       selected_embedding_provider_id,
       selected_llm_models,
       selected_embedding_models,
+      exploration_execution_mode: values.exploration_execution_mode || 'auto',
+      exploration_use_independent_provider: values.exploration_use_independent_provider || false,
+      selected_exploration_provider_id,
+      selected_exploration_models,
     });
   };
 
@@ -194,6 +216,7 @@ export default function LLMSettingsTab() {
   // 获取已启用的提供商（用于选择）
   const enabledProviders = providers.filter(p => p.enabled);
   const embeddingProviders = providers.filter(p => p.enabled && p.embedding_model);
+  const explorationUseIndependentProvider = Form.useWatch('exploration_use_independent_provider', llmForm) || false;
 
   return (
     <Spin spinning={llmLoading || providersLoading}>
@@ -374,6 +397,55 @@ export default function LLMSettingsTab() {
               />
             </Form.Item>
 
+            <Card size="small" title="自主探索 Agent 模式" style={{ marginBottom: 24 }}>
+              <Form.Item
+                name="exploration_execution_mode"
+                label="执行模式"
+                tooltip="auto: 按配置自动选择，agent: 强制Agent模式，deterministic: 规则模式"
+                rules={[{ required: true, message: '请选择执行模式' }]}
+              >
+                <Select
+                  disabled={!isAuthenticated}
+                  options={[
+                    { label: '自动（推荐）', value: 'auto' },
+                    { label: 'Agent模式', value: 'agent' },
+                    { label: '规则模式', value: 'deterministic' },
+                  ]}
+                />
+              </Form.Item>
+
+              <Form.Item
+                name="exploration_use_independent_provider"
+                label="使用独立模型"
+                valuePropName="checked"
+                tooltip="开启后，自主探索可使用不同于全局LLM的独立模型配置"
+              >
+                <Switch disabled={!isAuthenticated} />
+              </Form.Item>
+
+              {explorationUseIndependentProvider && (
+                <Form.Item
+                  name="selected_exploration_provider_id"
+                  label="自主探索模型提供商"
+                  tooltip="选择自主探索 Agent 专用提供商和模型"
+                  rules={[{ required: true, message: '请选择自主探索模型提供商' }]}
+                >
+                  <Select
+                    placeholder="选择自主探索模型提供商"
+                    style={{ width: '100%' }}
+                    disabled={!isAuthenticated}
+                    options={enabledProviders.flatMap(p => {
+                      const models = p.llm_model.split(',').map(m => m.trim()).filter(m => m);
+                      return models.map(model => ({
+                        label: `${p.name}(${model})`,
+                        value: `${p.id}:${model}`,
+                      }));
+                    })}
+                  />
+                </Form.Item>
+              )}
+            </Card>
+
             <Form.Item>
               <Space>
                 <Button
@@ -389,7 +461,23 @@ export default function LLMSettingsTab() {
                   icon={<ReloadOutlined />}
                   onClick={() => {
                     if (llmSettings) {
-                      llmForm.setFieldsValue(llmSettings);
+                      const selectedProviderAndModel = llmSettings.selected_llm_provider_id && llmSettings.selected_llm_models?.length
+                        ? `${llmSettings.selected_llm_provider_id}:${llmSettings.selected_llm_models[0]}`
+                        : null;
+                      const selectedEmbeddingProviderAndModel = llmSettings.selected_embedding_provider_id && llmSettings.selected_embedding_models?.length
+                        ? `${llmSettings.selected_embedding_provider_id}:${llmSettings.selected_embedding_models[0]}`
+                        : null;
+                      const selectedExplorationProviderAndModel = llmSettings.selected_exploration_provider_id && llmSettings.selected_exploration_models?.length
+                        ? `${llmSettings.selected_exploration_provider_id}:${llmSettings.selected_exploration_models[0]}`
+                        : null;
+                      safeSetFieldsValue(llmForm, {
+                        ...llmSettings,
+                        selected_llm_provider_id: selectedProviderAndModel,
+                        selected_embedding_provider_id: selectedEmbeddingProviderAndModel,
+                        selected_exploration_provider_id: selectedExplorationProviderAndModel,
+                        exploration_execution_mode: llmSettings.exploration_execution_mode || 'auto',
+                        exploration_use_independent_provider: llmSettings.exploration_use_independent_provider || false,
+                      });
                     }
                   }}
                 >
@@ -436,6 +524,7 @@ export default function LLMSettingsTab() {
                 placeholder="选择类型"
                 options={[
                   { label: '大模型(OpenAI)', value: '大模型(OpenAI)' },
+                  { label: '大模型(Anthropic)', value: '大模型(Anthropic)' },
                 ]}
               />
             </Form.Item>

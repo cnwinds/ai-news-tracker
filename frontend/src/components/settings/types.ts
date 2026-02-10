@@ -14,6 +14,9 @@ export interface QuietHourFormValue {
 export interface LLMFormValues {
   selected_llm_provider_id: string | null;
   selected_embedding_provider_id: string | null;
+  exploration_execution_mode?: 'auto' | 'agent' | 'deterministic';
+  exploration_use_independent_provider?: boolean;
+  selected_exploration_provider_id?: string | null;
 }
 
 export interface ImageFormValues {

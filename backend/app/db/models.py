@@ -5,7 +5,6 @@ from datetime import datetime
 from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, Float, JSON, Index, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
-from sqlalchemy.sql import func
 
 Base = declarative_base()
 
@@ -374,3 +373,115 @@ class AccessLog(Base):
 
     def __repr__(self):
         return f"<AccessLog(id={self.id}, date={self.access_date}, user={self.user_id}, type={self.access_type})>"
+
+
+class ExplorationTask(Base):
+    """自主探索任务表"""
+    __tablename__ = "exploration_tasks"
+
+    __table_args__ = (
+        Index('idx_exploration_status_created', 'status', 'created_at'),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    task_id = Column(String(64), unique=True, nullable=False, index=True)  # 任务唯一标识
+    status = Column(String(20), nullable=False, index=True)  # pending/running/completed/failed
+    source = Column(String(50), nullable=False)  # 发现来源：github/huggingface/arxiv/all
+    model_name = Column(String(255), nullable=False)  # 模型名称
+    model_url = Column(String(512), nullable=True)  # 模型URL
+    discovery_time = Column(DateTime, nullable=False, index=True)  # 发现时间
+    start_time = Column(DateTime, nullable=True)  # 开始研究时间
+    end_time = Column(DateTime, nullable=True)  # 完成时间
+    error_message = Column(Text, nullable=True)  # 错误信息
+    progress = Column(JSON, nullable=True)  # 进度信息
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+
+    def __repr__(self):
+        return f"<ExplorationTask(id={self.id}, task_id='{self.task_id}', status='{self.status}')>"
+
+
+class DiscoveredModel(Base):
+    """发现的模型表"""
+    __tablename__ = "discovered_models"
+
+    __table_args__ = (
+        Index('idx_model_score_date', 'final_score', 'release_date'),
+        Index('idx_model_status_score', 'status', 'final_score'),
+        Index('idx_model_source_uid_unique', 'source_platform', 'source_uid', unique=True),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    model_name = Column(String(255), nullable=False, index=True)  # 模型名称（展示字段，不再作为唯一键）
+    model_type = Column(String(50), nullable=True)  # 模型类型：LLM/Vision/Audio/Multimodal等
+    organization = Column(String(255), nullable=True)  # 发布组织
+    release_date = Column(DateTime, nullable=True, index=True)  # 发布日期
+    source_platform = Column(String(50), nullable=False)  # 来源平台：github/huggingface/modelscope/arxiv
+    source_uid = Column(String(512), nullable=False, index=True)  # 源内唯一标识（如 owner/repo、org/model、arxiv_id）
+    github_url = Column(String(512), nullable=True)  # GitHub地址
+    paper_url = Column(String(512), nullable=True)  # 论文地址
+    model_url = Column(String(512), nullable=True)  # 模型地址（HF等）
+    license = Column(String(50), nullable=True)  # 开源协议
+    description = Column(Text, nullable=True)  # 描述
+
+    # 影响力指标
+    github_stars = Column(Integer, default=0)
+    github_forks = Column(Integer, default=0)
+    paper_citations = Column(Integer, default=0)
+    social_mentions = Column(Integer, default=0)
+
+    # 评分
+    impact_score = Column(Float, nullable=True)  # 影响力评分（0-100）
+    quality_score = Column(Float, nullable=True)  # 质量评分（0-100）
+    innovation_score = Column(Float, nullable=True)  # 创新性评分（0-100）
+    practicality_score = Column(Float, nullable=True)  # 实用性评分（0-100）
+    final_score = Column(Float, nullable=True, index=True)  # 综合评分（0-100）
+
+    # 元数据
+    status = Column(String(20), default='discovered', index=True)  # discovered/evaluated/analyzed/reported
+    is_notable = Column(Boolean, default=False, index=True)  # 是否值得深度研究
+    extra_data = Column(JSON, nullable=True)  # 额外数据
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    def __repr__(self):
+        return f"<DiscoveredModel(id={self.id}, name='{self.model_name}', score={self.final_score})>"
+
+
+class ExplorationReport(Base):
+    """自主探索报告表"""
+    __tablename__ = "exploration_reports"
+
+    __table_args__ = (
+        Index('idx_report_model_generated', 'model_id', 'generated_at'),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    report_id = Column(String(64), unique=True, nullable=False, index=True)  # 报告唯一标识
+    task_id = Column(String(64), nullable=False, index=True)  # 关联的任务ID
+    model_id = Column(Integer, ForeignKey('discovered_models.id'), nullable=False, index=True)  # 关联的模型ID
+
+    # 报告内容
+    title = Column(String(255), nullable=False)  # 报告标题
+    summary = Column(Text, nullable=True)  # 摘要
+    highlights = Column(JSON, nullable=True)  # 核心亮点（数组）
+    technical_analysis = Column(Text, nullable=True)  # 技术分析
+    performance_analysis = Column(Text, nullable=True)  # 性能分析
+    code_analysis = Column(Text, nullable=True)  # 代码分析
+    use_cases = Column(JSON, nullable=True)  # 应用场景（数组）
+    risks = Column(JSON, nullable=True)  # 风险评估（数组）
+    recommendations = Column(JSON, nullable=True)  # 使用建议（数组）
+    references = Column(JSON, nullable=True)  # 参考链接（对象）
+    full_report = Column(Text, nullable=True)  # 完整报告（Markdown格式）
+
+    # 报告元数据
+    report_version = Column(String(20), default='1.0')
+    agent_version = Column(String(20), nullable=True)  # Agent版本
+    model_used = Column(String(100), nullable=True)  # 使用的LLM模型
+    generation_time = Column(Float, nullable=True)  # 生成耗时(秒)
+    generated_at = Column(DateTime, default=datetime.now, nullable=False, index=True)
+
+    # 关系
+    discovered_model = relationship("DiscoveredModel", backref="reports")
+
+    def __repr__(self):
+        return f"<ExplorationReport(id={self.id}, report_id='{self.report_id}', model_id={self.model_id})>"

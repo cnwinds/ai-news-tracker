@@ -102,6 +102,10 @@ class Settings:
         self.SELECTED_EMBEDDING_PROVIDER_ID: Optional[int] = None
         self.SELECTED_LLM_MODELS: List[str] = []  # 选定的模型列表
         self.SELECTED_EMBEDDING_MODELS: List[str] = []  # 选定的向量模型列表
+        self.EXPLORATION_EXECUTION_MODE: str = "auto"  # auto/agent/deterministic
+        self.EXPLORATION_USE_INDEPENDENT_PROVIDER: bool = False
+        self.SELECTED_EXPLORATION_PROVIDER_ID: Optional[int] = None
+        self.SELECTED_EXPLORATION_MODELS: List[str] = []
         
         # 图片生成提供商选择配置（从数据库加载）
         self.SELECTED_IMAGE_PROVIDER_ID: Optional[int] = None
@@ -118,6 +122,10 @@ class Settings:
         # 社交平台定时任务配置（从数据库加载）
         self.SOCIAL_MEDIA_AUTO_REPORT_ENABLED: bool = False
         self.SOCIAL_MEDIA_AUTO_REPORT_TIME: str = "09:00"
+
+        # 自主探索定时任务配置（环境变量）
+        self.AUTO_EXPLORATION_ENABLED: bool = os.getenv("AUTO_EXPLORATION_ENABLED", "false").lower() == "true"
+        self.AUTO_EXPLORATION_TIME: str = os.getenv("AUTO_EXPLORATION_TIME", "03:00")
 
     def is_ai_enabled(self) -> bool:
         """检查AI分析是否启用"""
@@ -594,19 +602,16 @@ class Settings:
         """加载LLM配置（从数据库读取，支持运行时修改）"""
         if self._llm_settings_loaded:
             return
-        
+
         try:
             from backend.app.db import get_db
             from backend.app.db.repositories import AppSettingsRepository, LLMProviderRepository
-            from backend.app.db.models import AppSettings
-            
+
             db = get_db()
-            # 确保数据库已初始化
-            if not hasattr(db, 'engine'):
+            if not hasattr(db, "engine"):
                 return
-            
+
             with db.get_session() as session:
-                # 加载提供商选择配置
                 selected_llm_provider_id = AppSettingsRepository.get_setting(
                     session, "selected_llm_provider_id", None
                 )
@@ -619,150 +624,248 @@ class Settings:
                 selected_embedding_models_str = AppSettingsRepository.get_setting(
                     session, "selected_embedding_models", ""
                 )
-                
-                # 解析选定的模型列表
-                if selected_llm_models_str:
-                    self.SELECTED_LLM_MODELS = [m.strip() for m in str(selected_llm_models_str).split(",") if m.strip()]
-                else:
-                    self.SELECTED_LLM_MODELS = []
-                
-                if selected_embedding_models_str:
-                    self.SELECTED_EMBEDDING_MODELS = [m.strip() for m in str(selected_embedding_models_str).split(",") if m.strip()]
-                else:
-                    self.SELECTED_EMBEDDING_MODELS = []
-                
-                # 从选定的提供商加载配置
+
+                # Agent/exploration 独立配置
+                exploration_mode = str(
+                    AppSettingsRepository.get_setting(
+                        session, "exploration_execution_mode", self.EXPLORATION_EXECUTION_MODE
+                    )
+                    or "auto"
+                ).strip().lower()
+                if exploration_mode not in {"auto", "agent", "deterministic"}:
+                    exploration_mode = "auto"
+                self.EXPLORATION_EXECUTION_MODE = exploration_mode
+
+                self.EXPLORATION_USE_INDEPENDENT_PROVIDER = bool(
+                    AppSettingsRepository.get_setting(
+                        session,
+                        "exploration_use_independent_provider",
+                        self.EXPLORATION_USE_INDEPENDENT_PROVIDER,
+                    )
+                )
+                self.SELECTED_EXPLORATION_PROVIDER_ID = AppSettingsRepository.get_setting(
+                    session, "selected_exploration_provider_id", None
+                )
+                selected_exploration_models_str = AppSettingsRepository.get_setting(
+                    session, "selected_exploration_models", ""
+                )
+
+                self.SELECTED_LLM_MODELS = self._parse_models(selected_llm_models_str)
+                self.SELECTED_EMBEDDING_MODELS = self._parse_models(selected_embedding_models_str)
+                self.SELECTED_EXPLORATION_MODELS = self._parse_models(selected_exploration_models_str)
+
+                self.SELECTED_LLM_PROVIDER_ID = selected_llm_provider_id
+                self.SELECTED_EMBEDDING_PROVIDER_ID = selected_embedding_provider_id
+
                 if selected_llm_provider_id:
                     try:
                         provider = LLMProviderRepository.get_by_id(session, selected_llm_provider_id)
                         if provider and provider.enabled:
                             self.OPENAI_API_KEY = provider.api_key
                             self.OPENAI_API_BASE = provider.api_base
-                            # 如果选定了模型，使用第一个选定的模型；否则使用提供商的第一个模型
                             if self.SELECTED_LLM_MODELS:
                                 self.OPENAI_MODEL = self.SELECTED_LLM_MODELS[0]
                             else:
-                                # 解析提供商的模型列表，使用第一个
-                                models = [m.strip() for m in provider.llm_model.split(",") if m.strip()]
+                                models = self._parse_models(provider.llm_model)
                                 self.OPENAI_MODEL = models[0] if models else provider.llm_model
-                            self.SELECTED_LLM_PROVIDER_ID = selected_llm_provider_id
                         else:
                             logger.warning(f"选定的LLM提供商 {selected_llm_provider_id} 不存在或未启用")
+                            self.SELECTED_LLM_PROVIDER_ID = None
                     except Exception as e:
                         logger.warning(f"加载选定的LLM提供商失败: {e}")
-                
+                        self.SELECTED_LLM_PROVIDER_ID = None
+
                 if selected_embedding_provider_id:
                     try:
                         provider = LLMProviderRepository.get_by_id(session, selected_embedding_provider_id)
                         if provider and provider.enabled and provider.embedding_model:
-                            # 如果选定了模型，使用第一个选定的模型；否则使用提供商的第一个模型
                             if self.SELECTED_EMBEDDING_MODELS:
                                 self.OPENAI_EMBEDDING_MODEL = self.SELECTED_EMBEDDING_MODELS[0]
                             else:
-                                # 解析提供商的模型列表，使用第一个
-                                models = [m.strip() for m in provider.embedding_model.split(",") if m.strip()]
+                                models = self._parse_models(provider.embedding_model)
                                 self.OPENAI_EMBEDDING_MODEL = models[0] if models else provider.embedding_model
-                            self.SELECTED_EMBEDDING_PROVIDER_ID = selected_embedding_provider_id
                         else:
-                            logger.warning(f"选定的向量模型提供商 {selected_embedding_provider_id} 不存在、未启用或不支持向量模型")
+                            logger.warning(
+                                f"选定的向量模型提供商 {selected_embedding_provider_id} 不存在、未启用或不支持向量模型"
+                            )
+                            self.SELECTED_EMBEDDING_PROVIDER_ID = None
                     except Exception as e:
                         logger.warning(f"加载选定的向量模型提供商失败: {e}")
-            
-            # 记录加载结果（用于调试）
-            logger.debug(f"LLM配置加载完成: API_KEY={'已配置' if self.OPENAI_API_KEY else '未配置'}, "
-                        f"BASE={self.OPENAI_API_BASE}, MODEL={self.OPENAI_MODEL}, "
-                        f"EMBEDDING_MODEL={self.OPENAI_EMBEDDING_MODEL}, "
-                        f"LLM_PROVIDER_ID={self.SELECTED_LLM_PROVIDER_ID}, "
-                        f"EMBEDDING_PROVIDER_ID={self.SELECTED_EMBEDDING_PROVIDER_ID}")
-            
+                        self.SELECTED_EMBEDDING_PROVIDER_ID = None
+
+                if self.SELECTED_EXPLORATION_PROVIDER_ID:
+                    provider = LLMProviderRepository.get_by_id(session, self.SELECTED_EXPLORATION_PROVIDER_ID)
+                    if not provider or not provider.enabled:
+                        logger.warning(
+                            f"选定的探索独立提供商 {self.SELECTED_EXPLORATION_PROVIDER_ID} 不存在或未启用"
+                        )
+                        self.SELECTED_EXPLORATION_PROVIDER_ID = None
+
+            logger.debug(
+                "LLM配置加载完成: MODE=%s, GLOBAL_PROVIDER=%s, EMBEDDING_PROVIDER=%s, "
+                "EXPLORATION_MODE=%s, EXPLORATION_INDEPENDENT=%s, EXPLORATION_PROVIDER=%s",
+                self.OPENAI_MODEL,
+                self.SELECTED_LLM_PROVIDER_ID,
+                self.SELECTED_EMBEDDING_PROVIDER_ID,
+                self.EXPLORATION_EXECUTION_MODE,
+                self.EXPLORATION_USE_INDEPENDENT_PROVIDER,
+                self.SELECTED_EXPLORATION_PROVIDER_ID,
+            )
             self._llm_settings_loaded = True
         except Exception as e:
-            # 如果数据库未初始化或读取失败，使用默认值（环境变量）
             logger.debug(f"从数据库加载LLM配置失败，使用环境变量: {e}")
-    
+
     def load_llm_settings(self):
         """公共方法：强制重新加载LLM配置（从数据库读取最新值）"""
         self._llm_settings_loaded = False
         self._load_llm_settings()
-    
-    def save_llm_settings(self, selected_llm_provider_id: Optional[int] = None,
-                          selected_embedding_provider_id: Optional[int] = None,
-                          selected_llm_models: Optional[List[str]] = None,
-                          selected_embedding_models: Optional[List[str]] = None):
-        """保存LLM配置到数据库（只保存提供商选择）"""
+
+    def save_llm_settings(
+        self,
+        selected_llm_provider_id: Optional[int] = None,
+        selected_embedding_provider_id: Optional[int] = None,
+        selected_llm_models: Optional[List[str]] = None,
+        selected_embedding_models: Optional[List[str]] = None,
+        exploration_execution_mode: Optional[str] = None,
+        exploration_use_independent_provider: Optional[bool] = None,
+        selected_exploration_provider_id: Optional[int] = None,
+        selected_exploration_models: Optional[List[str]] = None,
+    ):
+        """保存LLM配置到数据库（支持探索Agent独立模型）"""
         try:
             from backend.app.db import get_db
             from backend.app.db.repositories import AppSettingsRepository
-            
+
             db = get_db()
             with db.get_session() as session:
-                # 保存提供商选择
                 if selected_llm_provider_id is not None:
                     AppSettingsRepository.set_setting(
-                        session, "selected_llm_provider_id", selected_llm_provider_id, "int",
-                        "选定的LLM提供商ID"
+                        session, "selected_llm_provider_id", selected_llm_provider_id, "int", "选定的LLM提供商ID"
                     )
                     self.SELECTED_LLM_PROVIDER_ID = selected_llm_provider_id
-                
+
                 if selected_embedding_provider_id is not None:
                     AppSettingsRepository.set_setting(
-                        session, "selected_embedding_provider_id", selected_embedding_provider_id, "int",
-                        "选定的向量模型提供商ID"
+                        session,
+                        "selected_embedding_provider_id",
+                        selected_embedding_provider_id,
+                        "int",
+                        "选定的向量模型提供商ID",
                     )
                     self.SELECTED_EMBEDDING_PROVIDER_ID = selected_embedding_provider_id
-                
-                # 保存选定的模型列表
+
                 if selected_llm_models is not None:
-                    models_str = ",".join(selected_llm_models)
                     AppSettingsRepository.set_setting(
-                        session, "selected_llm_models", models_str, "string",
-                        "选定的LLM模型列表（逗号分隔）"
+                        session,
+                        "selected_llm_models",
+                        ",".join(selected_llm_models),
+                        "string",
+                        "选定的LLM模型列表（逗号分隔）",
                     )
                     self.SELECTED_LLM_MODELS = selected_llm_models
-                
+
                 if selected_embedding_models is not None:
-                    models_str = ",".join(selected_embedding_models)
                     AppSettingsRepository.set_setting(
-                        session, "selected_embedding_models", models_str, "string",
-                        "选定的向量模型列表（逗号分隔）"
+                        session,
+                        "selected_embedding_models",
+                        ",".join(selected_embedding_models),
+                        "string",
+                        "选定的向量模型列表（逗号分隔）",
                     )
                     self.SELECTED_EMBEDDING_MODELS = selected_embedding_models
-            
-            # 重新加载配置以从提供商获取最新值
-            self._load_llm_settings()
-            
+
+                if exploration_execution_mode is not None:
+                    mode = exploration_execution_mode.strip().lower()
+                    if mode not in {"auto", "agent", "deterministic"}:
+                        mode = "auto"
+                    AppSettingsRepository.set_setting(
+                        session,
+                        "exploration_execution_mode",
+                        mode,
+                        "string",
+                        "自主探索执行模式（auto/agent/deterministic）",
+                    )
+                    self.EXPLORATION_EXECUTION_MODE = mode
+
+                if exploration_use_independent_provider is not None:
+                    AppSettingsRepository.set_setting(
+                        session,
+                        "exploration_use_independent_provider",
+                        exploration_use_independent_provider,
+                        "bool",
+                        "自主探索是否使用独立模型提供商",
+                    )
+                    self.EXPLORATION_USE_INDEPENDENT_PROVIDER = exploration_use_independent_provider
+
+                if (
+                    exploration_use_independent_provider is not None
+                    or selected_exploration_provider_id is not None
+                    or selected_exploration_models is not None
+                ):
+                    provider_id_to_save = (
+                        selected_exploration_provider_id
+                        if selected_exploration_provider_id is not None
+                        else 0
+                    )
+                    AppSettingsRepository.set_setting(
+                        session,
+                        "selected_exploration_provider_id",
+                        provider_id_to_save,
+                        "int",
+                        "自主探索独立提供商ID",
+                    )
+                    self.SELECTED_EXPLORATION_PROVIDER_ID = (
+                        selected_exploration_provider_id if selected_exploration_provider_id else None
+                    )
+
+                    exploration_models = selected_exploration_models or []
+                    AppSettingsRepository.set_setting(
+                        session,
+                        "selected_exploration_models",
+                        ",".join(exploration_models),
+                        "string",
+                        "自主探索独立模型列表（逗号分隔）",
+                    )
+                    self.SELECTED_EXPLORATION_MODELS = exploration_models
+
+            self.load_llm_settings()
             return True
         except Exception as e:
             logger.error(f"保存LLM配置失败: {e}")
             return False
-    
+
     def get_llm_provider_config(self) -> Optional[dict]:
         """获取当前选定的LLM提供商配置"""
         if not self.SELECTED_LLM_PROVIDER_ID:
             return None
-        
+
         try:
             from backend.app.db import get_db
             from backend.app.db.repositories import LLMProviderRepository
-            
+
             db = get_db()
-            if not hasattr(db, 'engine'):
+            if not hasattr(db, "engine"):
                 return None
-            
+
             with db.get_session() as session:
                 provider = LLMProviderRepository.get_by_id(session, self.SELECTED_LLM_PROVIDER_ID)
                 if provider and provider.enabled:
+                    llm_models = self._parse_models(provider.llm_model)
+                    selected_model = self.SELECTED_LLM_MODELS[0] if self.SELECTED_LLM_MODELS else (llm_models[0] if llm_models else provider.llm_model)
                     return {
                         "id": provider.id,
                         "name": provider.name,
+                        "provider_type": provider.provider_type,
+                        "protocol": self._resolve_llm_protocol(provider.provider_type),
                         "api_key": provider.api_key,
                         "api_base": provider.api_base,
                         "llm_model": provider.llm_model,
-                        "llm_models": [m.strip() for m in provider.llm_model.split(",") if m.strip()],  # 解析为列表
+                        "llm_models": llm_models,
+                        "selected_model": selected_model,
                     }
         except Exception as e:
             logger.error(f"获取LLM提供商配置失败: {e}")
-        
+
         return None
     
     def get_embedding_provider_config(self) -> Optional[dict]:
@@ -781,18 +884,86 @@ class Settings:
             with db.get_session() as session:
                 provider = LLMProviderRepository.get_by_id(session, self.SELECTED_EMBEDDING_PROVIDER_ID)
                 if provider and provider.enabled and provider.embedding_model:
+                    embedding_models = self._parse_models(provider.embedding_model)
+                    selected_model = (
+                        self.SELECTED_EMBEDDING_MODELS[0]
+                        if self.SELECTED_EMBEDDING_MODELS
+                        else (embedding_models[0] if embedding_models else provider.embedding_model)
+                    )
                     return {
                         "id": provider.id,
                         "name": provider.name,
+                        "provider_type": provider.provider_type,
+                        "protocol": self._resolve_llm_protocol(provider.provider_type),
                         "api_key": provider.api_key,
                         "api_base": provider.api_base,
                         "embedding_model": provider.embedding_model,
-                        "embedding_models": [m.strip() for m in provider.embedding_model.split(",") if m.strip()],  # 解析为列表
+                        "embedding_models": embedding_models,
+                        "selected_model": selected_model,
                     }
         except Exception as e:
             logger.error(f"获取向量模型提供商配置失败: {e}")
         
         return None
+
+    def get_exploration_provider_config(self) -> Optional[dict]:
+        """获取自主探索任务使用的LLM提供商配置（可独立于全局配置）"""
+        if not self._llm_settings_loaded:
+            self._load_llm_settings()
+
+        provider_id: Optional[int] = None
+        selected_models: List[str] = []
+        if self.EXPLORATION_USE_INDEPENDENT_PROVIDER and self.SELECTED_EXPLORATION_PROVIDER_ID:
+            provider_id = self.SELECTED_EXPLORATION_PROVIDER_ID
+            selected_models = self.SELECTED_EXPLORATION_MODELS
+        else:
+            provider_id = self.SELECTED_LLM_PROVIDER_ID
+            selected_models = self.SELECTED_LLM_MODELS
+
+        if not provider_id:
+            return None
+
+        try:
+            from backend.app.db import get_db
+            from backend.app.db.repositories import LLMProviderRepository
+
+            db = get_db()
+            if not hasattr(db, "engine"):
+                return None
+
+            with db.get_session() as session:
+                provider = LLMProviderRepository.get_by_id(session, provider_id)
+                if provider and provider.enabled:
+                    llm_models = self._parse_models(provider.llm_model)
+                    selected_model = selected_models[0] if selected_models else (llm_models[0] if llm_models else provider.llm_model)
+                    return {
+                        "id": provider.id,
+                        "name": provider.name,
+                        "provider_type": provider.provider_type,
+                        "protocol": self._resolve_llm_protocol(provider.provider_type),
+                        "api_key": provider.api_key,
+                        "api_base": provider.api_base,
+                        "llm_model": provider.llm_model,
+                        "llm_models": llm_models,
+                        "selected_model": selected_model,
+                    }
+        except Exception as e:
+            logger.error(f"获取自主探索提供商配置失败: {e}")
+
+        return None
+
+    @staticmethod
+    def _parse_models(raw_models: Any) -> List[str]:
+        if not raw_models:
+            return []
+        return [m.strip() for m in str(raw_models).split(",") if m.strip()]
+
+    @staticmethod
+    def _resolve_llm_protocol(provider_type: Optional[str]) -> str:
+        normalized = str(provider_type or "").strip().lower()
+        if "anthropic" in normalized or "claude" in normalized:
+            return "anthropic"
+        return "openai_compatible"
     
     def _load_image_settings(self):
         """加载图片生成配置（从数据库读取，支持运行时修改）"""
@@ -1234,6 +1405,19 @@ class Settings:
             hour = int(hour)
             minute = int(minute)
             # cron格式: 分 时 日 月 周（每天执行）
+            return f"{minute} {hour} * * *"
+        except (ValueError, AttributeError):
+            return None
+
+    def get_auto_exploration_cron(self) -> Optional[str]:
+        """根据自主探索时间生成 cron 表达式"""
+        if not self.AUTO_EXPLORATION_ENABLED:
+            return None
+
+        try:
+            hour, minute = self.AUTO_EXPLORATION_TIME.split(":")
+            hour = int(hour)
+            minute = int(minute)
             return f"{minute} {hour} * * *"
         except (ValueError, AttributeError):
             return None

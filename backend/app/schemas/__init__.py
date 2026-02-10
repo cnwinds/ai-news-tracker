@@ -20,6 +20,21 @@ from backend.app.schemas.source import (
 )
 from backend.app.schemas.statistics import Statistics
 from backend.app.schemas.settings import CollectionSettings, AutoCollectionSettings
+from backend.app.schemas.exploration import (
+    ExplorationTaskCreate,
+    ExplorationTaskStartResponse,
+    ExplorationTaskResponse,
+    ExplorationTaskListResponse,
+    ExplorationTaskProgress,
+    DiscoveredModelResponse,
+    DiscoveredModelListResponse,
+    ExplorationModelDetailResponse,
+    ExplorationReportSummaryResponse,
+    ExplorationReportResponse,
+    ExplorationReportListResponse,
+    ExplorationModelMarkRequest,
+    ExplorationStatisticsResponse,
+)
 
 __all__ = [
     "Article",
@@ -39,6 +54,19 @@ __all__ = [
     "Statistics",
     "CollectionSettings",
     "AutoCollectionSettings",
+    "ExplorationTaskCreate",
+    "ExplorationTaskStartResponse",
+    "ExplorationTaskResponse",
+    "ExplorationTaskListResponse",
+    "ExplorationTaskProgress",
+    "DiscoveredModelResponse",
+    "DiscoveredModelListResponse",
+    "ExplorationModelDetailResponse",
+    "ExplorationReportSummaryResponse",
+    "ExplorationReportResponse",
+    "ExplorationReportListResponse",
+    "ExplorationModelMarkRequest",
+    "ExplorationStatisticsResponse",
 ]
 
 

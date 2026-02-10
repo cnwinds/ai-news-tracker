@@ -2,7 +2,7 @@
 定时任务调度器 - 使用APScheduler BackgroundScheduler（适配FastAPI）
 """
 import logging
-import os
+import uuid
 from datetime import datetime, timedelta
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -12,8 +12,9 @@ from dotenv import load_dotenv
 
 from backend.app.core.settings import settings
 from backend.app.db import get_db
-from backend.app.db.models import Article
+from backend.app.db.models import Article, ExplorationTask
 from backend.app.services.collector import CollectionService
+from backend.app.services.exploration import get_exploration_service
 from backend.app.utils import create_ai_analyzer, setup_logger
 
 # 加载环境变量
@@ -186,6 +187,39 @@ class TaskScheduler:
 
         except Exception as e:
             logger.error(f"❌ 添加社交平台AI小报定时生成任务失败: {e}")
+
+    def add_exploration_job(self, cron_expression: str = None):
+        """
+        添加自主探索定时任务
+        """
+        try:
+            exploration_service = get_exploration_service()
+            config = exploration_service.get_runtime_config()
+            auto_enabled = bool(config.get("auto_monitor_enabled"))
+            interval_hours = int(config.get("auto_monitor_interval_hours") or 24)
+
+            if not auto_enabled:
+                logger.warning("⚠️  自主探索定时任务未启用")
+                return
+
+            if cron_expression:
+                trigger = CronTrigger.from_crontab(cron_expression)
+                trigger_desc = cron_expression
+            else:
+                interval_hours = max(1, min(168, interval_hours))
+                trigger = IntervalTrigger(hours=interval_hours)
+                trigger_desc = f"every {interval_hours}h"
+
+            self.scheduler.add_job(
+                func=self._run_exploration,
+                trigger=trigger,
+                id="exploration_job",
+                name="自主探索模型发现",
+                replace_existing=True,
+            )
+            logger.info(f"✅ 自主探索定时任务已添加: {trigger_desc}")
+        except Exception as e:
+            logger.error(f"❌ 添加自主探索定时任务失败: {e}")
 
     def _run_collection(self):
         """执行采集任务（自动定时采集）"""
@@ -581,6 +615,104 @@ class TaskScheduler:
         except Exception as e:
             logger.error(f"❌ 社交平台AI小报生成任务执行失败: {e}", exc_info=True)
 
+    def _run_exploration(self):
+        """执行自主探索任务"""
+        task_id = f"explore-{datetime.now().strftime('%Y%m%d')}-{uuid.uuid4().hex[:8]}"
+        try:
+            logger.info("=" * 60)
+            logger.info("🔭 开始执行自主探索定时任务")
+            logger.info(f"⏰ 时间: {datetime.now()}")
+            logger.info(f"📋 任务ID: {task_id}")
+
+            exploration_service = get_exploration_service()
+            config = exploration_service.get_runtime_config()
+            sources = config.get("monitor_sources") or ["github", "huggingface", "arxiv", "modelscope"]
+            watch_organizations = config.get("watch_organizations") or []
+            min_score = float(config.get("min_score") or 70.0)
+            days_back = int(config.get("days_back") or 2)
+            max_results_per_source = int(config.get("max_results_per_source") or 30)
+            run_mode = str(config.get("run_mode") or "auto")
+
+            with self.db.get_session() as session:
+                stale_count = 0
+                now = datetime.now()
+                for existing_task in (
+                    session.query(ExplorationTask)
+                    .filter(ExplorationTask.status.in_(("pending", "running")))
+                    .all()
+                ):
+                    reference_time = (
+                        existing_task.start_time
+                        or existing_task.created_at
+                        or existing_task.discovery_time
+                    )
+                    if not reference_time:
+                        continue
+                    elapsed_seconds = (now - reference_time).total_seconds()
+                    timeout_seconds = 6 * 3600 if existing_task.status == "running" else 30 * 60
+                    if elapsed_seconds < timeout_seconds:
+                        continue
+                    existing_task.status = "failed"
+                    existing_task.end_time = now
+                    existing_task.error_message = "任务长时间未完成，已自动标记为失败（可能服务重启导致中断）"
+                    stale_count += 1
+
+                if stale_count > 0:
+                    session.flush()
+                    logger.warning("⚠️  自动清理过期探索任务 count=%s", stale_count)
+
+                active_task = (
+                    session.query(ExplorationTask)
+                    .filter(
+                        ExplorationTask.status.in_(("pending", "running")),
+                        ExplorationTask.source != "manual-report",
+                    )
+                    .order_by(ExplorationTask.created_at.desc())
+                    .first()
+                )
+                if active_task:
+                    logger.info(
+                        "⏭️  已有探索任务执行中，跳过本次自动任务 task_id=%s",
+                        active_task.task_id,
+                    )
+                    return
+
+                task = ExplorationTask(
+                    task_id=task_id,
+                    status="pending",
+                    source=",".join(sources),
+                    model_name="pending",
+                    discovery_time=datetime.now(),
+                    progress={
+                        "current_stage": "queued",
+                        "models_discovered": 0,
+                        "models_evaluated": 0,
+                        "updates_detected": 0,
+                        "release_candidates": 0,
+                        "notable_models": 0,
+                        "reports_generated": 0,
+                        "source_results": {},
+                    },
+                )
+                session.add(task)
+                session.flush()
+
+            exploration_service.run_task(
+                task_id=task_id,
+                sources=sources,
+                min_score=min_score,
+                days_back=days_back,
+                max_results_per_source=max_results_per_source,
+                keywords=["LLM", "transformer", "multimodal", "diffusion"],
+                watch_organizations=watch_organizations,
+                run_mode=run_mode,
+            )
+
+            logger.info("✅ 自主探索定时任务执行完成")
+            logger.info("=" * 60)
+        except Exception as e:
+            logger.error(f"❌ 自主探索定时任务执行失败: {e}", exc_info=True)
+
     def _analyze_posts(self, collector, post_ids):
         """后台分析帖子"""
         try:
@@ -673,6 +805,18 @@ class TaskScheduler:
                 self.add_social_media_report_job()
             else:
                 logger.info("ℹ️  社交平台AI小报定时生成未启用，跳过添加任务")
+
+            # 添加自主探索任务
+            exploration_service = get_exploration_service()
+            exploration_config = exploration_service.get_runtime_config()
+            logger.info(
+                f"🔭 自主探索定时任务状态: {'已启用' if exploration_config.get('auto_monitor_enabled') else '未启用'}"
+            )
+            if exploration_config.get("auto_monitor_enabled"):
+                logger.info(f"⏰ 自主探索执行间隔: 每 {exploration_config.get('auto_monitor_interval_hours', 24)} 小时")
+                self.add_exploration_job()
+            else:
+                logger.info("ℹ️  自主探索定时任务未启用，跳过添加任务")
 
             # 启动调度器（BackgroundScheduler 在后台运行）
             self.scheduler.start()

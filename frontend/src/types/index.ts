@@ -214,6 +214,10 @@ export interface LLMSettings {
   selected_embedding_provider_id?: number | null;
   selected_llm_models?: string[] | null;
   selected_embedding_models?: string[] | null;
+  exploration_execution_mode?: 'auto' | 'agent' | 'deterministic';
+  exploration_use_independent_provider?: boolean;
+  selected_exploration_provider_id?: number | null;
+  selected_exploration_models?: string[] | null;
 }
 
 export interface ImageProvider {
@@ -395,6 +399,157 @@ export interface SocialMediaSettings {
   reddit_user_agent?: string;
   auto_report_enabled?: boolean;
   auto_report_time?: string;
+}
+
+// 自主探索相关类型定义
+export interface ExplorationTaskCreateRequest {
+  sources: Array<'github' | 'huggingface' | 'arxiv' | 'modelscope'>;
+  min_score?: number;
+  days_back?: number;
+  max_results_per_source?: number;
+  keywords?: string[];
+  watch_organizations?: string[];
+  run_mode?: 'auto' | 'agent' | 'deterministic';
+}
+
+export interface ExplorationConfig {
+  monitor_sources: Array<'github' | 'huggingface' | 'arxiv' | 'modelscope'>;
+  watch_organizations: string[];
+  min_score: number;
+  days_back: number;
+  max_results_per_source: number;
+  run_mode: 'auto' | 'agent' | 'deterministic';
+  auto_monitor_enabled: boolean;
+  auto_monitor_interval_hours: number;
+}
+
+export interface ExplorationTaskStartResponse {
+  task_id: string;
+  status: string;
+  message: string;
+}
+
+export interface ExplorationTaskProgress {
+  current_stage: string;
+  models_discovered: number;
+  models_evaluated: number;
+  updates_detected: number;
+  release_candidates: number;
+  notable_models: number;
+  reports_generated: number;
+  source_results: Record<string, number>;
+  model_id?: number;
+  report_id?: string;
+}
+
+export interface ExplorationTask {
+  task_id: string;
+  status: string;
+  source: string;
+  model_name: string;
+  discovery_time: string;
+  start_time?: string;
+  end_time?: string;
+  error_message?: string;
+  progress?: Partial<ExplorationTaskProgress>;
+  created_at: string;
+}
+
+export interface ExplorationTaskListResponse {
+  tasks: ExplorationTask[];
+  total: number;
+  page: number;
+}
+
+export interface DiscoveredModel {
+  id: number;
+  model_name: string;
+  model_type?: string;
+  organization?: string;
+  release_date?: string;
+  source_platform: string;
+  source_uid?: string;
+  github_stars: number;
+  github_forks: number;
+  paper_citations: number;
+  social_mentions: number;
+  impact_score?: number;
+  quality_score?: number;
+  innovation_score?: number;
+  practicality_score?: number;
+  final_score?: number;
+  is_notable: boolean;
+  status: string;
+  extra_data?: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DiscoveredModelListResponse {
+  models: DiscoveredModel[];
+  total: number;
+  page: number;
+}
+
+export interface ExplorationReportSummary {
+  report_id: string;
+  task_id: string;
+  model_id: number;
+  title: string;
+  summary?: string;
+  highlights?: string[];
+  generated_at: string;
+}
+
+export interface ExplorationReport {
+  report_id: string;
+  task_id: string;
+  model_id: number;
+  title: string;
+  summary?: string;
+  highlights?: string[];
+  technical_analysis?: string;
+  performance_analysis?: string;
+  code_analysis?: string;
+  use_cases?: string[];
+  risks?: string[];
+  recommendations?: string[];
+  references?: Record<string, string>;
+  full_report?: string;
+  generated_at: string;
+}
+
+export interface ExplorationModelDetailResponse {
+  model: DiscoveredModel;
+  reports: ExplorationReportSummary[];
+}
+
+export interface ExplorationReportListResponse {
+  reports: ExplorationReportSummary[];
+  total: number;
+  page: number;
+}
+
+export interface ExplorationStatistics {
+  total_models_discovered: number;
+  notable_models: number;
+  reports_generated: number;
+  avg_final_score: number;
+  by_source: Record<string, number>;
+  by_model_type: Record<string, number>;
+}
+
+export interface ExplorationModelMarkRequest {
+  is_notable: boolean;
+  notes?: string;
+}
+
+export interface ExplorationGenerateReportResponse {
+  message: string;
+  model_id: number;
+  task_id: string;
+  report_id?: string | null;
+  status: string;
 }
 
 // 访问统计相关类型定义

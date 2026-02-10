@@ -279,6 +279,10 @@ async def get_llm_settings():
         selected_embedding_provider_id=settings.SELECTED_EMBEDDING_PROVIDER_ID,
         selected_llm_models=settings.SELECTED_LLM_MODELS,
         selected_embedding_models=settings.SELECTED_EMBEDDING_MODELS,
+        exploration_execution_mode=settings.EXPLORATION_EXECUTION_MODE,
+        exploration_use_independent_provider=settings.EXPLORATION_USE_INDEPENDENT_PROVIDER,
+        selected_exploration_provider_id=settings.SELECTED_EXPLORATION_PROVIDER_ID,
+        selected_exploration_models=settings.SELECTED_EXPLORATION_MODELS,
     )
 
 
@@ -293,6 +297,10 @@ async def update_llm_settings(
         selected_embedding_provider_id=new_settings.selected_embedding_provider_id,
         selected_llm_models=new_settings.selected_llm_models,
         selected_embedding_models=new_settings.selected_embedding_models,
+        exploration_execution_mode=new_settings.exploration_execution_mode,
+        exploration_use_independent_provider=new_settings.exploration_use_independent_provider,
+        selected_exploration_provider_id=new_settings.selected_exploration_provider_id,
+        selected_exploration_models=new_settings.selected_exploration_models,
     )
     if not success:
         raise HTTPException(status_code=500, detail="保存LLM配置失败")
@@ -304,6 +312,10 @@ async def update_llm_settings(
         selected_embedding_provider_id=settings.SELECTED_EMBEDDING_PROVIDER_ID,
         selected_llm_models=settings.SELECTED_LLM_MODELS,
         selected_embedding_models=settings.SELECTED_EMBEDDING_MODELS,
+        exploration_execution_mode=settings.EXPLORATION_EXECUTION_MODE,
+        exploration_use_independent_provider=settings.EXPLORATION_USE_INDEPENDENT_PROVIDER,
+        selected_exploration_provider_id=settings.SELECTED_EXPLORATION_PROVIDER_ID,
+        selected_exploration_models=settings.SELECTED_EXPLORATION_MODELS,
     )
 
 
@@ -440,6 +452,11 @@ async def delete_provider(
             raise HTTPException(
                 status_code=400,
                 detail="无法删除正在使用的向量模型提供商，请先选择其他提供商"
+            )
+        if settings.SELECTED_EXPLORATION_PROVIDER_ID == provider_id:
+            raise HTTPException(
+                status_code=400,
+                detail="无法删除模型先知独立使用的提供商，请先在“系统设置 -> LLM配置”中切换或取消独立模型"
             )
         
         success = LLMProviderRepository.delete(session, provider_id)
