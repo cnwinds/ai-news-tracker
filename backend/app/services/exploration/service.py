@@ -62,7 +62,7 @@ class ExplorationService:
         self,
         task_id: str,
         sources: List[str],
-        min_score: float = 70.0,
+        min_score: float = 40.0,  # 降低默认阈值从70到40，使其更符合实际情况
         days_back: int = 7,
         max_results_per_source: int = 30,
         keywords: Optional[List[str]] = None,
@@ -170,7 +170,7 @@ class ExplorationService:
             watch_organizations_raw = AppSettingsRepository.get_setting(
                 session, "exploration_watch_organizations", ",".join(DEFAULT_EXPLORATION_WATCH_ORGS)
             )
-            min_score_raw = AppSettingsRepository.get_setting(session, "exploration_min_score", "70")
+            min_score_raw = AppSettingsRepository.get_setting(session, "exploration_min_score", "40")
             days_back = AppSettingsRepository.get_setting(session, "exploration_days_back", 2)
             max_results_per_source = AppSettingsRepository.get_setting(
                 session, "exploration_max_results_per_source", 30

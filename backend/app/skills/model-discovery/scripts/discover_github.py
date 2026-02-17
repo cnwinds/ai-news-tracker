@@ -10,6 +10,7 @@ GitHub 平台模型先知发现脚本。
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import time
@@ -17,6 +18,8 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Sequence
 
 import requests
+
+logger = logging.getLogger(__name__)
 
 
 class GitHubModelDiscovery:
@@ -98,6 +101,19 @@ class GitHubModelDiscovery:
         records: Dict[str, Dict] = {}
         per_query_limit = min(100, max(30, max_results))
 
+        # 调试日志：记录查询参数
+        logger.info(f"[GitHub Debug] Starting search: keywords={keywords}, days_back={days_back}, min_stars={min_stars}, watch_orgs={list(watch_set)}")
+        logger.info(f"[GitHub Debug] Queries to execute: {len(all_queries)}")
+        for i, q in enumerate(all_queries):
+            logger.info(f"[GitHub Debug] Query {i+1}: {q[:200]}...")
+
+        total_api_results = 0
+        total_parsed = 0
+        filtered_cutoff = 0
+        filtered_not_model = 0
+        filtered_no_keyword = 0
+        filtered_low_stars = 0
+
         for query in all_queries:
             data = self._make_request(
                 f"{self.BASE_URL}/search/repositories",
@@ -109,7 +125,12 @@ class GitHubModelDiscovery:
                 },
             )
             if not data or "items" not in data:
+                logger.warning(f"[GitHub Debug] No data returned for query: {query[:100]}...")
                 continue
+
+            api_count = len(data.get("items", []))
+            total_api_results += api_count
+            logger.info(f"[GitHub Debug] API returned {api_count} repositories for query")
 
             for repo in data["items"]:
                 model = self._parse_repository(
@@ -118,13 +139,23 @@ class GitHubModelDiscovery:
                     watch_set=watch_set,
                 )
                 if not model:
+                    filtered_cutoff += 1
                     continue
+                total_parsed += 1
+
                 if not self._is_model_repo(model):
+                    filtered_not_model += 1
+                    logger.debug(f"[GitHub Debug] Filtered (not model repo): {model.get('model_name')} - {model.get('description', '')[:100]}")
                     continue
+
                 if not self._keyword_match(model, keywords=keywords, watch_set=watch_set):
+                    filtered_no_keyword += 1
+                    logger.debug(f"[GitHub Debug] Filtered (no keyword match): {model.get('model_name')} by {model.get('organization')}")
                     continue
 
                 if not model.get("watch_hit") and model.get("github_stars", 0) < min_stars:
+                    filtered_low_stars += 1
+                    logger.debug(f"[GitHub Debug] Filtered (low stars): {model.get('model_name')} stars={model.get('github_stars')} watch_hit={model.get('watch_hit')}")
                     continue
 
                 key = str(model.get("source_uid") or "").lower()
@@ -141,7 +172,21 @@ class GitHubModelDiscovery:
                 elif int(model.get("github_stars", 0)) > int(existing.get("github_stars", 0)):
                     records[key] = model
 
+        # 汇总日志
+        logger.info(f"[GitHub Debug] === Summary ===")
+        logger.info(f"[GitHub Debug] Total API results: {total_api_results}")
+        logger.info(f"[GitHub Debug] Total parsed: {total_parsed}")
+        logger.info(f"[GitHub Debug] Filtered (cutoff date): {filtered_cutoff}")
+        logger.info(f"[GitHub Debug] Filtered (not model repo): {filtered_not_model}")
+        logger.info(f"[GitHub Debug] Filtered (no keyword match): {filtered_no_keyword}")
+        logger.info(f"[GitHub Debug] Filtered (low stars): {filtered_low_stars}")
+        logger.info(f"[GitHub Debug] Final results: {len(records)}")
+
         result = list(records.values())
+        if result:
+            logger.info(f"[GitHub Debug] Top 3 results:")
+            for i, r in enumerate(result[:3]):
+                logger.info(f"[GitHub Debug]   {i+1}. {r.get('model_name')} by {r.get('organization')} (stars={r.get('github_stars')}, confidence={r.get('release_confidence')})")
         result.sort(
             key=lambda item: (
                 float(item.get("release_confidence", 0.0)),
@@ -152,16 +197,41 @@ class GitHubModelDiscovery:
         return result[:max_results]
 
     def _build_global_query(self, keywords: Sequence[str], cutoff_date: str, min_stars: int) -> str:
-        keyword_query = " OR ".join([f'"{kw}"' for kw in list(keywords)[:4]])
-        topic_query = " OR ".join([f"topic:{topic}" for topic in self.AI_ML_TOPICS[:8]])
+        # 简化查询：GitHub API 对复杂查询支持有限
+        # 只使用第一个简洁的关键词，避免带引号的短语和复杂的 OR 逻辑
+        simple_keyword = None
+        for kw in keywords:
+            # 跳过带空格的短语（如 "foundation model"）
+            if " " not in kw and len(kw) <= 20:
+                simple_keyword = kw
+                break
+
+        # 如果没有找到简洁的关键词，使用默认
+        if not simple_keyword:
+            simple_keyword = "LLM"
+
+        # 使用 GitHub 的 topics 语法，这比关键词搜索更可靠
+        # 格式：topic:llm pushed:>date stars:>n archived:false
         return (
-            f"({keyword_query}) OR ({topic_query}) "
-            f"pushed:>{cutoff_date} stars:>{max(10, min_stars)} archived:false"
+            f"topic:{simple_keyword.lower()} "
+            f"pushed:>{cutoff_date} stars:>{min_stars} archived:false"
         )
 
     def _build_org_query(self, org: str, keywords: Sequence[str], cutoff_date: str) -> str:
-        keyword_query = " OR ".join([f'"{kw}"' for kw in list(keywords)[:3]])
-        return f"org:{org} ({keyword_query}) pushed:>{cutoff_date} archived:false"
+        # 简化组织查询：只使用简洁的关键词
+        # 跳过带空格的短语
+        simple_keyword = None
+        for kw in keywords:
+            if " " not in kw and len(kw) <= 20:
+                simple_keyword = kw
+                break
+
+        if not simple_keyword:
+            simple_keyword = "LLM"
+
+        # 对于组织查询，直接使用 org 语法，不添加额外关键词
+        # 因为组织内的所有仓库都是我们感兴趣的
+        return f"org:{org} pushed:>{cutoff_date} archived:false"
 
     def _parse_repository(self, repo: Dict, cutoff_dt: datetime, watch_set: set[str]) -> Optional[Dict]:
         try:

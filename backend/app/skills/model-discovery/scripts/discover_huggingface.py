@@ -5,9 +5,12 @@ Hugging Face 平台模型先知发现脚本。
 
 from __future__ import annotations
 
+import logging
 import os
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Sequence
+
+logger = logging.getLogger(__name__)
 
 
 def discover_huggingface(
@@ -30,24 +33,40 @@ def discover_huggingface(
 
     limit = min(max(80, max_results * 5), 600)
 
+    # 调试日志
+    logger.info(f"[HF Debug] Starting search: keywords={keywords}, days_back={days_back}, watch_orgs={list(watch_set)}")
+    logger.info(f"[HF Debug] Fetch limit: {limit}")
+
     results: List[Dict] = []
     try:
+        # 改为按 likes 排序，优先返回热门/高质量的模型
+        # lastModified 会返回大量用户个人小改动，质量较低
         models = api.list_models(
-            sort="lastModified",
+            sort="likes",  # 改为按点赞数排序
             direction=-1,
             limit=limit,
             full=True,
             cardData=True,
             fetch_config=False,
         )
-    except Exception:
+        models_list = list(models)
+        logger.info(f"[HF Debug] API returned {len(models_list)} models")
+    except Exception as e:
+        logger.error(f"[HF Debug] API request failed: {e}")
         return []
 
-    for model in models:
+    total_processed = 0
+    filtered_cutoff = 0
+    filtered_no_keyword = 0
+    filtered_empty_id = 0
+
+    for model in models_list:
         model_id = str(getattr(model, "modelId", "") or "").strip()
         if not model_id:
+            filtered_empty_id += 1
             continue
 
+        total_processed += 1
         owner = model_id.split("/")[0] if "/" in model_id else "unknown"
         owner_lower = owner.lower()
         watch_hit = owner_lower in watch_set
@@ -55,17 +74,32 @@ def discover_huggingface(
         last_modified = _to_datetime(getattr(model, "lastModified", None))
         created_at = _to_datetime(getattr(model, "createdAt", None))
 
-        if last_modified and last_modified < cutoff and not watch_hit:
-            continue
+        # 当按 likes 排序时，不需要严格过滤 cutoff 日期
+        # 只保留 watch 组织的模型豁免
+        # 如果要严格监控最新更新，可以取消注释下面的代码
+        # if last_modified and last_modified < cutoff and not watch_hit:
+        #     filtered_cutoff += 1
+        #     continue
 
         pipeline_tag = str(getattr(model, "pipeline_tag", "") or "").strip().lower()
         card_data = getattr(model, "cardData", None) or {}
 
         description = _build_description(model_id=model_id, pipeline_tag=pipeline_tag, card_data=card_data)
         if not watch_hit and not _keyword_match(model_id=model_id, description=description, keywords=keywords):
+            filtered_no_keyword += 1
+            if total_processed <= 10:  # 只记录前10个被过滤的
+                logger.debug(f"[HF Debug] Filtered (no keyword): {model_id} - pipeline={pipeline_tag}, desc={description[:80]}")
             continue
 
         likes = int(getattr(model, "likes", 0) or 0)
+
+        # 质量过滤：跳过 likes 过低的模型（这些通常是个人实验性模型，质量不高）
+        # watch 组织的模型不受此限制
+        if not watch_hit and likes < 10:
+            filtered_no_keyword += 1
+            if total_processed <= 10:
+                logger.debug(f"[HF Debug] Filtered (low quality): {model_id} - likes={likes}")
+            continue
         downloads = int(getattr(model, "downloads", 0) or 0)
         update_type = _infer_update_type(created_at=created_at, last_modified=last_modified)
         signal_reasons = _build_signal_reasons(
@@ -111,6 +145,19 @@ def discover_huggingface(
         if len(results) >= max_results:
             break
 
+    # 汇总日志
+    logger.info(f"[HF Debug] === Summary ===")
+    logger.info(f"[HF Debug] Total processed: {total_processed}")
+    logger.info(f"[HF Debug] Filtered (empty ID): {filtered_empty_id}")
+    logger.info(f"[HF Debug] Filtered (cutoff date): {filtered_cutoff}")
+    logger.info(f"[HF Debug] Filtered (no keyword): {filtered_no_keyword}")
+    logger.info(f"[HF Debug] Final results: {len(results)}")
+
+    if results:
+        logger.info(f"[HF Debug] Top 3 results:")
+        for i, r in enumerate(results[:3]):
+            logger.info(f"[HF Debug]   {i+1}. {r.get('model_name')} by {r.get('organization')} (likes={r.get('github_stars')}, confidence={r.get('release_confidence')})")
+
     results.sort(
         key=lambda item: (
             float(item.get("release_confidence", 0.0)),
@@ -150,7 +197,22 @@ def _build_description(model_id: str, pipeline_tag: str, card_data: Dict) -> str
 
 def _keyword_match(model_id: str, description: str, keywords: Sequence[str]) -> bool:
     text = f"{model_id} {description}".lower()
-    return any(str(keyword).lower() in text for keyword in keywords)
+    # 直接关键词匹配
+    if any(str(keyword).lower() in text for keyword in keywords):
+        return True
+
+    # 如果没有直接匹配，检查常见的 LLM/模型相关词汇
+    llm_keywords = ["llm", "gpt", "llama", "bert", "transformer", "roberta", "mistral", "qwen", "deepseek", "bloom", "opt", "phi", "falcon", "mpt", "chatglm"]
+    model_id_lower = model_id.lower()
+    if any(kw in model_id_lower for kw in llm_keywords):
+        return True
+
+    # 检查描述中是否包含这些关键词
+    description_lower = description.lower()
+    if any(kw in description_lower for kw in llm_keywords):
+        return True
+
+    return False
 
 
 def _identify_model_type(pipeline_tag: str, tags: Optional[Sequence[str]]) -> str:

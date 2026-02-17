@@ -51,7 +51,7 @@ const { Search } = Input;
 
 const PAGE_SIZE = 20;
 const LIST_FETCH_LIMIT = 100;
-const DEFAULT_MIN_SCORE = 70;
+const DEFAULT_MIN_SCORE = 40;
 const MONITOR_SOURCES: ExplorationTaskCreateRequest['sources'] = [
   'github',
   'huggingface',
@@ -73,7 +73,7 @@ const DEFAULT_WATCH_ORGS = [
 const DEFAULT_EXPLORATION_CONFIG: ExplorationConfig = {
   monitor_sources: MONITOR_SOURCES,
   watch_organizations: DEFAULT_WATCH_ORGS,
-  min_score: 70,
+  min_score: 40,  // 降低默认阈值以捕获更多模型
   days_back: 2,
   max_results_per_source: 30,
   run_mode: 'auto',

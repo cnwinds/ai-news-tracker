@@ -5,9 +5,12 @@ arXiv 平台模型先知发现脚本。
 
 from __future__ import annotations
 
+import logging
 import re
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Sequence
+
+logger = logging.getLogger(__name__)
 
 
 def discover_arxiv(
@@ -31,6 +34,10 @@ def discover_arxiv(
     category_query = "cat:cs.AI OR cat:cs.LG OR cat:cs.CL OR cat:cs.CV"
     query = f"({keyword_query}) AND ({category_query})"
 
+    # 调试日志
+    logger.info(f"[arXiv Debug] Starting search: keywords={keywords}, days_back={days_back}, watch_orgs={list(watch_set)}")
+    logger.info(f"[arXiv Debug] Query: {query[:200]}...")
+
     try:
         search = arxiv.Search(
             query=query,
@@ -38,26 +45,37 @@ def discover_arxiv(
             sort_by=arxiv.SortCriterion.SubmittedDate,
             sort_order=arxiv.SortOrder.Descending,
         )
-    except Exception:
+    except Exception as e:
+        logger.error(f"[arXiv Debug] Search creation failed: {e}")
         return []
 
     results: List[Dict] = []
+    total_results = 0
+    filtered_no_date = 0
+    filtered_cutoff = 0
+    filtered_no_keyword = 0
 
     for paper in search.results():
+        total_results += 1
         published = paper.published.replace(tzinfo=None) if paper.published else None
         updated = paper.updated.replace(tzinfo=None) if getattr(paper, "updated", None) else published
         if published is None:
+            filtered_no_date += 1
             continue
 
         author_names = [author.name for author in (paper.authors or [])]
         watch_hit = _watch_author_hit(author_names=author_names, watch_set=watch_set)
 
         if published < cutoff and not watch_hit:
+            filtered_cutoff += 1
             continue
 
         summary = str(paper.summary or "").strip()
         title = str(paper.title or "").strip()
         if not watch_hit and not _keyword_match(text=f"{title} {summary}", keywords=keywords):
+            filtered_no_keyword += 1
+            if total_results <= 10:
+                logger.debug(f"[arXiv Debug] Filtered (no keyword): {title[:80]}")
             continue
 
         github_url = _extract_github_url(summary)
@@ -110,6 +128,19 @@ def discover_arxiv(
         if len(results) >= max_results:
             break
 
+    # 汇总日志
+    logger.info(f"[arXiv Debug] === Summary ===")
+    logger.info(f"[arXiv Debug] Total papers found: {total_results}")
+    logger.info(f"[arXiv Debug] Filtered (no date): {filtered_no_date}")
+    logger.info(f"[arXiv Debug] Filtered (cutoff date): {filtered_cutoff}")
+    logger.info(f"[arXiv Debug] Filtered (no keyword): {filtered_no_keyword}")
+    logger.info(f"[arXiv Debug] Final results: {len(results)}")
+
+    if results:
+        logger.info(f"[arXiv Debug] Top 3 results:")
+        for i, r in enumerate(results[:3]):
+            logger.info(f"[arXiv Debug]   {i+1}. {r.get('model_name')} by {r.get('organization')[:50]} (confidence={r.get('release_confidence')})")
+
     results.sort(key=lambda item: float(item.get("release_confidence", 0.0)), reverse=True)
     return results[:max_results]
 
@@ -135,23 +166,51 @@ def _extract_github_url(text: str) -> Optional[str]:
 
 
 def _extract_model_name(title: str) -> Optional[str]:
+    """
+    从 arXiv 论文标题中提取可能的模型名称。
+
+    策略：
+    1. 查找标题中的首字母大写的缩写（如 GPT-4, BERT, LLaMA）
+    2. 如果没找到，返回标题的前80个字符
+    """
     if not title:
         return None
 
-    patterns = [
-        r"\b([A-Z][A-Za-z0-9_-]{2,})\b",
-        r"\b([A-Z]{2,}(?:-[A-Z0-9]+)*)\b",
+    # 常见模型名称模式：大写字母开头，可能包含数字和连字符
+    # 例如: GPT-4, BERT, LLaMA, ViT, CLIP, Stable Diffusion
+    model_patterns = [
+        r"\b([A-Z]{2,}(?:[-\.]?\d+[A-Z]*)?)\b",  # GPT-4, BERT, LLaMA
+        r"\b([A-Z][a-z]+(?:[- ][A-Z][a-z]+)+)\b",  # Stable Diffusion, Vision Transformer
+        r"\b([A-Z]{2,}[a-z]*\d+[A-Z]*)\b",  # ViT, CLIP
     ]
-    excludes = {"THE", "WITH", "MODEL", "LLM", "NLP", "AI", "FOR", "AND"}
 
-    for pattern in patterns:
+    # 排除常见的非模型名称
+    excludes = {
+        "THE", "WITH", "MODEL", "LLM", "NLP", "AI", "FOR", "AND", "AN", "OF",
+        "IN", "ON", "BASED", "USING", "VIA", "THROUGH", "LEARNING", "TRAINING",
+        "APPROACH", "METHOD", "SYSTEM", "FRAMEWORK", "NETWORK", "AUGMENTED",
+        "EFFICIENT", "SCALABLE", "ROBUST", "END", "NOVEMBER", "OCTOBER", "IEEE",
+        "PREPRINT", "ARXIV", "HTTPS", "COM", "ORG", "PDF", "FIRST", "SECOND",
+    }
+
+    for pattern in model_patterns:
         matches = re.findall(pattern, title)
         for candidate in matches:
-            if candidate.upper() in excludes:
+            candidate_upper = candidate.upper().replace("-", "").replace(" ", "")
+            if candidate_upper in excludes:
                 continue
             if len(candidate) >= 3:
                 return candidate
-    return None
+
+    # 如果没找到合适的模型名称，返回标题的简化版本
+    # 提取标题的主要部分（去除冒号后的内容）
+    if ":" in title:
+        main_title = title.split(":")[0].strip()
+    else:
+        main_title = title.strip()
+
+    # 返回标题的前80个字符，作为模型名称的备选
+    return main_title[:80]
 
 
 def _extract_arxiv_id(url: str) -> str:
