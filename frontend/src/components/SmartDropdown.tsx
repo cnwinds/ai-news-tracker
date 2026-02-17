@@ -130,16 +130,18 @@ export default function SmartDropdown({
     },
   });
 
-  // 检测输入是否为URL
+  // 检测输入是否为URL（仅 http(s) 开头或形如域名的 ASCII 字符串，避免将「千问3.5 门控技术」等误判为 URL）
   const isUrl = (text: string): boolean => {
-    if (!text.trim()) return false;
+    const trimmed = text.trim();
+    if (!trimmed) return false;
     try {
-      const url = new URL(text.trim());
+      const url = new URL(trimmed);
       return url.protocol === 'http:' || url.protocol === 'https:';
     } catch {
-      // 尝试添加 https:// 前缀
+      // 仅当输入形如域名（无空格、仅含 ASCII 字母数字与 .-）且可解析为 URL 时，才视为 URL
+      if (/\s/.test(trimmed) || !/^[a-zA-Z0-9.-]+$/.test(trimmed)) return false;
       try {
-        const url = new URL(`https://${text.trim()}`);
+        const url = new URL(`https://${trimmed}`);
         return url.hostname.includes('.');
       } catch {
         return false;
