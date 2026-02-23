@@ -70,6 +70,9 @@ def upgrade():
                 status VARCHAR(20) DEFAULT 'discovered',
                 is_notable BOOLEAN DEFAULT 0,
                 extra_data TEXT,
+                last_activity_at TIMESTAMP,
+                activity_type VARCHAR(50),
+                activity_confidence REAL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -83,6 +86,11 @@ def upgrade():
         conn.execute(text("""
             CREATE INDEX IF NOT EXISTS idx_model_status_score 
             ON discovered_models(status, final_score)
+        """))
+
+        conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS idx_model_last_activity
+            ON discovered_models(last_activity_at)
         """))
 
         conn.execute(text("""

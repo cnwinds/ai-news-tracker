@@ -185,6 +185,9 @@ class DiscoveredModelResponse(BaseModel):
     is_notable: bool
     status: str
     extra_data: Optional[Dict[str, Any]] = None
+    last_activity_at: Optional[datetime] = None
+    activity_type: Optional[str] = None
+    activity_confidence: Optional[float] = None
     created_at: datetime
     updated_at: datetime
 
