@@ -44,6 +44,7 @@ import type {
   ExplorationConfig,
   ExplorationTask,
   ExplorationTaskCreateRequest,
+  ExplorationStatistics,
 } from '@/types';
 
 const { Text } = Typography;
@@ -93,6 +94,12 @@ function getScoreColor(score?: number): string {
   if (score >= 80) return '#52c41a';
   if (score >= 70) return '#1890ff';
   return '#faad14';
+}
+
+
+function formatPercent(value?: number): string {
+  if (value === undefined || value === null || Number.isNaN(value)) return '-';
+  return `${(value * 100).toFixed(1)}%`;
 }
 
 function sourceLabel(source: string): string {
@@ -199,6 +206,11 @@ export default function ModelExplorer() {
   const { data: explorationConfig, isLoading: configLoading } = useQuery<ExplorationConfig>({
     queryKey: ['exploration-config'],
     queryFn: () => apiService.getExplorationConfig(),
+  });
+
+  const { data: explorationStats, isLoading: statsLoading } = useQuery<ExplorationStatistics>({
+    queryKey: ['exploration-statistics'],
+    queryFn: () => apiService.getExplorationStatistics(),
   });
 
   const {
@@ -937,6 +949,27 @@ export default function ModelExplorer() {
             </Select>
           </Space>
         </div>
+      </Card>
+
+      <Card style={{ marginBottom: 16 }} loading={statsLoading}>
+        <Row gutter={[12, 12]}>
+          <Col xs={12} md={6}>
+            <Text type="secondary">近7天活跃模型</Text>
+            <div><Text strong>{explorationStats?.active_models_7d ?? '-'}</Text></div>
+          </Col>
+          <Col xs={12} md={6}>
+            <Text type="secondary">观察池模型</Text>
+            <div><Text strong>{explorationStats?.watching_models ?? '-'}</Text></div>
+          </Col>
+          <Col xs={12} md={6}>
+            <Text type="secondary">误报率(代理)</Text>
+            <div><Text strong>{formatPercent(explorationStats?.false_positive_rate)}</Text></div>
+          </Col>
+          <Col xs={12} md={6}>
+            <Text type="secondary">召回率(代理)</Text>
+            <div><Text strong>{formatPercent(explorationStats?.recall_rate_proxy)}</Text></div>
+          </Col>
+        </Row>
       </Card>
 
       <Card>
