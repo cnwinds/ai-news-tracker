@@ -3,7 +3,7 @@
 """
 import atexit
 from concurrent.futures import Future, ThreadPoolExecutor
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 import logging
 import threading
 import uuid
@@ -47,6 +47,25 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 ACTIVE_TASK_STATUSES = ("pending", "running")
+
+DEFAULT_MODEL_FRESHNESS_DAYS = 7
+
+
+def _build_freshness_filter(max_update_age_days: int):
+    """构建“最近更新窗口”过滤条件。"""
+    cutoff_time = datetime.now(timezone.utc) - timedelta(days=max_update_age_days)
+    cutoff_time_str = cutoff_time.strftime("%Y-%m-%d %H:%M:%S")
+    cutoff_time_naive = cutoff_time.replace(tzinfo=None)
+
+    latest_update_expr = func.json_extract(DiscoveredModel.extra_data, "$.updated_at")
+    latest_update_dt_expr = func.datetime(latest_update_expr)
+
+    return (
+        (DiscoveredModel.last_activity_at.isnot(None) & (DiscoveredModel.last_activity_at >= cutoff_time_naive))
+        | (latest_update_expr.isnot(None) & (latest_update_dt_expr >= cutoff_time_str))
+        | (DiscoveredModel.release_date.isnot(None) & (DiscoveredModel.release_date >= cutoff_time_naive))
+    )
+
 _EXPLORATION_START_LOCK = threading.Lock()
 _MANUAL_REPORT_LOCK = threading.Lock()
 _BACKGROUND_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="exploration-worker")
@@ -327,6 +346,7 @@ async def list_models(
     source_platform: Optional[str] = None,
     is_notable: Optional[bool] = None,
     has_report: Optional[bool] = None,
+    max_update_age_days: int = Query(DEFAULT_MODEL_FRESHNESS_DAYS, ge=1, le=30),
     q: Optional[str] = None,
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
@@ -336,6 +356,8 @@ async def list_models(
     获取发现模型列表
     """
     query = db.query(DiscoveredModel)
+
+    query = query.filter(_build_freshness_filter(max_update_age_days=max_update_age_days))
 
     if min_score is not None:
         query = query.filter(DiscoveredModel.final_score >= min_score)
