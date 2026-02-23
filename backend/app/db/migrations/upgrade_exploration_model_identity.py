@@ -128,6 +128,13 @@ def upgrade_exploration_model_identity(engine) -> bool:
                 has_unique_model_name,
             )
 
+            table_columns = {
+                str(row[1]) for row in conn.execute(text("PRAGMA table_info('discovered_models')")).fetchall()
+            }
+            has_last_activity_at = "last_activity_at" in table_columns
+            has_activity_type = "activity_type" in table_columns
+            has_activity_confidence = "activity_confidence" in table_columns
+
             select_columns = [
                 "id",
                 "model_name",
@@ -155,6 +162,12 @@ def upgrade_exploration_model_identity(engine) -> bool:
                 "created_at",
                 "updated_at",
             ]
+            if has_last_activity_at:
+                select_columns.append("last_activity_at")
+            if has_activity_type:
+                select_columns.append("activity_type")
+            if has_activity_confidence:
+                select_columns.append("activity_confidence")
             if has_source_uid:
                 select_columns.append("source_uid")
 
@@ -190,6 +203,9 @@ def upgrade_exploration_model_identity(engine) -> bool:
                     status VARCHAR(20) DEFAULT 'discovered',
                     is_notable BOOLEAN DEFAULT 0,
                     extra_data JSON,
+                    last_activity_at TIMESTAMP,
+                    activity_type VARCHAR(50),
+                    activity_confidence REAL,
                     created_at TIMESTAMP,
                     updated_at TIMESTAMP
                 )
@@ -202,14 +218,16 @@ def upgrade_exploration_model_identity(engine) -> bool:
                     license, description, github_stars, github_forks,
                     paper_citations, social_mentions, impact_score, quality_score,
                     innovation_score, practicality_score, final_score, status,
-                    is_notable, extra_data, created_at, updated_at
+                    is_notable, extra_data, last_activity_at, activity_type,
+                    activity_confidence, created_at, updated_at
                 ) VALUES (
                     :id, :model_name, :model_type, :organization, :release_date,
                     :source_platform, :source_uid, :github_url, :paper_url, :model_url,
                     :license, :description, :github_stars, :github_forks,
                     :paper_citations, :social_mentions, :impact_score, :quality_score,
                     :innovation_score, :practicality_score, :final_score, :status,
-                    :is_notable, :extra_data, :created_at, :updated_at
+                    :is_notable, :extra_data, :last_activity_at, :activity_type,
+                    :activity_confidence, :created_at, :updated_at
                 )
             """)
 
@@ -225,6 +243,9 @@ def upgrade_exploration_model_identity(engine) -> bool:
                     unique_key = (source_platform, source_uid)
                 used_keys.add(unique_key)
                 payload["source_uid"] = source_uid
+                payload.setdefault("last_activity_at", None)
+                payload.setdefault("activity_type", None)
+                payload.setdefault("activity_confidence", None)
                 conn.execute(insert_sql, payload)
 
             conn.execute(text("DROP TABLE discovered_models"))
@@ -232,6 +253,7 @@ def upgrade_exploration_model_identity(engine) -> bool:
 
             conn.execute(text("CREATE INDEX idx_model_score_date ON discovered_models(final_score, release_date)"))
             conn.execute(text("CREATE INDEX idx_model_status_score ON discovered_models(status, final_score)"))
+            conn.execute(text("CREATE INDEX idx_model_last_activity ON discovered_models(last_activity_at)"))
             conn.execute(text("CREATE UNIQUE INDEX idx_model_source_uid_unique ON discovered_models(source_platform, source_uid)"))
             conn.execute(text("CREATE INDEX ix_discovered_models_model_name ON discovered_models(model_name)"))
             conn.execute(text("CREATE INDEX ix_discovered_models_release_date ON discovered_models(release_date)"))

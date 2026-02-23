@@ -533,8 +533,12 @@ export interface ExplorationReportListResponse {
 export interface ExplorationStatistics {
   total_models_discovered: number;
   notable_models: number;
+  watching_models: number;
   reports_generated: number;
   avg_final_score: number;
+  active_models_7d: number;
+  false_positive_rate: number;
+  recall_rate_proxy: number;
   by_source: Record<string, number>;
   by_model_type: Record<string, number>;
 }

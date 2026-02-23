@@ -3,7 +3,7 @@
 """
 import atexit
 from concurrent.futures import Future, ThreadPoolExecutor
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 import logging
 import threading
 import uuid
@@ -11,7 +11,7 @@ from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
-from sqlalchemy import Float, cast, func
+from sqlalchemy import Float, and_, cast, func
 from sqlalchemy.orm import Session
 
 from backend.app.api.v1.endpoints.settings import require_auth
@@ -47,6 +47,20 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 ACTIVE_TASK_STATUSES = ("pending", "running")
+
+DEFAULT_MODEL_FRESHNESS_DAYS = 7
+
+
+def _build_freshness_filter(max_update_age_days: int):
+    """构建“最近更新窗口”过滤条件。"""
+    cutoff_time = datetime.now(timezone.utc) - timedelta(days=max_update_age_days)
+    cutoff_time_naive = cutoff_time.replace(tzinfo=None)
+
+    return and_(
+        DiscoveredModel.last_activity_at.isnot(None),
+        DiscoveredModel.last_activity_at >= cutoff_time_naive,
+    )
+
 _EXPLORATION_START_LOCK = threading.Lock()
 _MANUAL_REPORT_LOCK = threading.Lock()
 _BACKGROUND_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="exploration-worker")
@@ -327,6 +341,8 @@ async def list_models(
     source_platform: Optional[str] = None,
     is_notable: Optional[bool] = None,
     has_report: Optional[bool] = None,
+    status: Optional[str] = None,
+    max_update_age_days: int = Query(DEFAULT_MODEL_FRESHNESS_DAYS, ge=1, le=30),
     q: Optional[str] = None,
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
@@ -336,6 +352,8 @@ async def list_models(
     获取发现模型列表
     """
     query = db.query(DiscoveredModel)
+
+    query = query.filter(_build_freshness_filter(max_update_age_days=max_update_age_days))
 
     if min_score is not None:
         query = query.filter(DiscoveredModel.final_score >= min_score)
@@ -351,6 +369,8 @@ async def list_models(
         query = query.filter(DiscoveredModel.source_platform == source_platform)
     if is_notable is not None:
         query = query.filter(DiscoveredModel.is_notable == is_notable)
+    if status:
+        query = query.filter(DiscoveredModel.status == status)
     if has_report is not None:
         report_exists = (
             db.query(ExplorationReport.id)
@@ -597,6 +617,8 @@ async def export_report(
 
 @router.get("/statistics", response_model=ExplorationStatisticsResponse)
 async def get_statistics(
+    stale_days: int = Query(14, ge=1, le=90),
+    recall_window_days: int = Query(7, ge=1, le=90),
     db: Session = Depends(get_database),
 ) -> ExplorationStatisticsResponse:
     """
@@ -622,12 +644,60 @@ async def get_statistics(
         or 0
     )
     reports_generated = db.query(func.count(ExplorationReport.id)).scalar() or 0
+    watching_models = (
+        db.query(func.count(DiscoveredModel.id))
+        .filter(DiscoveredModel.status == "watching")
+        .scalar()
+        or 0
+    )
+    cutoff_7d = datetime.now() - timedelta(days=recall_window_days)
+    active_models_7d = (
+        db.query(func.count(DiscoveredModel.id))
+        .filter(DiscoveredModel.last_activity_at.isnot(None), DiscoveredModel.last_activity_at >= cutoff_7d)
+        .scalar()
+        or 0
+    )
     avg_final_score = (
         db.query(func.avg(DiscoveredModel.final_score))
         .filter(report_exists)
         .scalar()
         or 0.0
     )
+
+    # 质量指标（当前可观测口径）
+    stale_watching = (
+        db.query(func.count(DiscoveredModel.id))
+        .filter(
+            DiscoveredModel.status == "watching",
+            DiscoveredModel.last_activity_at.isnot(None),
+            DiscoveredModel.last_activity_at < (datetime.now() - timedelta(days=stale_days)),
+        )
+        .scalar()
+        or 0
+    )
+    false_positive_rate = float(stale_watching / watching_models) if watching_models else 0.0
+
+    recent_notable = (
+        db.query(func.count(DiscoveredModel.id))
+        .filter(
+            DiscoveredModel.is_notable.is_(True),
+            DiscoveredModel.last_activity_at.isnot(None),
+            DiscoveredModel.last_activity_at >= cutoff_7d,
+        )
+        .scalar()
+        or 0
+    )
+    recent_reported = (
+        db.query(func.count(DiscoveredModel.id))
+        .filter(
+            report_exists,
+            DiscoveredModel.last_activity_at.isnot(None),
+            DiscoveredModel.last_activity_at >= cutoff_7d,
+        )
+        .scalar()
+        or 0
+    )
+    recall_rate_proxy = float(recent_reported / recent_notable) if recent_notable else 0.0
 
     by_source = {
         platform: count
@@ -654,8 +724,12 @@ async def get_statistics(
     return ExplorationStatisticsResponse(
         total_models_discovered=int(total_models),
         notable_models=int(notable_models),
+        watching_models=int(watching_models),
         reports_generated=int(reports_generated),
         avg_final_score=round(float(avg_final_score), 2),
+        active_models_7d=int(active_models_7d),
+        false_positive_rate=round(false_positive_rate, 4),
+        recall_rate_proxy=round(recall_rate_proxy, 4),
         by_source=by_source,
         by_model_type=by_model_type,
     )

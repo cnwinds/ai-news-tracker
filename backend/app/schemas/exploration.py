@@ -185,6 +185,9 @@ class DiscoveredModelResponse(BaseModel):
     is_notable: bool
     status: str
     extra_data: Optional[Dict[str, Any]] = None
+    last_activity_at: Optional[datetime] = None
+    activity_type: Optional[str] = None
+    activity_confidence: Optional[float] = None
     created_at: datetime
     updated_at: datetime
 
@@ -272,11 +275,15 @@ class ExplorationStatisticsResponse(BaseModel):
 
     total_models_discovered: int
     notable_models: int
+    watching_models: int
     reports_generated: int
     avg_final_score: float
+    active_models_7d: int
+    false_positive_rate: float
+    recall_rate_proxy: float
     by_source: Dict[str, int]
     by_model_type: Dict[str, int]
 
 
-ExplorationModelSortBy = Literal["final_score", "release_date", "github_stars", "created_at"]
+ExplorationModelSortBy = Literal["final_score", "release_date", "github_stars", "created_at", "last_activity_at"]
 ExplorationOrderBy = Literal["asc", "desc"]

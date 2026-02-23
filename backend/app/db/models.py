@@ -407,6 +407,7 @@ class DiscoveredModel(Base):
     __table_args__ = (
         Index('idx_model_score_date', 'final_score', 'release_date'),
         Index('idx_model_status_score', 'status', 'final_score'),
+        Index('idx_model_last_activity', 'last_activity_at'),
         Index('idx_model_source_uid_unique', 'source_platform', 'source_uid', unique=True),
     )
 
@@ -440,6 +441,9 @@ class DiscoveredModel(Base):
     status = Column(String(20), default='discovered', index=True)  # discovered/evaluated/analyzed/reported
     is_notable = Column(Boolean, default=False, index=True)  # 是否值得深度研究
     extra_data = Column(JSON, nullable=True)  # 额外数据
+    last_activity_at = Column(DateTime, nullable=True, index=True)  # 最近一次活动时间
+    activity_type = Column(String(50), nullable=True)  # 活动类型
+    activity_confidence = Column(Float, nullable=True)  # 活动可信度（0-100）
     created_at = Column(DateTime, default=datetime.now, nullable=False)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 

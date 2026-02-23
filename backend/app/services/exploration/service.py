@@ -520,6 +520,9 @@ class ExplorationService:
             else raw_extra.get("signal_score"),
             default=release_confidence,
         )
+        last_activity_at = updated_at or release_date
+        activity_type = update_type if update_type and update_type != "unknown" else None
+        activity_confidence = round(release_confidence, 2)
 
         source_uid = self._derive_source_uid(
             source=source,
@@ -547,6 +550,9 @@ class ExplorationService:
             "github_forks": self._to_int(raw.get("github_forks"), default=0),
             "paper_citations": self._to_int(raw.get("paper_citations"), default=0),
             "social_mentions": self._to_int(raw.get("social_mentions"), default=0),
+            "last_activity_at": last_activity_at,
+            "activity_type": activity_type,
+            "activity_confidence": activity_confidence,
             "extra_data": {
                 "source_url": self._clean_str(raw.get("url")),
                 "discovered_at": raw.get("discovered_at") or datetime.now().isoformat(),
@@ -750,6 +756,13 @@ class ExplorationService:
                 status="evaluated",
                 is_notable=float(candidate.get("final_score") or 0.0) >= min_score,
                 extra_data=candidate.get("extra_data") or {},
+                last_activity_at=candidate.get("last_activity_at") or candidate.get("release_date"),
+                activity_type=candidate.get("activity_type"),
+                activity_confidence=(
+                    float(candidate.get("activity_confidence"))
+                    if candidate.get("activity_confidence") is not None
+                    else None
+                ),
             )
             session.add(model)
             session.flush()
@@ -784,6 +797,13 @@ class ExplorationService:
         existing.practicality_score = float(candidate.get("practicality_score") or existing.practicality_score or 0.0)
         existing.final_score = float(candidate.get("final_score") or existing.final_score or 0.0)
         existing.is_notable = (existing.final_score or 0.0) >= min_score
+        existing.last_activity_at = candidate.get("last_activity_at") or existing.last_activity_at or existing.release_date
+        existing.activity_type = candidate.get("activity_type") or existing.activity_type
+        existing.activity_confidence = (
+            float(candidate.get("activity_confidence"))
+            if candidate.get("activity_confidence") is not None
+            else existing.activity_confidence
+        )
 
         extra_data = existing.extra_data or {}
         candidate_extra = candidate.get("extra_data") or {}
@@ -836,10 +856,14 @@ class ExplorationService:
         if latest_report is None:
             return True
 
-        updated_at = self._parse_datetime((candidate.get("extra_data") or {}).get("updated_at"))
-        if updated_at is None:
+        activity_time = candidate.get("last_activity_at")
+        if not isinstance(activity_time, datetime):
+            activity_time = self._parse_datetime((candidate.get("extra_data") or {}).get("updated_at"))
+        if activity_time is None:
+            activity_time = model.last_activity_at
+        if activity_time is None:
             return False
-        return updated_at > latest_report.generated_at
+        return activity_time > latest_report.generated_at
 
     @staticmethod
     def _has_existing_report(session: Session, model_id: int) -> bool:
@@ -1631,6 +1655,9 @@ class ExplorationService:
             "final_score": model.final_score,
             "status": model.status,
             "is_notable": model.is_notable,
+            "last_activity_at": model.last_activity_at.isoformat() if model.last_activity_at else None,
+            "activity_type": model.activity_type,
+            "activity_confidence": model.activity_confidence,
             "extra_data": model.extra_data or {},
         }
 

@@ -874,7 +874,7 @@ class ApiService {
   }
 
   async getDiscoveredModels(params?: {
-    sort_by?: 'final_score' | 'release_date' | 'github_stars' | 'created_at';
+    sort_by?: 'final_score' | 'release_date' | 'github_stars' | 'created_at' | 'last_activity_at';
     order?: 'asc' | 'desc';
     min_score?: number;
     min_release_confidence?: number;
@@ -882,6 +882,7 @@ class ApiService {
     source_platform?: string;
     is_notable?: boolean;
     has_report?: boolean;
+    status?: string;
     q?: string;
     limit?: number;
     offset?: number;
@@ -897,6 +898,7 @@ class ApiService {
     if (params?.source_platform) queryParams.append('source_platform', params.source_platform);
     if (params?.is_notable !== undefined) queryParams.append('is_notable', String(params.is_notable));
     if (params?.has_report !== undefined) queryParams.append('has_report', String(params.has_report));
+    if (params?.status) queryParams.append('status', params.status);
     if (params?.q) queryParams.append('q', params.q);
     if (params?.limit) queryParams.append('limit', params.limit.toString());
     if (params?.offset) queryParams.append('offset', params.offset.toString());
@@ -971,9 +973,18 @@ class ApiService {
     );
   }
 
-  async getExplorationStatistics(): Promise<ExplorationStatistics> {
+  async getExplorationStatistics(params?: {
+    stale_days?: number;
+    recall_window_days?: number;
+  }): Promise<ExplorationStatistics> {
+    const queryParams = new URLSearchParams();
+    if (params?.stale_days !== undefined) queryParams.append('stale_days', params.stale_days.toString());
+    if (params?.recall_window_days !== undefined) {
+      queryParams.append('recall_window_days', params.recall_window_days.toString());
+    }
+    const suffix = queryParams.toString() ? `?${queryParams.toString()}` : '';
     return this.handleRequest(
-      this.client.get<ExplorationStatistics>('/exploration/statistics')
+      this.client.get<ExplorationStatistics>(`/exploration/statistics${suffix}`)
     );
   }
 
