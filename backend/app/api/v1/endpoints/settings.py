@@ -465,6 +465,74 @@ async def delete_provider(
         return {"message": "提供商已删除"}
 
 
+@router.post("/providers/{provider_id}/test")
+async def test_provider(
+    provider_id: int,
+    current_user: str = Depends(require_auth),
+):
+    """测试指定模型提供商的接口是否能调通（发送一次最小化请求）"""
+    db = get_db()
+    with db.get_session() as session:
+        provider = LLMProviderRepository.get_by_id(session, provider_id)
+        if not provider:
+            raise HTTPException(status_code=404, detail="提供商不存在")
+        if not provider.api_key or not provider.api_key.strip():
+            raise HTTPException(status_code=400, detail="该提供商未配置 API Key，无法测试")
+        models = [m.strip() for m in provider.llm_model.split(",") if m.strip()]
+        if not models:
+            raise HTTPException(status_code=400, detail="该提供商未配置大模型名称，无法测试")
+        model = models[0]
+        api_base = (provider.api_base or "").strip() or None
+        pt = (provider.provider_type or "").strip().lower()
+
+        try:
+            if "anthropic" in pt or "claude" in pt:
+                try:
+                    from anthropic import Anthropic
+                    import httpx
+                except ImportError:
+                    raise HTTPException(
+                        status_code=501,
+                        detail="当前环境未安装 anthropic 依赖，无法测试 Anthropic 提供商",
+                    )
+                client_kwargs = {"api_key": provider.api_key}
+                if api_base:
+                    client_kwargs["base_url"] = api_base
+                client_kwargs["http_client"] = httpx.Client(timeout=httpx.Timeout(25.0))
+                client = Anthropic(**client_kwargs)
+                client.messages.create(
+                    model=model,
+                    max_tokens=10,
+                    messages=[{"role": "user", "content": "Hi"}],
+                )
+            else:
+                from openai import OpenAI
+                client_kwargs = {
+                    "api_key": provider.api_key,
+                    "timeout": 25.0,
+                    "max_retries": 0,
+                }
+                if api_base:
+                    client_kwargs["base_url"] = api_base
+                client = OpenAI(**client_kwargs)
+                # 使用 Chat API 测试（兼容性更好），Responses API 某些第三方可能不支持
+                resp = client.chat.completions.create(
+                    model=model,
+                    messages=[{"role": "user", "content": "Hi"}],
+                    temperature=0,
+                    max_tokens=5,
+                )
+            return {"success": True, "message": "连接成功，接口可正常调用"}
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.exception("模型提供商测试失败: provider_id=%s", provider_id)
+            return {
+                "success": False,
+                "message": str(e) or "请求失败",
+            }
+
+
 @router.get("/collector", response_model=CollectorSettings)
 async def get_collector_settings():
     """获取采集器配置"""

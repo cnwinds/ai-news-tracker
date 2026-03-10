@@ -529,6 +529,13 @@ class ApiService {
     );
   }
 
+  /** 测试模型提供商接口是否可调通 */
+  async testProvider(providerId: number): Promise<{ success: boolean; message: string }> {
+    return this.handleRequest(
+      this.client.post<{ success: boolean; message: string }>(`/settings/providers/${providerId}/test`)
+    );
+  }
+
   // 采集器配置相关
   async getCollectorSettings(): Promise<CollectorSettings> {
     return this.handleRequest(

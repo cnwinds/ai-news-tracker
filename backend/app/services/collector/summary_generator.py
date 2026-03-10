@@ -174,20 +174,13 @@ class SummaryGenerator:
             logger.debug(f"   提示词长度: {len(prompt)} 字符")
             logger.debug(f"   系统提示词长度: {len(system_prompt)} 字符")
             
-            summary_content = self.ai_analyzer.client.chat.completions.create(
-                model=self.ai_analyzer.model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": system_prompt
-                    },
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
+            summary_content = self.ai_analyzer.create_completion(
+                [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt}
                 ],
                 temperature=temperature,
-                max_tokens=max_tokens
+                max_tokens=max_tokens,
             )
             summary_text = summary_content.choices[0].message.content
             logger.info(f"✅ LLM生成成功，响应长度: {len(summary_text)} 字符")

@@ -160,7 +160,19 @@ export default function ArticleList() {
             <Spin size="large" />
           </div>
         ) : error ? (
-          <Alert message="加载失败" type="error" showIcon />
+          <Alert
+            type="error"
+            showIcon
+            message="加载失败"
+            description={
+              <>
+                <span>{(error as { message?: string })?.message ?? (error instanceof Error ? error.message : String(error))}</span>
+                <Button type="link" size="small" onClick={() => refetch()} loading={isFetching} style={{ marginLeft: 8 }}>
+                  重试
+                </Button>
+              </>
+            }
+          />
         ) : !data || data.items.length === 0 ? (
           <Empty description="暂无文章" />
         ) : (

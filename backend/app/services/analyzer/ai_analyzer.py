@@ -1,13 +1,102 @@
 """
-AI内容分析器 - 使用OpenAI兼容接口
+AI内容分析器 - 使用OpenAI兼容接口，支持 /v1/responses 新协议
 """
 import json
-from typing import Dict, Any, List, Optional
+from types import SimpleNamespace
+from typing import Dict, Any, List, Optional, Iterator, Union
 from openai import OpenAI
 import logging
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
+
+
+def _responses_create(client: OpenAI, model: str, messages: List[Dict[str, Any]], **kwargs: Any) -> Any:
+    """
+    使用 Responses API (/v1/responses) 创建完成，返回兼容 chat.completions 的封装。
+    当服务端仅支持新协议时使用。
+    """
+    # 某些提供商（如 GLM、第三方 OpenAI 兼容接口）可能不支持 max_output_tokens
+    # 需要兼容不同的参数名
+    max_tokens_value = kwargs.get("max_tokens", 4000)
+
+    # 构建基础参数
+    params: Dict[str, Any] = {
+        "model": model,
+        "input": messages,
+        "temperature": kwargs.get("temperature", 0.3),
+    }
+
+    if "response_format" in kwargs:
+        params["text"] = {"format": kwargs["response_format"]}
+    extra = {k: v for k, v in kwargs.items() if k not in ("temperature", "max_tokens", "response_format")}
+    params.update(extra)
+    params.pop("max_tokens", None)  # 移除原始参数
+
+    # 尝试不同的参数名
+    for param_name in ["max_output_tokens", "max_tokens", None]:
+        try:
+            if param_name is not None:
+                params[param_name] = max_tokens_value
+            return client.responses.create(**params)
+        except TypeError as e:
+            error_msg = str(e).lower()
+            # 检查是否是参数错误
+            if "unexpected keyword argument" in error_msg:
+                # 移除刚添加的参数，继续尝试下一个
+                params.pop(param_name, None)
+                logger.warning(f"Responses API 不支持 {param_name}，尝试其他参数名: {e}")
+                continue
+            raise
+
+
+def _responses_output_text(response: Any) -> str:
+    """从 Responses API 响应中提取完整文本（兼容 output_text 或 output 列表）。"""
+    if hasattr(response, "output_text") and response.output_text is not None:
+        return response.output_text
+    if hasattr(response, "output") and response.output:
+        parts = []
+        for item in response.output:
+            if isinstance(item, dict):
+                if item.get("type") == "message" and "content" in item:
+                    for c in item["content"] or []:
+                        if isinstance(c, dict) and c.get("type") == "text":
+                            parts.append(c.get("text", ""))
+                elif item.get("type") == "output_text" and "text" in item:
+                    parts.append(item["text"])
+            elif hasattr(item, "type"):
+                if getattr(item, "type", None) == "message" and getattr(item, "content", None):
+                    for c in item.content or []:
+                        if getattr(c, "type", None) == "text":
+                            parts.append(getattr(c, "text", ""))
+        return "".join(parts)
+    return ""
+
+
+def _wrap_response_as_chat(response: Any) -> Any:
+    """将 Responses API 的响应封装成 chat.completions 兼容结构：choices[0].message.content"""
+    text = _responses_output_text(response)
+    msg = SimpleNamespace(content=text or "", role="assistant")
+    choice = SimpleNamespace(message=msg, index=0, finish_reason="stop")
+    return SimpleNamespace(choices=[choice], usage=getattr(response, "usage", None))
+
+
+def _stream_responses_as_chat(stream: Iterator[Any]) -> Iterator[Any]:
+    """
+    将 Responses API 流式事件转换为 chat.completions 流式 chunk：choices[0].delta.content。
+    兼容 SDK 事件类型 response.output_text.delta（ResponseTextDeltaEvent 含 type/delta）。
+    """
+    for event in stream:
+        content = None
+        ev_type = event.get("type", "") if isinstance(event, dict) else getattr(event, "type", "")
+        if ev_type and "output_text.delta" in ev_type:
+            content = event.get("delta") if isinstance(event, dict) else (getattr(event, "delta", None) or getattr(event, "text", None))
+        if content is None and hasattr(event, "delta") and isinstance(getattr(event, "delta", None), str):
+            content = event.delta
+        if content:
+            delta = SimpleNamespace(content=content)
+            choice = SimpleNamespace(delta=delta, index=0)
+            yield SimpleNamespace(choices=[choice])
 
 
 class AIAnalyzer:
@@ -51,6 +140,41 @@ class AIAnalyzer:
         except Exception as e:
             logger.error(f"❌ AI分析器初始化失败: {e}")
             raise
+
+    def create_completion(
+        self,
+        messages: List[Dict[str, Any]],
+        *,
+        model: Optional[str] = None,
+        temperature: float = 0.3,
+        max_tokens: int = 4000,
+        stream: bool = False,
+        **kwargs: Any,
+    ) -> Union[Any, Iterator[Any]]:
+        """
+        使用 /v1/responses 协议创建完成，返回与 chat.completions 兼容的结构。
+        调用方仍可使用 result.choices[0].message.content 获取文本。
+        """
+        use_model = model or self.model
+        if stream:
+            params = {
+                "model": use_model,
+                "input": messages,
+                "temperature": temperature,
+                "max_output_tokens": max_tokens,
+                "stream": True,
+                **kwargs,
+            }
+            if "response_format" in params:
+                params["text"] = {"format": params.pop("response_format")}
+            params.pop("max_tokens", None)  # Responses API 仅接受 max_output_tokens
+            stream_iter = self.client.responses.create(**params)
+            return _stream_responses_as_chat(stream_iter)
+        resp = _responses_create(
+            self.client, use_model, messages,
+            temperature=temperature, max_tokens=max_tokens, **kwargs
+        )
+        return _wrap_response_as_chat(resp)
 
     def analyze_article(self, article: Dict[str, Any] = None, custom_prompt: str = None, **kwargs) -> Dict[str, Any]:
         """
@@ -108,10 +232,9 @@ class AIAnalyzer:
                     # 对于邮件，增加token限制以支持更长的输出
                     max_tokens = 8000 if is_email else 4000
                     
-                    # 调用OpenAI API
-                    response = self.client.chat.completions.create(
-                        model=self.model,
-                        messages=[
+                    # 使用 /v1/responses 协议
+                    response = self.create_completion(
+                        [
                             {
                                 "role": "system",
                                 "content": "你是一个专业的内容改写专家，擅长将长篇文章改写成结构完整、信息齐全、逻辑严密的精简短文。你的任务是提取文章的核心思想，为时间宝贵的核心读者（如投资人、合作伙伴、高级决策者）准备浓缩精华版，使其成为一篇独立、完整、且有说服力的作品。请使用中文输出所有内容。"
@@ -391,22 +514,14 @@ class AIAnalyzer:
 
 中文翻译："""
 
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "你是一个专业的翻译助手，擅长准确翻译技术文章内容。"
-                    },
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
+            response = self.create_completion(
+                [
+                    {"role": "system", "content": "你是一个专业的翻译助手，擅长准确翻译技术文章内容。"},
+                    {"role": "user", "content": prompt}
                 ],
                 temperature=0.3,
                 max_tokens=4000,
             )
-
             translated = response.choices[0].message.content.strip()
             return translated
 
@@ -430,23 +545,14 @@ class AIAnalyzer:
                 return title
             
             prompt = f"请将以下标题翻译成{target_language}，只返回翻译结果，不要添加任何解释：\n\n{title}"
-            
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "你是一个专业的翻译助手，擅长翻译技术文章标题。"
-                    },
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
+            response = self.create_completion(
+                [
+                    {"role": "system", "content": "你是一个专业的翻译助手，擅长翻译技术文章标题。"},
+                    {"role": "user", "content": prompt}
                 ],
                 temperature=0.3,
                 max_tokens=200,
             )
-            
             translated = response.choices[0].message.content.strip()
             return translated
             
@@ -485,22 +591,14 @@ class AIAnalyzer:
 
 中文标题："""
             
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "你是一个专业的翻译助手，擅长根据文章内容准确翻译技术文章标题。"
-                    },
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
+            response = self.create_completion(
+                [
+                    {"role": "system", "content": "你是一个专业的翻译助手，擅长根据文章内容准确翻译技术文章标题。"},
+                    {"role": "user", "content": prompt}
                 ],
                 temperature=0.3,
                 max_tokens=200,
             )
-            
             translated = response.choices[0].message.content.strip()
             # 去除可能的引号
             translated = translated.strip('"').strip("'").strip()

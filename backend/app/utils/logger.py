@@ -1,12 +1,25 @@
 """
 统一日志管理模块
 """
+import io
 import logging
 import sys
 from pathlib import Path
 from typing import Optional
 
 from backend.app.core.settings import settings
+
+
+def _safe_stdout():
+    """返回可安全输出 Unicode（含 emoji）的控制台流，避免 Windows GBK 编码错误"""
+    if sys.platform == "win32" and hasattr(sys.stdout, "buffer"):
+        return io.TextIOWrapper(
+            sys.stdout.buffer,
+            encoding="utf-8",
+            errors="replace",
+            line_buffering=True,
+        )
+    return sys.stdout
 
 
 def _create_file_handler(log_path: Path, log_level: int) -> logging.FileHandler:
@@ -59,7 +72,7 @@ def setup_logger(name: str = "", log_file: Optional[str] = None) -> logging.Logg
 
     formatter = _get_formatter()
 
-    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler = logging.StreamHandler(_safe_stdout())
     console_handler.setLevel(log_level)
     console_handler.setFormatter(formatter)
     root_logger.addHandler(console_handler)
