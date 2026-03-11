@@ -596,6 +596,7 @@ export interface DataCleanupFormValues {
   delete_logs_older_than_days?: number;
   delete_unanalyzed_articles?: boolean;
   delete_articles_by_sources?: string[];
+  rerun_unanalyzed_articles?: boolean;
 }
 
 export interface SummaryGenerateFormValues {
