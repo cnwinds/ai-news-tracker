@@ -9,6 +9,7 @@ import logging
 from bs4 import BeautifulSoup
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import re
+import json
 
 from backend.app.services.collector.base_collector import BaseCollector
 
@@ -362,13 +363,54 @@ class RSSCollector(BaseCollector):
                     logger.warning(f"⚠️  页面标题显示错误: '{indicator}'")
                     return True
 
-        # 检查页面内容过短（可能是错误页面）
-        # 正常文章内容通常至少有500个字符
+        # 页面过短不再直接判定为错误页。
+        # 部分快讯/公告正文本身很短，直接返回错误会导致内容被置空。
         if len(content.strip()) < 200:
-            logger.warning(f"⚠️  页面内容过短 ({len(content.strip())} 字符)，可能是错误页面")
-            return True
+            logger.warning(f"⚠️  页面内容较短 ({len(content.strip())} 字符)，继续尝试提取")
 
         return False
+
+    def _extract_json_ld_article_body(self, soup: BeautifulSoup) -> str:
+        """从 JSON-LD 中提取 articleBody/text 作为兜底内容。"""
+        try:
+            scripts = soup.find_all("script", {"type": "application/ld+json"})
+            for script in scripts:
+                raw = script.string or script.get_text() or ""
+                raw = raw.strip()
+                if not raw:
+                    continue
+
+                try:
+                    payload = json.loads(raw)
+                except Exception:
+                    continue
+
+                candidates = payload if isinstance(payload, list) else [payload]
+                for item in candidates:
+                    if not isinstance(item, dict):
+                        continue
+
+                    body = item.get("articleBody") or item.get("text")
+                    if isinstance(body, str) and body.strip():
+                        return body.strip()
+        except Exception as e:
+            logger.debug(f"JSON-LD 提取失败: {e}")
+
+        return ""
+
+    def _extract_paragraph_fallback(self, soup: BeautifulSoup) -> str:
+        """段落级兜底：拼接有效段落文本，尽量避免返回空内容。"""
+        paragraphs = []
+        for p in soup.find_all("p"):
+            text = p.get_text(" ", strip=True)
+            if len(text) >= 20:
+                paragraphs.append(text)
+
+        if not paragraphs:
+            return ""
+
+        # 控制长度，避免把整页噪音全部灌入数据库
+        return "\n\n".join(paragraphs[:40]).strip()
 
     def fetch_full_content(self, url: str) -> Tuple[str, Optional[datetime]]:
         """
@@ -398,9 +440,23 @@ class RSSCollector(BaseCollector):
 
             # 普通 HTML 页面处理
             logger.info(f"📄 正在获取完整内容: {url}")
-            headers = {"User-Agent": self.user_agent}
+            headers = {
+                "User-Agent": self.user_agent,
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+                "Cache-Control": "no-cache",
+                "Pragma": "no-cache",
+                "Referer": "https://www.google.com/",
+            }
             response = requests.get(url, headers=headers, timeout=self.timeout)
             response.raise_for_status()
+
+            logger.debug(
+                "完整内容请求成功: status=%s, content-type=%s, final-url=%s",
+                response.status_code,
+                response.headers.get("Content-Type", ""),
+                response.url,
+            )
 
             # 解析HTML
             soup = BeautifulSoup(response.content, "html.parser")
@@ -408,7 +464,16 @@ class RSSCollector(BaseCollector):
             # ⭐ 先检查是否是错误页面（在提取内容之前）
             page_text = soup.get_text()
             if self._is_error_page(page_text, soup):
-                logger.warning(f"⚠️  URL返回错误页面，跳过内容提取: {url}")
+                # 错误页场景下仍尝试 JSON-LD/段落兜底，避免全量置空
+                fallback_content = self._extract_json_ld_article_body(soup)
+                if not fallback_content:
+                    fallback_content = self._extract_paragraph_fallback(soup)
+
+                if fallback_content:
+                    logger.warning(f"⚠️  URL疑似错误页，但兜底提取到内容: {url}")
+                    return fallback_content, None
+
+                logger.warning(f"⚠️  URL返回错误页面，且兜底提取失败: {url}")
                 return "", None
 
             # 尝试找到主要内容区域
@@ -439,6 +504,17 @@ class RSSCollector(BaseCollector):
                 for tag in soup.find_all(['nav', 'header', 'footer', 'aside', 'script', 'style']):
                     tag.decompose()
                 content = self.html_to_markdown(str(soup))
+
+            # 二次兜底：正文选择器和 body 提取都偏短时，再尝试 JSON-LD 与段落拼接
+            if not content or len(content.strip()) < 80:
+                json_ld_content = self._extract_json_ld_article_body(soup)
+                if json_ld_content and len(json_ld_content) > len(content or ""):
+                    content = json_ld_content
+
+            if not content or len(content.strip()) < 80:
+                paragraph_content = self._extract_paragraph_fallback(soup)
+                if paragraph_content and len(paragraph_content) > len(content or ""):
+                    content = paragraph_content
 
             # 尝试从页面提取发布日期
             published_at = self._extract_date_from_page(soup, url)
