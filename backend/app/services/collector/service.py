@@ -1960,14 +1960,18 @@ class CollectionService:
                 
                 logger.info(f"  🤖 正在解析邮件: {article.get('title', '')[:50]}...")
                 
-                # 使用 /v1/responses 协议调用AI分析器解析
-                result = self.ai_analyzer.create_completion(
-                    [
+                # 调用AI分析器解析
+                result = self.ai_analyzer.client.chat.completions.create(
+                    model=self.ai_analyzer.model,
+                    messages=[
                         {
                             "role": "system",
                             "content": "你是一个专业的内容解析专家，擅长从邮件中提取多篇文章。请严格按照JSON格式输出，确保每个item都是完整的文章信息。"
                         },
-                        {"role": "user", "content": multi_article_prompt}
+                        {
+                            "role": "user",
+                            "content": multi_article_prompt
+                        }
                     ],
                     temperature=0.3,
                     max_tokens=16000,  # 支持更长的输出

@@ -788,16 +788,20 @@ class RAGService:
                     "content": prompt
                 })
                 
-                response = self.ai_analyzer.create_completion(
-                    messages,
+                response = self.ai_analyzer.client.chat.completions.create(
+                    model=self.ai_analyzer.model,
+                    messages=messages,
                     temperature=0.3,
                     max_tokens=2000,
                 )
+                
                 logger.info(f"✅ LLM响应接收成功")
                 logger.debug(f"响应对象类型: {type(response)}")
                 logger.debug(f"响应choices数量: {len(response.choices) if hasattr(response, 'choices') else 0}")
+                
                 if not response.choices:
                     raise ValueError("LLM响应中没有choices")
+                
                 answer = response.choices[0].message.content.strip()
                 logger.info(f"✅ 答案生成成功，长度: {len(answer)} 字符")
                 
@@ -1002,16 +1006,19 @@ class RAGService:
                     "content": prompt
                 })
                 
-                stream = self.ai_analyzer.create_completion(
-                    messages,
+                stream = self.ai_analyzer.client.chat.completions.create(
+                    model=self.ai_analyzer.model,
+                    messages=messages,
                     temperature=0.3,
                     max_tokens=2000,
-                    stream=True,
+                    stream=True,  # 启用流式输出
                 )
+                
+                # 流式返回内容
                 for chunk in stream:
                     if chunk.choices and len(chunk.choices) > 0:
                         delta = chunk.choices[0].delta
-                        if getattr(delta, "content", None):
+                        if delta.content:
                             yield {
                                 "type": "content",
                                 "data": {"content": delta.content}

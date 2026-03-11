@@ -178,15 +178,23 @@ HTML内容（前10000字符）:
 
 只返回JSON，不要其他解释。"""
 
-        # 使用 /v1/responses 协议调用AI分析
-        response = self.ai_analyzer.create_completion(
-            [
-                {"role": "system", "content": "你是一个专业的网页解析专家，擅长分析HTML结构并生成CSS选择器。"},
-                {"role": "user", "content": prompt}
+        # 调用AI分析
+        response = self.ai_analyzer.client.chat.completions.create(
+            model=self.ai_analyzer.model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "你是一个专业的网页解析专家，擅长分析HTML结构并生成CSS选择器。"
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
             ],
             temperature=0.3,
             max_tokens=2000,
         )
+
         result_text = response.choices[0].message.content.strip()
 
         # 解析JSON响应

@@ -275,14 +275,22 @@ class SocialMediaReportGenerator:
 
 中文标题："""
 
-            response = self.ai_analyzer.create_completion(
-                [
-                    {"role": "system", "content": "你是一名专业的新闻编辑，擅长将英文标题翻译成准确、简洁的中文标题。"},
-                    {"role": "user", "content": prompt}
+            response = self.ai_analyzer.client.chat.completions.create(
+                model=self.ai_analyzer.model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "你是一名专业的新闻编辑，擅长将英文标题翻译成准确、简洁的中文标题。"
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
                 ],
                 temperature=0.3,
                 max_tokens=200,
             )
+
             translated = response.choices[0].message.content.strip()
             # 去除可能的引号
             translated = translated.strip('"').strip("'").strip()
@@ -390,17 +398,33 @@ class SocialMediaReportGenerator:
 
 只返回JSON，不要其他内容。"""
 
-            messages = [
-                {"role": "system", "content": "你是一名AI科技新闻编辑，擅长判断内容的信息价值。只返回JSON格式。"},
-                {"role": "user", "content": prompt}
-            ]
-            kwargs = {"temperature": 0.3, "max_tokens": 200}
+            # 构建请求参数
+            request_params = {
+                "model": self.ai_analyzer.model,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": "你是一名AI科技新闻编辑，擅长判断内容的信息价值。只返回JSON格式。"
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                "temperature": 0.3,
+                "max_tokens": 200,
+            }
+            
+            # 如果模型支持JSON模式，添加response_format
             try:
+                # 检查模型是否支持JSON模式（通常是gpt-4o或更新的模型）
                 if "gpt-4" in self.ai_analyzer.model.lower() or "o1" in self.ai_analyzer.model.lower():
-                    kwargs["response_format"] = {"type": "json_object"}
-            except Exception:
+                    request_params["response_format"] = {"type": "json_object"}
+            except:
                 pass
-            response = self.ai_analyzer.create_completion(messages, **kwargs)
+            
+            response = self.ai_analyzer.client.chat.completions.create(**request_params)
+
             result_text = response.choices[0].message.content.strip()
             # 尝试解析JSON
             try:

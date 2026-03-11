@@ -15,9 +15,8 @@ import {
   Table,
   Modal,
   Popconfirm,
-  message,
 } from 'antd';
-import { SaveOutlined, ReloadOutlined, PlusOutlined, EditOutlined, DeleteOutlined, ApiOutlined } from '@ant-design/icons';
+import { SaveOutlined, ReloadOutlined, PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiService } from '@/services/api';
 import { useAuth } from '@/contexts/AuthContext';
@@ -34,7 +33,6 @@ export default function LLMSettingsTab() {
   const [providerForm] = Form.useForm();
   const [providerModalVisible, setProviderModalVisible] = useState(false);
   const [editingProvider, setEditingProvider] = useState<LLMProvider | null>(null);
-  const [testingProviderId, setTestingProviderId] = useState<number | null>(null);
 
   // 获取LLM配置
   const { data: llmSettings, isLoading: llmLoading } = useQuery({
@@ -203,23 +201,6 @@ export default function LLMSettingsTab() {
     setProviderModalVisible(true);
   };
 
-  const handleTestProvider = async (provider: LLMProvider) => {
-    setTestingProviderId(provider.id);
-    try {
-      const res = await apiService.testProvider(provider.id);
-      if (res.success) {
-        message.success(res.message || '连接成功');
-      } else {
-        message.error(res.message || '连接失败');
-      }
-    } catch (e: unknown) {
-      const err = e as { message?: string };
-      message.error(err?.message || '测试请求失败');
-    } finally {
-      setTestingProviderId(null);
-    }
-  };
-
   const handleProviderDelete = (id: number) => {
     deleteProviderMutation.mutate(id);
   };
@@ -319,21 +300,10 @@ export default function LLMSettingsTab() {
               {
                 title: '操作',
                 key: 'action',
-                width: 140,
+                width: 80,
                 align: 'center',
                 render: (_, record) => (
                   <Space direction="vertical" size={0}>
-                    <Button
-                      type="link"
-                      icon={<ApiOutlined />}
-                      onClick={() => handleTestProvider(record)}
-                      disabled={!isAuthenticated || !record.llm_model}
-                      loading={testingProviderId === record.id}
-                      size="small"
-                      style={{ padding: 0 }}
-                    >
-                      测试
-                    </Button>
                     <Button
                       type="link"
                       icon={<EditOutlined />}

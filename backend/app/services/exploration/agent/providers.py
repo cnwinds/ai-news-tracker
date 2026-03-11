@@ -29,7 +29,7 @@ class AgentProviderAdapter:
 
 
 class OpenAICompatAdapter(AgentProviderAdapter):
-    """Adapter for OpenAI-compatible APIs，使用 /v1/responses 协议。"""
+    """Adapter for OpenAI-compatible chat-completions APIs."""
 
     def __init__(self, api_key: str, model: str, base_url: Optional[str] = None):
         client_kwargs: Dict[str, Any] = {
@@ -50,41 +50,40 @@ class OpenAICompatAdapter(AgentProviderAdapter):
         temperature: float = 0.2,
         max_tokens: int = 2500,
     ) -> ModelTurn:
-        # Responses API: tools 格式为 type/name/description/parameters（无 function 嵌套）
-        tools_payload: Optional[List[Dict[str, Any]]] = None
-        if tools:
-            tools_payload = [
+        response = self.client.chat.completions.create(
+            model=self.model,
+            messages=list(messages),
+            tools=[
                 {
                     "type": "function",
-                    "name": t.name,
-                    "description": t.description,
-                    "parameters": t.input_schema,
+                    "function": {
+                        "name": tool.name,
+                        "description": tool.description,
+                        "parameters": tool.input_schema,
+                    },
                 }
-                for t in tools
+                for tool in tools
             ]
-        response = self.client.responses.create(
-            model=self.model,
-            input=list(messages),
-            tools=tools_payload,
+            if tools
+            else None,
+            tool_choice="auto" if tools else None,
             temperature=temperature,
-            max_output_tokens=max_tokens,
+            max_tokens=max_tokens,
         )
-        text = getattr(response, "output_text", None) or ""
+
+        message = response.choices[0].message
+        text = message.content or ""
         calls: List[ToolCall] = []
-        for item in getattr(response, "output", None) or []:
-            itype = getattr(item, "type", None) if not isinstance(item, dict) else item.get("type")
-            if itype == "function_call":
-                name = getattr(item, "name", None) if not isinstance(item, dict) else item.get("name")
-                args = getattr(item, "arguments", None) if not isinstance(item, dict) else item.get("arguments")
-                cid = getattr(item, "call_id", None) if not isinstance(item, dict) else item.get("call_id")
-                calls.append(
-                    ToolCall(
-                        call_id=cid or "",
-                        name=name or "",
-                        arguments_json=args if isinstance(args, str) else json.dumps(args or {}, ensure_ascii=False),
-                    )
+        for call in message.tool_calls or []:
+            arguments_json = call.function.arguments or "{}"
+            calls.append(
+                ToolCall(
+                    call_id=call.id,
+                    name=call.function.name,
+                    arguments_json=arguments_json,
                 )
-        return ModelTurn(text=(text or "").strip(), tool_calls=calls)
+            )
+        return ModelTurn(text=text, tool_calls=calls)
 
 
 class AnthropicAdapter(AgentProviderAdapter):
