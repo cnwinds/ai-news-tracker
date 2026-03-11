@@ -2,7 +2,7 @@
  * 数据维护组件
  */
 import { useMemo } from 'react';
-import { Card, Form, InputNumber, Switch, Button, Alert, Select } from 'antd';
+import { Card, Form, InputNumber, Switch, Button, Alert, Select, Divider } from 'antd';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { apiService } from '@/services/api';
 import { useAuth } from '@/contexts/AuthContext';
@@ -94,6 +94,10 @@ export default function DataCleanup() {
           </Form.Item>
 
 
+          <Divider orientation="left" style={{ margin: '16px 0' }}>
+            AI分析重跑
+          </Divider>
+
           <Form.Item label="一键重跑未进行AI分析的文章" help="仅重跑已有正文内容且尚未完成AI分析的文章">
             <Button
               type="default"
@@ -104,6 +108,11 @@ export default function DataCleanup() {
               一键重跑未分析文章
             </Button>
           </Form.Item>
+
+          <Divider orientation="left" style={{ margin: '16px 0' }}>
+            删除清理
+          </Divider>
+
           <Form.Item
             name="delete_articles_by_sources"
             label="删除指定订阅源的文章"
@@ -155,5 +164,4 @@ export default function DataCleanup() {
     </div>
   );
 }
-
 
