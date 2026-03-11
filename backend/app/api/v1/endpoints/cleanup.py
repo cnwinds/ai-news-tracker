@@ -1,6 +1,8 @@
 """
 数据清理相关 API 端点
 """
+import asyncio
+import json
 from datetime import datetime, timedelta
 from typing import List, Optional
 
@@ -17,6 +19,7 @@ from backend.app.db.models import (
     NotificationLog,
     RSSSource,
 )
+from backend.app.utils import create_ai_analyzer
 
 router = APIRouter()
 
@@ -27,6 +30,7 @@ class CleanupRequest(BaseModel):
     delete_logs_older_than_days: Optional[int] = None
     delete_unanalyzed_articles: bool = False
     delete_articles_by_sources: Optional[List[str]] = None  # 订阅源名称列表
+    rerun_unanalyzed_articles: bool = False  # 一键重跑未分析文章
 
 
 class CleanupResponse(BaseModel):
@@ -34,7 +38,18 @@ class CleanupResponse(BaseModel):
     deleted_articles: int = 0
     deleted_logs: int = 0
     deleted_notification_logs: int = 0
+    rerun_analyzed_articles: int = 0
+    rerun_failed_articles: int = 0
     message: str
+
+
+def _normalize_summary(summary_value) -> str:
+    """规范化 summary 字段为字符串格式"""
+    if isinstance(summary_value, dict):
+        return json.dumps(summary_value, ensure_ascii=False)
+    if not isinstance(summary_value, str):
+        return str(summary_value) if summary_value else ""
+    return summary_value
 
 
 @router.post("", response_model=CleanupResponse)
@@ -47,6 +62,8 @@ async def cleanup_data(
     deleted_articles = 0
     deleted_logs = 0
     deleted_notification_logs = 0
+    rerun_analyzed_articles = 0
+    rerun_failed_articles = 0
     
     try:
         # 清理指定订阅源的文章
@@ -141,6 +158,42 @@ async def cleanup_data(
             deleted_articles += db.query(Article).filter(
                 Article.is_processed == False
             ).delete(synchronize_session=False)
+
+        # 一键重跑未分析文章
+        if request.rerun_unanalyzed_articles:
+            ai_analyzer = create_ai_analyzer()
+            if not ai_analyzer:
+                raise HTTPException(status_code=400, detail="未配置AI分析器")
+
+            unanalyzed_articles = db.query(Article).filter(
+                Article.is_processed == False,
+                Article.content.isnot(None),
+                Article.content != ""
+            ).all()
+
+            for article in unanalyzed_articles:
+                try:
+                    analysis_result = await asyncio.to_thread(
+                        ai_analyzer.analyze_article,
+                        title=article.title,
+                        content=article.content or "",
+                        url=article.url,
+                        source=article.source,
+                        category=article.category,
+                    )
+
+                    article.importance = analysis_result.get("importance")
+                    article.tags = analysis_result.get("tags", [])
+                    article.target_audience = analysis_result.get("target_audience")
+                    if analysis_result.get("title_zh"):
+                        article.title_zh = analysis_result.get("title_zh")
+                    article.summary = _normalize_summary(analysis_result.get("summary", ""))
+                    article.detailed_summary = _normalize_summary(analysis_result.get("detailed_summary", ""))
+                    article.is_processed = True
+                    article.updated_at = datetime.now()
+                    rerun_analyzed_articles += 1
+                except Exception:
+                    rerun_failed_articles += 1
         
         # 清理旧日志
         if request.delete_logs_older_than_days:
@@ -153,17 +206,25 @@ async def cleanup_data(
             ).delete()
         
         db.commit()
-        
-        message = f"清理完成：删除 {deleted_articles} 篇文章，{deleted_logs} 条采集日志，{deleted_notification_logs} 条通知日志"
+
+        if request.rerun_unanalyzed_articles:
+            message = (
+                f"执行完成：删除 {deleted_articles} 篇文章，{deleted_logs} 条采集日志，"
+                f"{deleted_notification_logs} 条通知日志；"
+                f"重跑AI分析成功 {rerun_analyzed_articles} 篇，失败 {rerun_failed_articles} 篇"
+            )
+        else:
+            message = f"清理完成：删除 {deleted_articles} 篇文章，{deleted_logs} 条采集日志，{deleted_notification_logs} 条通知日志"
         
         return CleanupResponse(
             deleted_articles=deleted_articles,
             deleted_logs=deleted_logs,
             deleted_notification_logs=deleted_notification_logs,
+            rerun_analyzed_articles=rerun_analyzed_articles,
+            rerun_failed_articles=rerun_failed_articles,
             message=message,
         )
         
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"清理失败: {str(e)}")
-

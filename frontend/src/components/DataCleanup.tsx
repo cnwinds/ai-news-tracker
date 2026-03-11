@@ -1,5 +1,5 @@
 /**
- * 数据清理组件
+ * 数据维护组件
  */
 import { useMemo } from 'react';
 import { Card, Form, InputNumber, Switch, Button, Alert, Select } from 'antd';
@@ -35,15 +35,16 @@ export default function DataCleanup() {
       delete_logs_older_than_days?: number;
       delete_unanalyzed_articles?: boolean;
       delete_articles_by_sources?: string[];
+      rerun_unanalyzed_articles?: boolean;
     }) => apiService.cleanupData(data),
     onSuccess: (data) => {
       showSuccess(data.message || '清理完成');
       form.resetFields();
     },
     onError: createErrorHandler({
-      operationName: '数据清理',
+      operationName: '数据维护',
       customMessages: {
-        auth: '需要登录才能执行数据清理',
+        auth: '需要登录才能执行数据维护',
       },
     }),
   });
@@ -52,12 +53,16 @@ export default function DataCleanup() {
     cleanupMutation.mutate(values);
   };
 
+  const handleRerunUnanalyzed = () => {
+    cleanupMutation.mutate({ rerun_unanalyzed_articles: true });
+  };
+
   return (
     <div>
-      <Card title="🗑️ 数据清理">
+      <Card title="🛠️ 数据维护">
         <Alert
           message="警告"
-          description="数据清理操作不可恢复，请谨慎操作！"
+          description="数据维护中的删除操作不可恢复，请谨慎操作！"
           type="warning"
           showIcon
           style={{ marginBottom: 16 }}
@@ -88,6 +93,17 @@ export default function DataCleanup() {
             <Switch disabled={!isAuthenticated} />
           </Form.Item>
 
+
+          <Form.Item label="一键重跑未进行AI分析的文章" help="仅重跑已有正文内容且尚未完成AI分析的文章">
+            <Button
+              type="default"
+              onClick={handleRerunUnanalyzed}
+              loading={cleanupMutation.isPending}
+              disabled={!isAuthenticated}
+            >
+              一键重跑未分析文章
+            </Button>
+          </Form.Item>
           <Form.Item
             name="delete_articles_by_sources"
             label="删除指定订阅源的文章"

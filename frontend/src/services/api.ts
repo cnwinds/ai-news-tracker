@@ -429,6 +429,7 @@ class ApiService {
     delete_logs_older_than_days?: number;
     delete_unanalyzed_articles?: boolean;
     delete_articles_by_sources?: string[];
+    rerun_unanalyzed_articles?: boolean;
   }): Promise<{ message: string; deleted_count?: number }> {
     return this.handleRequest(
       this.client.post<{ message: string; deleted_count?: number }>('/cleanup', data)

@@ -54,7 +54,7 @@ export default function SystemSettings() {
     },
     {
       key: 'cleanup',
-      label: '数据清理',
+      label: '数据维护',
       children: <DataCleanup />,
     },
     {
