@@ -11,7 +11,7 @@ import { useAnalyzeArticle, useDeleteArticle, useFavoriteArticle, useUnfavoriteA
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { apiService } from '@/services/api';
-import { createMarkdownComponents, remarkGfm } from '@/utils/markdown';
+import { createMarkdownComponents, normalizeMarkdownImageContent, remarkGfm } from '@/utils/markdown';
 import { getThemeColor } from '@/utils/theme';
 import { getSummaryText, IMPORTANCE_COLORS, getImportanceLabel } from '@/utils/article';
 import { copyToClipboard } from '@/utils/clipboard';
@@ -301,7 +301,7 @@ export default function ArticleCard({ article }: ArticleCardProps) {
                     components={createMarkdownComponents(theme)}
                     remarkPlugins={[remarkGfm]}
                   >
-                    {summaryText}
+                    {normalizeMarkdownImageContent(summaryText)}
                   </ReactMarkdown>
                 </div>
               </div>
@@ -353,7 +353,7 @@ export default function ArticleCard({ article }: ArticleCardProps) {
                         components={createMarkdownComponents(theme)}
                         remarkPlugins={[remarkGfm]}
                       >
-                        {articleWithLoadedData.content}
+                        {normalizeMarkdownImageContent(articleWithLoadedData.content)}
                       </ReactMarkdown>
                     </div>
                   ) : (

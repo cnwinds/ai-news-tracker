@@ -20,7 +20,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useDeleteArticle } from '@/hooks/useArticles';
 import { getThemeColor } from '@/utils/theme';
-import { createMarkdownComponents, remarkGfm } from '@/utils/markdown';
+import { createMarkdownComponents, normalizeMarkdownImageContent, remarkGfm } from '@/utils/markdown';
 import { copyToClipboard } from '@/utils/clipboard';
 import { useMessage } from '@/hooks/useMessage';
 import { getOrCreateSessionId } from '@/utils/sessionId';
@@ -35,14 +35,6 @@ interface ArticleDetailModalProps {
   onClose: () => void;
 }
 
-
-const transformImageHtmlToMarkdown = (content?: string) => {
-  if (!content) return "";
-
-  return content.replace(/<\s*img[^>]*src=["']([^"']+)["'][^>]*alt=["']([^"']*)["'][^>]*>/gi, '![$2]($1)')
-    .replace(/<\s*img[^>]*alt=["']([^"']*)["'][^>]*src=["']([^"']+)["'][^>]*>/gi, '![$1]($2)')
-    .replace(/<\s*img[^>]*src=["']([^"']+)["'][^>]*>/gi, '![文章图片]($1)');
-};
 
 export default function ArticleDetailModal({ 
   articleId, 
@@ -269,7 +261,7 @@ export default function ArticleDetailModal({
                     components={createMarkdownComponents(theme)}
                     remarkPlugins={[remarkGfm]}
                   >
-                    {transformImageHtmlToMarkdown(article.detailed_summary || article.summary)}
+                    {normalizeMarkdownImageContent(article.detailed_summary || article.summary)}
                   </ReactMarkdown>
                 </div>
               </div>
@@ -313,7 +305,7 @@ export default function ArticleDetailModal({
                       components={createMarkdownComponents(theme)}
                       remarkPlugins={[remarkGfm]}
                     >
-                      {transformImageHtmlToMarkdown(article.content)}
+                      {normalizeMarkdownImageContent(article.content)}
                     </ReactMarkdown>
                   </div>
                 )}

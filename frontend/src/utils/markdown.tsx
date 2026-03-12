@@ -8,6 +8,45 @@ import type { ThemeMode } from '@/contexts/ThemeContext';
 import { getThemeColor } from './theme';
 import remarkGfm from 'remark-gfm';
 
+const htmlEntityMap: Record<string, string> = {
+  '&lt;': '<',
+  '&gt;': '>',
+  '&quot;': '"',
+  '&#34;': '"',
+  '&apos;': "'",
+  '&#39;': "'",
+  '&amp;': '&',
+};
+
+function decodeHtmlEntities(content: string): string {
+  return content.replace(/&(lt|gt|quot|#34|apos|#39|amp);/gi, (entity) => {
+    const normalizedEntity = entity.toLowerCase();
+    return htmlEntityMap[normalizedEntity] ?? entity;
+  });
+}
+
+/**
+ * 将 HTML img 标签（包含不规范的 < img ...>）转换成 Markdown 图片语法
+ */
+export function normalizeMarkdownImageContent(content?: string): string {
+  if (!content) return '';
+
+  const normalizedContent = decodeHtmlEntities(content).replace(/<\s+img\b/gi, '<img');
+
+  return normalizedContent.replace(/<img\b[^>]*>/gi, (imgTag) => {
+    const srcMatch = imgTag.match(/\ssrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i);
+    const altMatch = imgTag.match(/\salt\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i);
+
+    const src = (srcMatch?.[1] || srcMatch?.[2] || srcMatch?.[3] || '').trim();
+    if (!src) {
+      return imgTag;
+    }
+
+    const alt = (altMatch?.[1] || altMatch?.[2] || altMatch?.[3] || '文章图片').trim() || '文章图片';
+    return `![${alt}](${src})`;
+  });
+}
+
 interface MarkdownComponentProps {
   children?: ReactNode;
   className?: string;

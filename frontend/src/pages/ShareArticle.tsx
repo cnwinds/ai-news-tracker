@@ -19,7 +19,7 @@ import dayjs from 'dayjs';
 import { apiService } from '@/services/api';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getThemeColor } from '@/utils/theme';
-import { createMarkdownComponents, remarkGfm } from '@/utils/markdown';
+import { createMarkdownComponents, normalizeMarkdownImageContent, remarkGfm } from '@/utils/markdown';
 
 const { Content } = Layout;
 const { Title, Text } = Typography;
@@ -144,7 +144,7 @@ export default function ShareArticle() {
                       components={createMarkdownComponents(theme)}
                       remarkPlugins={[remarkGfm]}
                     >
-                      {article.detailed_summary || article.summary}
+                      {normalizeMarkdownImageContent(article.detailed_summary || article.summary)}
                     </ReactMarkdown>
                   </div>
                 </div>
@@ -187,7 +187,7 @@ export default function ShareArticle() {
                         components={createMarkdownComponents(theme)}
                         remarkPlugins={[remarkGfm]}
                       >
-                        {article.content}
+                        {normalizeMarkdownImageContent(article.content)}
                       </ReactMarkdown>
                     </div>
                   )}
