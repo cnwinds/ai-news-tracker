@@ -35,6 +35,15 @@ interface ArticleDetailModalProps {
   onClose: () => void;
 }
 
+
+const transformImageHtmlToMarkdown = (content?: string) => {
+  if (!content) return "";
+
+  return content.replace(/<\s*img[^>]*src=["']([^"']+)["'][^>]*alt=["']([^"']*)["'][^>]*>/gi, '![$2]($1)')
+    .replace(/<\s*img[^>]*alt=["']([^"']*)["'][^>]*src=["']([^"']+)["'][^>]*>/gi, '![$1]($2)')
+    .replace(/<\s*img[^>]*src=["']([^"']+)["'][^>]*>/gi, '![文章图片]($1)');
+};
+
 export default function ArticleDetailModal({ 
   articleId, 
   open, 
@@ -260,7 +269,7 @@ export default function ArticleDetailModal({
                     components={createMarkdownComponents(theme)}
                     remarkPlugins={[remarkGfm]}
                   >
-                    {article.detailed_summary || article.summary}
+                    {transformImageHtmlToMarkdown(article.detailed_summary || article.summary)}
                   </ReactMarkdown>
                 </div>
               </div>
@@ -304,7 +313,7 @@ export default function ArticleDetailModal({
                       components={createMarkdownComponents(theme)}
                       remarkPlugins={[remarkGfm]}
                     >
-                      {article.content}
+                      {transformImageHtmlToMarkdown(article.content)}
                     </ReactMarkdown>
                   </div>
                 )}

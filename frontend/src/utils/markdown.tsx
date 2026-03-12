@@ -166,6 +166,20 @@ export function createMarkdownComponents(theme: ThemeMode): Components {
         {children}
       </a>
     ),
+    img: ({ src, alt }: { src?: string; alt?: string }) => (
+      <img
+        src={src}
+        alt={alt || '文章图片'}
+        style={{
+          maxWidth: '100%',
+          height: 'auto',
+          borderRadius: '6px',
+          display: 'block',
+          margin: '8px 0',
+        }}
+        loading="lazy"
+      />
+    ),
     table: ({ children }: MarkdownComponentProps) => (
       <div style={{ overflowX: 'auto', marginBottom: '1em' }}>
         <table style={{
