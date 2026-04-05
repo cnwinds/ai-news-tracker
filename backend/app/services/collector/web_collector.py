@@ -8,6 +8,12 @@ from datetime import datetime
 from typing import List, Dict, Any, Optional
 import logging
 import re
+from requests import Response
+
+try:
+    from curl_cffi import requests as curl_requests
+except Exception:  # pragma: no cover - optional dependency
+    curl_requests = None
 
 from backend.app.services.collector.base_collector import BaseCollector
 
@@ -20,6 +26,60 @@ class WebCollector(BaseCollector):
     def __init__(self, timeout: int = 30, user_agent: str = None):
         self.timeout = timeout
         self.user_agent = user_agent or "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+
+    def _build_headers(self) -> Dict[str, str]:
+        return {
+            "User-Agent": self.user_agent,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9,zh-CN;q=0.8",
+            "Cache-Control": "no-cache",
+            "Pragma": "no-cache",
+        }
+
+    def _request_url(self, url: str) -> Optional[Response]:
+        """
+        多策略请求URL：
+        1) requests（当前实现兼容）
+        2) curl_cffi requests（浏览器指纹模拟，不依赖浏览器）
+        """
+        headers = self._build_headers()
+
+        try:
+            response = requests.get(url, headers=headers, timeout=self.timeout)
+            response.raise_for_status()
+            return response
+        except requests.RequestException as e:
+            logger.warning(f"⚠️ requests(代理/环境网络)失败，准备尝试直连: {url}, error={e}")
+
+        try:
+            session = requests.Session()
+            session.trust_env = False
+            session.headers.update(headers)
+            response = session.get(url, timeout=self.timeout)
+            response.raise_for_status()
+            logger.info(f"✅ requests 直连模式成功: {url}")
+            return response
+        except requests.RequestException as e:
+            logger.warning(f"⚠️ requests 直连模式失败，尝试 curl_cffi: {url}, error={e}")
+
+        if curl_requests is None:
+            logger.warning("⚠️ curl_cffi 未安装，无法执行备用抓取策略")
+            return None
+
+        try:
+            response = curl_requests.get(
+                url,
+                headers=headers,
+                timeout=self.timeout,
+                impersonate="chrome124",
+                allow_redirects=True,
+            )
+            response.raise_for_status()
+            logger.info(f"✅ curl_cffi 抓取成功: {url}")
+            return response  # 与 requests.Response 兼容主要属性
+        except Exception as e:
+            logger.warning(f"⚠️ curl_cffi 请求失败: {url}, error={e}")
+            return None
 
     def fetch_articles(self, config: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
@@ -52,9 +112,9 @@ class WebCollector(BaseCollector):
         try:
             logger.info(f"🌐 正在获取网页: {url}")
 
-            headers = {"User-Agent": self.user_agent}
-            response = requests.get(url, headers=headers, timeout=self.timeout)
-            response.raise_for_status()
+            response = self._request_url(url)
+            if response is None:
+                return []
 
             soup = BeautifulSoup(response.content, "html.parser")
 
@@ -360,9 +420,9 @@ class WebCollector(BaseCollector):
         """
         try:
             logger.debug(f"📄 正在获取详情页内容: {url}")
-            headers = {"User-Agent": self.user_agent}
-            response = requests.get(url, headers=headers, timeout=self.timeout)
-            response.raise_for_status()
+            response = self._request_url(url)
+            if response is None:
+                return {}
 
             soup = BeautifulSoup(response.content, "html.parser")
 
@@ -451,9 +511,9 @@ class WebCollector(BaseCollector):
 
             # 普通 HTML 页面处理
             logger.debug(f"📄 正在获取完整内容: {url}")
-            headers = {"User-Agent": self.user_agent}
-            response = requests.get(url, headers=headers, timeout=self.timeout)
-            response.raise_for_status()
+            response = self._request_url(url)
+            if response is None:
+                return ""
 
             # 解析HTML
             soup = BeautifulSoup(response.content, "html.parser")
@@ -485,9 +545,9 @@ class WebCollector(BaseCollector):
         try:
             logger.info(f"📄 正在采集文章: {url}")
             
-            headers = {"User-Agent": self.user_agent}
-            response = requests.get(url, headers=headers, timeout=self.timeout)
-            response.raise_for_status()
+            response = self._request_url(url)
+            if response is None:
+                return None
             
             soup = BeautifulSoup(response.content, "html.parser")
             
@@ -646,4 +706,3 @@ class WebCollector(BaseCollector):
             import traceback
             traceback.print_exc()
             return None
-
