@@ -219,6 +219,9 @@ export interface LLMSettings {
   exploration_use_independent_provider?: boolean;
   selected_exploration_provider_id?: number | null;
   selected_exploration_models?: string[] | null;
+  knowledge_graph_use_independent_provider?: boolean;
+  selected_knowledge_graph_provider_id?: number | null;
+  selected_knowledge_graph_models?: string[] | null;
 }
 
 export interface ImageProvider {

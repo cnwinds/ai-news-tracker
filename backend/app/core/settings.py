@@ -107,6 +107,9 @@ class Settings:
         self.EXPLORATION_USE_INDEPENDENT_PROVIDER: bool = False
         self.SELECTED_EXPLORATION_PROVIDER_ID: Optional[int] = None
         self.SELECTED_EXPLORATION_MODELS: List[str] = []
+        self.KNOWLEDGE_GRAPH_USE_INDEPENDENT_PROVIDER: bool = False
+        self.SELECTED_KNOWLEDGE_GRAPH_PROVIDER_ID: Optional[int] = None
+        self.SELECTED_KNOWLEDGE_GRAPH_MODELS: List[str] = []
         
         # 图片生成提供商选择配置（从数据库加载）
         self.SELECTED_IMAGE_PROVIDER_ID: Optional[int] = None
@@ -659,10 +662,24 @@ class Settings:
                 selected_exploration_models_str = AppSettingsRepository.get_setting(
                     session, "selected_exploration_models", ""
                 )
+                self.KNOWLEDGE_GRAPH_USE_INDEPENDENT_PROVIDER = bool(
+                    AppSettingsRepository.get_setting(
+                        session,
+                        "knowledge_graph_use_independent_provider",
+                        self.KNOWLEDGE_GRAPH_USE_INDEPENDENT_PROVIDER,
+                    )
+                )
+                self.SELECTED_KNOWLEDGE_GRAPH_PROVIDER_ID = AppSettingsRepository.get_setting(
+                    session, "selected_knowledge_graph_provider_id", None
+                )
+                selected_knowledge_graph_models_str = AppSettingsRepository.get_setting(
+                    session, "selected_knowledge_graph_models", ""
+                )
 
                 self.SELECTED_LLM_MODELS = self._parse_models(selected_llm_models_str)
                 self.SELECTED_EMBEDDING_MODELS = self._parse_models(selected_embedding_models_str)
                 self.SELECTED_EXPLORATION_MODELS = self._parse_models(selected_exploration_models_str)
+                self.SELECTED_KNOWLEDGE_GRAPH_MODELS = self._parse_models(selected_knowledge_graph_models_str)
 
                 self.SELECTED_LLM_PROVIDER_ID = selected_llm_provider_id
                 self.SELECTED_EMBEDDING_PROVIDER_ID = selected_embedding_provider_id
@@ -711,15 +728,26 @@ class Settings:
                         )
                         self.SELECTED_EXPLORATION_PROVIDER_ID = None
 
+                if self.SELECTED_KNOWLEDGE_GRAPH_PROVIDER_ID:
+                    provider = LLMProviderRepository.get_by_id(session, self.SELECTED_KNOWLEDGE_GRAPH_PROVIDER_ID)
+                    if not provider or not provider.enabled:
+                        logger.warning(
+                            f"选定的知识图谱独立提供商 {self.SELECTED_KNOWLEDGE_GRAPH_PROVIDER_ID} 不存在或未启用"
+                        )
+                        self.SELECTED_KNOWLEDGE_GRAPH_PROVIDER_ID = None
+
             logger.debug(
                 "LLM配置加载完成: MODE=%s, GLOBAL_PROVIDER=%s, EMBEDDING_PROVIDER=%s, "
-                "EXPLORATION_MODE=%s, EXPLORATION_INDEPENDENT=%s, EXPLORATION_PROVIDER=%s",
+                "EXPLORATION_MODE=%s, EXPLORATION_INDEPENDENT=%s, EXPLORATION_PROVIDER=%s, "
+                "KG_INDEPENDENT=%s, KG_PROVIDER=%s",
                 self.OPENAI_MODEL,
                 self.SELECTED_LLM_PROVIDER_ID,
                 self.SELECTED_EMBEDDING_PROVIDER_ID,
                 self.EXPLORATION_EXECUTION_MODE,
                 self.EXPLORATION_USE_INDEPENDENT_PROVIDER,
                 self.SELECTED_EXPLORATION_PROVIDER_ID,
+                self.KNOWLEDGE_GRAPH_USE_INDEPENDENT_PROVIDER,
+                self.SELECTED_KNOWLEDGE_GRAPH_PROVIDER_ID,
             )
             self._llm_settings_loaded = True
         except Exception as e:
@@ -740,8 +768,11 @@ class Settings:
         exploration_use_independent_provider: Optional[bool] = None,
         selected_exploration_provider_id: Optional[int] = None,
         selected_exploration_models: Optional[List[str]] = None,
+        knowledge_graph_use_independent_provider: Optional[bool] = None,
+        selected_knowledge_graph_provider_id: Optional[int] = None,
+        selected_knowledge_graph_models: Optional[List[str]] = None,
     ):
-        """保存LLM配置到数据库（支持探索Agent独立模型）"""
+        """保存LLM配置到数据库（支持探索 Agent 和知识图谱独立模型）"""
         try:
             from backend.app.db import get_db
             from backend.app.db.repositories import AppSettingsRepository
@@ -837,6 +868,51 @@ class Settings:
                         "自主探索独立模型列表（逗号分隔）",
                     )
                     self.SELECTED_EXPLORATION_MODELS = exploration_models
+
+                if (
+                    knowledge_graph_use_independent_provider is not None
+                    or selected_knowledge_graph_provider_id is not None
+                    or selected_knowledge_graph_models is not None
+                ):
+                    if knowledge_graph_use_independent_provider is not None:
+                        AppSettingsRepository.set_setting(
+                            session,
+                            "knowledge_graph_use_independent_provider",
+                            knowledge_graph_use_independent_provider,
+                            "bool",
+                            "知识图谱是否使用独立模型提供商",
+                        )
+                        self.KNOWLEDGE_GRAPH_USE_INDEPENDENT_PROVIDER = (
+                            knowledge_graph_use_independent_provider
+                        )
+
+                    provider_id_to_save = (
+                        selected_knowledge_graph_provider_id
+                        if selected_knowledge_graph_provider_id is not None
+                        else 0
+                    )
+                    AppSettingsRepository.set_setting(
+                        session,
+                        "selected_knowledge_graph_provider_id",
+                        provider_id_to_save,
+                        "int",
+                        "知识图谱独立提供商ID",
+                    )
+                    self.SELECTED_KNOWLEDGE_GRAPH_PROVIDER_ID = (
+                        selected_knowledge_graph_provider_id
+                        if selected_knowledge_graph_provider_id
+                        else None
+                    )
+
+                    knowledge_graph_models = selected_knowledge_graph_models or []
+                    AppSettingsRepository.set_setting(
+                        session,
+                        "selected_knowledge_graph_models",
+                        ",".join(knowledge_graph_models),
+                        "string",
+                        "知识图谱独立模型列表（逗号分隔）",
+                    )
+                    self.SELECTED_KNOWLEDGE_GRAPH_MODELS = knowledge_graph_models
 
             self.load_llm_settings()
             return True
@@ -959,6 +1035,59 @@ class Settings:
                     }
         except Exception as e:
             logger.error(f"获取自主探索提供商配置失败: {e}")
+
+        return None
+
+    def get_knowledge_graph_provider_config(self) -> Optional[dict]:
+        """获取知识图谱任务使用的LLM提供商配置（可独立于全局配置）"""
+        if not self._llm_settings_loaded:
+            self._load_llm_settings()
+
+        provider_id: Optional[int] = None
+        selected_models: List[str] = []
+        if (
+            self.KNOWLEDGE_GRAPH_USE_INDEPENDENT_PROVIDER
+            and self.SELECTED_KNOWLEDGE_GRAPH_PROVIDER_ID
+        ):
+            provider_id = self.SELECTED_KNOWLEDGE_GRAPH_PROVIDER_ID
+            selected_models = self.SELECTED_KNOWLEDGE_GRAPH_MODELS
+        else:
+            provider_id = self.SELECTED_LLM_PROVIDER_ID
+            selected_models = self.SELECTED_LLM_MODELS
+
+        if not provider_id:
+            return None
+
+        try:
+            from backend.app.db import get_db
+            from backend.app.db.repositories import LLMProviderRepository
+
+            db = get_db()
+            if not hasattr(db, "engine"):
+                return None
+
+            with db.get_session() as session:
+                provider = LLMProviderRepository.get_by_id(session, provider_id)
+                if provider and provider.enabled:
+                    llm_models = self._parse_models(provider.llm_model)
+                    selected_model = (
+                        selected_models[0]
+                        if selected_models
+                        else (llm_models[0] if llm_models else provider.llm_model)
+                    )
+                    return {
+                        "id": provider.id,
+                        "name": provider.name,
+                        "provider_type": provider.provider_type,
+                        "protocol": self._resolve_llm_protocol(provider.provider_type),
+                        "api_key": provider.api_key,
+                        "api_base": provider.api_base,
+                        "llm_model": provider.llm_model,
+                        "llm_models": llm_models,
+                        "selected_model": selected_model,
+                    }
+        except Exception as e:
+            logger.error(f"获取知识图谱提供商配置失败: {e}")
 
         return None
 

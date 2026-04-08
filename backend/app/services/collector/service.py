@@ -290,7 +290,12 @@ class CollectionService:
             if settings.KNOWLEDGE_GRAPH_ENABLED and settings.KNOWLEDGE_GRAPH_AUTO_SYNC_ENABLED:
                 logger.info("\n[KG] Starting automatic knowledge graph sync...")
                 with db.get_session() as session:
-                    kg_service = KnowledgeGraphService(db=session, ai_analyzer=self.ai_analyzer)
+                    from backend.app.utils.factories import create_knowledge_graph_ai_analyzer
+
+                    kg_service = KnowledgeGraphService(
+                        db=session,
+                        ai_analyzer=create_knowledge_graph_ai_analyzer(),
+                    )
                     kg_result = kg_service.sync_articles(
                         force_rebuild=False,
                         sync_mode=settings.get_knowledge_graph_run_mode(),

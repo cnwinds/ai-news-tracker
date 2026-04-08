@@ -104,8 +104,8 @@ def create_ai_analyzer(api_key: Optional[str] = None) -> Optional[AIAnalyzer]:
     if not _validate_provider_config(embedding_provider_config, "向量模型"):
         return None
     
-    llm_model = settings.OPENAI_MODEL
-    embedding_model = settings.OPENAI_EMBEDDING_MODEL
+    llm_model = llm_provider_config["selected_model"]
+    embedding_model = embedding_provider_config["selected_model"]
     
     logger.info(
         f"创建AI分析器: LLM模型={llm_model}, 向量模型={embedding_model}, "
@@ -127,4 +127,49 @@ def create_ai_analyzer(api_key: Optional[str] = None) -> Optional[AIAnalyzer]:
         llm_api_key,
         llm_model,
         embedding_model
+    )
+
+
+def create_knowledge_graph_ai_analyzer(api_key: Optional[str] = None) -> Optional[AIAnalyzer]:
+    """创建知识图谱专用 AI 分析器实例。
+
+    知识图谱支持使用独立于全局 LLM 的模型配置；若未启用，则回退到全局 LLM 配置。
+    该场景仅强依赖聊天模型，向量模型配置仅在存在时复用，不作为硬性前置条件。
+    """
+    settings.load_settings_from_db(force_reload=True)
+
+    llm_provider_config = settings.get_knowledge_graph_provider_config()
+    embedding_provider_config = settings.get_embedding_provider_config()
+
+    if not _validate_provider_config(llm_provider_config, "知识图谱LLM"):
+        return None
+
+    llm_api_key = api_key or llm_provider_config["api_key"]
+    if not llm_api_key:
+        return None
+
+    llm_model = llm_provider_config["selected_model"]
+
+    if embedding_provider_config:
+        embedding_model = embedding_provider_config["selected_model"]
+        if llm_provider_config["id"] != embedding_provider_config["id"]:
+            return _create_analyzer_with_separate_providers(
+                llm_provider_config,
+                embedding_provider_config,
+                llm_api_key,
+                llm_model,
+                embedding_model,
+            )
+        return _create_analyzer_with_same_provider(
+            llm_provider_config,
+            llm_api_key,
+            llm_model,
+            embedding_model,
+        )
+
+    return _create_analyzer_with_same_provider(
+        llm_provider_config,
+        llm_api_key,
+        llm_model,
+        settings.OPENAI_EMBEDDING_MODEL,
     )

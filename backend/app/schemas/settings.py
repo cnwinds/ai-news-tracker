@@ -96,6 +96,18 @@ class LLMSettings(BaseModel):
         default=None,
         description="自主探索独立模型列表",
     )
+    knowledge_graph_use_independent_provider: Optional[bool] = Field(
+        default=False,
+        description="知识图谱是否使用独立模型提供商",
+    )
+    selected_knowledge_graph_provider_id: Optional[int] = Field(
+        default=None,
+        description="知识图谱独立模型提供商ID",
+    )
+    selected_knowledge_graph_models: Optional[List[str]] = Field(
+        default=None,
+        description="知识图谱独立模型列表",
+    )
 
 
 class CollectorSettings(BaseModel):

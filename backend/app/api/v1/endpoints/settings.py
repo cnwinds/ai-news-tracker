@@ -284,6 +284,9 @@ async def get_llm_settings():
         exploration_use_independent_provider=settings.EXPLORATION_USE_INDEPENDENT_PROVIDER,
         selected_exploration_provider_id=settings.SELECTED_EXPLORATION_PROVIDER_ID,
         selected_exploration_models=settings.SELECTED_EXPLORATION_MODELS,
+        knowledge_graph_use_independent_provider=settings.KNOWLEDGE_GRAPH_USE_INDEPENDENT_PROVIDER,
+        selected_knowledge_graph_provider_id=settings.SELECTED_KNOWLEDGE_GRAPH_PROVIDER_ID,
+        selected_knowledge_graph_models=settings.SELECTED_KNOWLEDGE_GRAPH_MODELS,
     )
 
 
@@ -302,6 +305,9 @@ async def update_llm_settings(
         exploration_use_independent_provider=new_settings.exploration_use_independent_provider,
         selected_exploration_provider_id=new_settings.selected_exploration_provider_id,
         selected_exploration_models=new_settings.selected_exploration_models,
+        knowledge_graph_use_independent_provider=new_settings.knowledge_graph_use_independent_provider,
+        selected_knowledge_graph_provider_id=new_settings.selected_knowledge_graph_provider_id,
+        selected_knowledge_graph_models=new_settings.selected_knowledge_graph_models,
     )
     if not success:
         raise HTTPException(status_code=500, detail="保存LLM配置失败")
@@ -317,6 +323,9 @@ async def update_llm_settings(
         exploration_use_independent_provider=settings.EXPLORATION_USE_INDEPENDENT_PROVIDER,
         selected_exploration_provider_id=settings.SELECTED_EXPLORATION_PROVIDER_ID,
         selected_exploration_models=settings.SELECTED_EXPLORATION_MODELS,
+        knowledge_graph_use_independent_provider=settings.KNOWLEDGE_GRAPH_USE_INDEPENDENT_PROVIDER,
+        selected_knowledge_graph_provider_id=settings.SELECTED_KNOWLEDGE_GRAPH_PROVIDER_ID,
+        selected_knowledge_graph_models=settings.SELECTED_KNOWLEDGE_GRAPH_MODELS,
     )
 
 

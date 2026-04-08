@@ -30,7 +30,7 @@ from backend.app.schemas.knowledge_graph import (
     KnowledgeGraphSyncResponse,
 )
 from backend.app.services.knowledge_graph import KnowledgeGraphService
-from backend.app.utils import create_ai_analyzer
+from backend.app.utils import create_knowledge_graph_ai_analyzer
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +40,7 @@ router = APIRouter()
 def get_knowledge_graph_service(
     db: Session = Depends(get_database),
 ) -> KnowledgeGraphService:
-    return KnowledgeGraphService(db=db, ai_analyzer=create_ai_analyzer())
+    return KnowledgeGraphService(db=db, ai_analyzer=create_knowledge_graph_ai_analyzer())
 
 
 @router.get("/stats", response_model=KnowledgeGraphStatsResponse)
