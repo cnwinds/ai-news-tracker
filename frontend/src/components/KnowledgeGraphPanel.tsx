@@ -27,6 +27,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiService } from '@/services/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { useErrorHandler } from '@/hooks/useErrorHandler';
+import KnowledgeGraphExplorer from '@/components/KnowledgeGraphExplorer';
 import type {
   AIQueryEngine,
   KnowledgeGraphBuildSummary,
@@ -202,6 +203,8 @@ export default function KnowledgeGraphPanel() {
               : '请先在系统设置中启用知识图谱，再执行同步和问答。'
           }
         />
+
+        {stats?.enabled && <KnowledgeGraphExplorer />}
 
         <Row gutter={[16, 16]}>
           <Col xs={12} md={6}>

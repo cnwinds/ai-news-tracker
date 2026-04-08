@@ -101,6 +101,14 @@ class KnowledgeGraphServiceTests(unittest.TestCase):
         self.assertGreaterEqual(path["distance"], 1)
         self.assertGreaterEqual(len(path["nodes"]), 2)
 
+    def test_snapshot_view_returns_filtered_nodes_and_links(self):
+        self.service.sync_articles(sync_mode="deterministic", trigger_source="test")
+
+        snapshot = self.service.get_snapshot_view(node_type="source", query="OpenAI", limit_nodes=20)
+        self.assertGreaterEqual(snapshot["total_nodes"], 1)
+        self.assertIn("source", snapshot["available_node_types"])
+        self.assertTrue(any(node["node_type"] == "source" for node in snapshot["nodes"]))
+
 
 if __name__ == "__main__":
     unittest.main()

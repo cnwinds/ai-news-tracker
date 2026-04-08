@@ -213,6 +213,105 @@ class KnowledgeGraphService:
         )
         return [self._serialize_build(row) for row in rows]
 
+    def get_snapshot_view(
+        self,
+        *,
+        community_id: Optional[int] = None,
+        node_type: Optional[str] = None,
+        query: Optional[str] = None,
+        limit_nodes: int = 80,
+    ) -> Dict[str, Any]:
+        snapshot = self._load_snapshot()
+        all_nodes = list(snapshot.get("nodes", []))
+        all_links = list(snapshot.get("links", []))
+        normalized_query = self._normalize_text(query or "")
+        safe_limit = max(10, min(limit_nodes, 200))
+
+        filtered_nodes = []
+        for item in all_nodes:
+            if community_id is not None and item.get("community_id") != community_id:
+                continue
+            if node_type and item.get("node_type") != node_type:
+                continue
+            if normalized_query and not self._snapshot_node_matches_query(item, normalized_query):
+                continue
+            filtered_nodes.append(item)
+
+        ordered_nodes = sorted(
+            filtered_nodes if filtered_nodes else all_nodes,
+            key=lambda item: (-int(item.get("degree", 0)), item.get("label", "")),
+        )
+
+        selected_keys: List[str] = []
+        selected_set: Set[str] = set()
+        for item in ordered_nodes:
+            node_key = item["node_key"]
+            if node_key in selected_set:
+                continue
+            selected_keys.append(node_key)
+            selected_set.add(node_key)
+            if len(selected_keys) >= safe_limit:
+                break
+
+        if filtered_nodes and len(selected_keys) < safe_limit:
+            for link in all_links:
+                source = link.get("source")
+                target = link.get("target")
+                if source in selected_set and target not in selected_set:
+                    selected_keys.append(target)
+                    selected_set.add(target)
+                elif target in selected_set and source not in selected_set:
+                    selected_keys.append(source)
+                    selected_set.add(source)
+                if len(selected_keys) >= safe_limit:
+                    break
+
+        selected_nodes = [item for item in all_nodes if item.get("node_key") in selected_set]
+        selected_nodes.sort(key=lambda item: (-int(item.get("degree", 0)), item.get("label", "")))
+
+        selected_links = [
+            item
+            for item in all_links
+            if item.get("source") in selected_set and item.get("target") in selected_set
+        ]
+        selected_links.sort(
+            key=lambda item: (
+                -float(item.get("weight", 0.0)),
+                item.get("source", ""),
+                item.get("target", ""),
+            )
+        )
+
+        community_ids = {
+            item.get("community_id")
+            for item in selected_nodes
+            if item.get("community_id") is not None
+        }
+        communities = [
+            item
+            for item in snapshot.get("communities", [])
+            if item.get("community_id") in community_ids
+        ]
+
+        available_node_types = sorted(
+            {
+                str(item.get("node_type"))
+                for item in all_nodes
+                if item.get("node_type")
+            }
+        )
+
+        return {
+            "generated_at": self._parse_datetime(snapshot.get("generated_at")),
+            "build": snapshot.get("build"),
+            "nodes": selected_nodes,
+            "links": selected_links,
+            "communities": communities,
+            "total_nodes": len(selected_nodes),
+            "total_links": len(selected_links),
+            "available_node_types": available_node_types,
+        }
+
     def search_nodes(
         self,
         *,
@@ -1802,6 +1901,14 @@ Use only 3-8 high-value entities and up to 8 relations.
         normalized = unicodedata.normalize("NFKC", text or "").lower().strip()
         normalized = re.sub(r"\s+", " ", normalized)
         return normalized
+
+    def _snapshot_node_matches_query(self, node: Dict[str, Any], normalized_query: str) -> bool:
+        haystacks = [
+            self._normalize_text(node.get("label", "")),
+            self._normalize_text(node.get("node_key", "")),
+            self._normalize_text(" ".join(node.get("aliases", []) or [])),
+        ]
+        return any(normalized_query in hay for hay in haystacks)
 
     def _question_tokens(self, text: str) -> Set[str]:
         normalized = self._normalize_text(text)

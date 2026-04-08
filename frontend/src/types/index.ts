@@ -425,6 +425,14 @@ export interface KnowledgeGraphCommunitySummary {
   top_nodes: KnowledgeGraphNodeSummary[];
 }
 
+export interface KnowledgeGraphLinkSummary {
+  source: string;
+  target: string;
+  weight: number;
+  relation_types: string[];
+  article_count: number;
+}
+
 export interface KnowledgeGraphStatsResponse {
   enabled: boolean;
   total_nodes: number;
@@ -536,6 +544,17 @@ export interface KnowledgeGraphArticleContextResponse {
   edges: KnowledgeGraphEdgeSummary[];
   communities: KnowledgeGraphCommunitySummary[];
   related_articles: KnowledgeGraphArticleReference[];
+}
+
+export interface KnowledgeGraphSnapshotResponse {
+  generated_at?: string | null;
+  build?: KnowledgeGraphBuildSummary | null;
+  nodes: KnowledgeGraphNodeSummary[];
+  links: KnowledgeGraphLinkSummary[];
+  communities: KnowledgeGraphCommunitySummary[];
+  total_nodes: number;
+  total_links: number;
+  available_node_types: string[];
 }
 
 // 社交平台相关类型定义

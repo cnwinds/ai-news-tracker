@@ -65,6 +65,7 @@ import type {
   KnowledgeGraphQueryRequest,
   KnowledgeGraphQueryResponse,
   KnowledgeGraphArticleContextResponse,
+  KnowledgeGraphSnapshotResponse,
   RAGStreamChunk,
   KnowledgeGraphStreamChunk,
 } from '@/types';
@@ -851,6 +852,23 @@ class ApiService {
   async getKnowledgeGraphStats(): Promise<KnowledgeGraphStatsResponse> {
     return this.handleRequest(
       this.client.get<KnowledgeGraphStatsResponse>('/knowledge-graph/stats')
+    );
+  }
+
+  async getKnowledgeGraphSnapshot(params?: {
+    community_id?: number;
+    node_type?: string;
+    q?: string;
+    limit_nodes?: number;
+  }): Promise<KnowledgeGraphSnapshotResponse> {
+    const queryParams = new URLSearchParams();
+    if (params?.community_id !== undefined) queryParams.append('community_id', params.community_id.toString());
+    if (params?.node_type) queryParams.append('node_type', params.node_type);
+    if (params?.q) queryParams.append('q', params.q);
+    if (params?.limit_nodes !== undefined) queryParams.append('limit_nodes', params.limit_nodes.toString());
+    const suffix = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return this.handleRequest(
+      this.client.get<KnowledgeGraphSnapshotResponse>(`/knowledge-graph/snapshot${suffix}`)
     );
   }
 

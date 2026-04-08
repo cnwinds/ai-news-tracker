@@ -181,6 +181,29 @@ class KnowledgeGraphCommunityDetail(BaseModel):
     articles: List[KnowledgeGraphArticleReference]
 
 
+class KnowledgeGraphLinkSummary(BaseModel):
+    """Lightweight graph link used by the visualization snapshot."""
+
+    source: str
+    target: str
+    weight: float
+    relation_types: List[str] = Field(default_factory=list)
+    article_count: int = 0
+
+
+class KnowledgeGraphSnapshotResponse(BaseModel):
+    """Filtered snapshot payload for graph visualization."""
+
+    generated_at: Optional[datetime] = None
+    build: Optional[KnowledgeGraphBuildSummary] = None
+    nodes: List[KnowledgeGraphNodeSummary] = Field(default_factory=list)
+    links: List[KnowledgeGraphLinkSummary] = Field(default_factory=list)
+    communities: List[KnowledgeGraphCommunitySummary] = Field(default_factory=list)
+    total_nodes: int = 0
+    total_links: int = 0
+    available_node_types: List[str] = Field(default_factory=list)
+
+
 class KnowledgeGraphPathRequest(BaseModel):
     """Path request."""
 

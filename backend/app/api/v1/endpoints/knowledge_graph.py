@@ -24,6 +24,7 @@ from backend.app.schemas.knowledge_graph import (
     KnowledgeGraphPathResponse,
     KnowledgeGraphQueryRequest,
     KnowledgeGraphQueryResponse,
+    KnowledgeGraphSnapshotResponse,
     KnowledgeGraphStatsResponse,
     KnowledgeGraphSyncRequest,
     KnowledgeGraphSyncResponse,
@@ -79,6 +80,24 @@ async def list_knowledge_graph_builds(
     service: KnowledgeGraphService = Depends(get_knowledge_graph_service),
 ):
     return [KnowledgeGraphBuildSummary(**item) for item in service.get_builds(limit=limit)]
+
+
+@router.get("/snapshot", response_model=KnowledgeGraphSnapshotResponse)
+async def get_knowledge_graph_snapshot(
+    community_id: Optional[int] = Query(None),
+    node_type: Optional[str] = Query(None),
+    q: Optional[str] = Query(None),
+    limit_nodes: int = Query(80, ge=10, le=200),
+    service: KnowledgeGraphService = Depends(get_knowledge_graph_service),
+):
+    return KnowledgeGraphSnapshotResponse(
+        **service.get_snapshot_view(
+            community_id=community_id,
+            node_type=node_type,
+            query=q,
+            limit_nodes=limit_nodes,
+        )
+    )
 
 
 @router.get("/nodes", response_model=KnowledgeGraphNodeListResponse)
