@@ -485,6 +485,8 @@ export interface KnowledgeGraphCommunityDetail {
   community: KnowledgeGraphCommunitySummary;
   nodes: KnowledgeGraphNodeSummary[];
   articles: KnowledgeGraphArticleReference[];
+  summary_text: string;
+  relation_types: string[];
 }
 
 export interface KnowledgeGraphPathRequest {

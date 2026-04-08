@@ -220,12 +220,24 @@ class KnowledgeGraphService:
         node_type: Optional[str] = None,
         query: Optional[str] = None,
         limit_nodes: int = 80,
+        focus_node_keys: Optional[Sequence[str]] = None,
+        expand_depth: int = 0,
     ) -> Dict[str, Any]:
         snapshot = self._load_snapshot()
         all_nodes = list(snapshot.get("nodes", []))
         all_links = list(snapshot.get("links", []))
+        node_map = {
+            item["node_key"]: item
+            for item in all_nodes
+            if item.get("node_key")
+        }
         normalized_query = self._normalize_text(query or "")
         safe_limit = max(10, min(limit_nodes, 200))
+        safe_expand_depth = max(0, min(int(expand_depth or 0), 2))
+        requested_focus_keys: List[str] = []
+        for node_key in focus_node_keys or []:
+            if node_key in node_map and node_key not in requested_focus_keys:
+                requested_focus_keys.append(node_key)
 
         filtered_nodes = []
         for item in all_nodes:
@@ -244,25 +256,64 @@ class KnowledgeGraphService:
 
         selected_keys: List[str] = []
         selected_set: Set[str] = set()
-        for item in ordered_nodes:
-            node_key = item["node_key"]
-            if node_key in selected_set:
-                continue
+
+        def add_selected_key(node_key: Optional[str]) -> None:
+            if not node_key or node_key in selected_set or node_key not in node_map:
+                return
             selected_keys.append(node_key)
             selected_set.add(node_key)
-            if len(selected_keys) >= safe_limit:
-                break
+
+        for node_key in requested_focus_keys:
+            add_selected_key(node_key)
+
+        if requested_focus_keys and safe_expand_depth > 0:
+            graph = self._get_graph()
+            visited = set(requested_focus_keys)
+            queue: Deque[Tuple[str, int]] = deque(
+                (node_key, 0)
+                for node_key in requested_focus_keys
+                if graph.has_node(node_key)
+            )
+            while queue and len(selected_keys) < safe_limit:
+                node_key, depth = queue.popleft()
+                add_selected_key(node_key)
+                if depth >= safe_expand_depth:
+                    continue
+                ordered_neighbors = sorted(
+                    graph.neighbors(node_key),
+                    key=lambda neighbor_key: (
+                        -int(node_map.get(neighbor_key, {}).get("degree", 0)),
+                        node_map.get(neighbor_key, {}).get("label", ""),
+                    ),
+                )
+                for neighbor_key in ordered_neighbors:
+                    if neighbor_key in visited or neighbor_key not in node_map:
+                        continue
+                    visited.add(neighbor_key)
+                    queue.append((neighbor_key, depth + 1))
+                    add_selected_key(neighbor_key)
+                    if len(selected_keys) >= safe_limit:
+                        break
+
+        should_add_ranked_nodes = not requested_focus_keys or any(
+            value is not None and value != ""
+            for value in (community_id, node_type, normalized_query)
+        )
+
+        if should_add_ranked_nodes:
+            for item in ordered_nodes:
+                add_selected_key(item["node_key"])
+                if len(selected_keys) >= safe_limit:
+                    break
 
         if filtered_nodes and len(selected_keys) < safe_limit:
             for link in all_links:
                 source = link.get("source")
                 target = link.get("target")
                 if source in selected_set and target not in selected_set:
-                    selected_keys.append(target)
-                    selected_set.add(target)
+                    add_selected_key(target)
                 elif target in selected_set and source not in selected_set:
-                    selected_keys.append(source)
-                    selected_set.add(source)
+                    add_selected_key(source)
                 if len(selected_keys) >= safe_limit:
                     break
 
@@ -416,11 +467,29 @@ class KnowledgeGraphService:
 
         node_keys = set(community.get("node_keys", []))
         nodes = [item for item in snapshot.get("nodes", []) if item.get("node_key") in node_keys]
+        nodes.sort(key=lambda item: (-int(item.get("degree", 0)), item.get("label", "")))
         articles = [
             self._serialize_article_reference(article_id, relation_count=0)
             for article_id in community.get("article_ids", [])
         ]
         articles = [article for article in articles if article]
+        relation_counter: Counter[str] = Counter()
+        for link in snapshot.get("links", []):
+            if link.get("source") in node_keys and link.get("target") in node_keys:
+                relation_counter.update(link.get("relation_types") or [])
+
+        relation_types = [
+            relation_type
+            for relation_type, _ in relation_counter.most_common(8)
+        ]
+        top_node_labels = [item.get("label", "") for item in nodes[:3] if item.get("label")]
+        node_preview = "、".join(top_node_labels) if top_node_labels else "暂无核心节点"
+        relation_preview = "、".join(relation_types[:3]) if relation_types else "实体共现"
+        summary_text = (
+            f"社区「{community.get('label', community_id)}」包含 {community.get('node_count', 0)} 个节点、"
+            f"{community.get('edge_count', 0)} 条边、{community.get('article_count', 0)} 篇文章，"
+            f"核心节点包括 {node_preview}，关系类型以 {relation_preview} 为主。"
+        )
         return {
             "community": {
                 key: value
@@ -429,6 +498,8 @@ class KnowledgeGraphService:
             },
             "nodes": nodes[:60],
             "articles": articles[:20],
+            "summary_text": summary_text,
+            "relation_types": relation_types,
         }
 
     def find_path(self, source_node_key: str, target_node_key: str) -> Dict[str, Any]:

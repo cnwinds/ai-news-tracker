@@ -5,6 +5,7 @@ import zhCN from 'antd/locale/zh_CN';
 import { ThemeProvider, useTheme } from '@/contexts/ThemeContext';
 import { AIConversationProvider } from '@/contexts/AIConversationContext';
 import { AuthProvider } from '@/contexts/AuthContext';
+import { KnowledgeGraphViewProvider } from '@/contexts/KnowledgeGraphViewContext';
 import AccessTracker from '@/components/AccessTracker';
 import Dashboard from '@/pages/Dashboard';
 import Login from '@/pages/Login';
@@ -55,7 +56,9 @@ function App() {
       <ThemeProvider>
         <AuthProvider>
           <AIConversationProvider>
-            <AppContent />
+            <KnowledgeGraphViewProvider>
+              <AppContent />
+            </KnowledgeGraphViewProvider>
           </AIConversationProvider>
         </AuthProvider>
       </ThemeProvider>

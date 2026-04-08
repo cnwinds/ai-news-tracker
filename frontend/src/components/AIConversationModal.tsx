@@ -30,6 +30,7 @@ import relativeTime from 'dayjs/plugin/relativeTime';
 
 import { apiService } from '@/services/api';
 import { useAIConversation, type Message } from '@/contexts/AIConversationContext';
+import { useKnowledgeGraphView } from '@/contexts/KnowledgeGraphViewContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getThemeColor, getMessageBubbleStyle } from '@/utils/theme';
 import { createMarkdownComponents, remarkGfm } from '@/utils/markdown';
@@ -75,6 +76,7 @@ export default function AIConversationModal() {
     selectedEngine,
     setSelectedEngine,
   } = useAIConversation();
+  const { focusArticle, focusCommunity, focusNode } = useKnowledgeGraphView();
 
   const [inputValue, setInputValue] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
@@ -507,13 +509,17 @@ export default function AIConversationModal() {
                               <Space direction="vertical" size="small" style={{ width: '100%' }}>
                                 <div>
                                   <Text strong>命中节点</Text>
-                                  <div style={{ marginTop: 8 }}>
-                                    {message.matchedNodes?.length ? (
-                                      message.matchedNodes.map((node) => (
-                                        <Tag key={node.node_key}>
-                                          {node.label} / {node.node_type}
-                                        </Tag>
-                                      ))
+                                    <div style={{ marginTop: 8 }}>
+                                      {message.matchedNodes?.length ? (
+                                        message.matchedNodes.map((node) => (
+                                          <Tag
+                                            key={node.node_key}
+                                            style={{ cursor: 'pointer' }}
+                                            onClick={() => focusNode(node.node_key)}
+                                          >
+                                            {node.label} / {node.node_type}
+                                          </Tag>
+                                        ))
                                     ) : (
                                       <Text type="secondary">暂无</Text>
                                     )}
@@ -521,13 +527,18 @@ export default function AIConversationModal() {
                                 </div>
                                 <div>
                                   <Text strong>命中社区</Text>
-                                  <div style={{ marginTop: 8 }}>
-                                    {message.matchedCommunities?.length ? (
-                                      message.matchedCommunities.map((community) => (
-                                        <Tag key={community.community_id} color="blue">
-                                          {community.label}
-                                        </Tag>
-                                      ))
+                                    <div style={{ marginTop: 8 }}>
+                                      {message.matchedCommunities?.length ? (
+                                        message.matchedCommunities.map((community) => (
+                                          <Tag
+                                            key={community.community_id}
+                                            color="blue"
+                                            style={{ cursor: 'pointer' }}
+                                            onClick={() => focusCommunity(community.community_id)}
+                                          >
+                                            {community.label}
+                                          </Tag>
+                                        ))
                                     ) : (
                                       <Text type="secondary">暂无</Text>
                                     )}
@@ -571,7 +582,19 @@ export default function AIConversationModal() {
                                         const hasRelationCount = 'relation_count' in article;
                                         const hasSimilarity = 'similarity' in article;
                                         return (
-                                          <List.Item style={{ paddingInline: 0 }}>
+                                          <List.Item
+                                            style={{ paddingInline: 0 }}
+                                            actions={[
+                                              <Button
+                                                key="focus-reference-article"
+                                                type="link"
+                                                size="small"
+                                                onClick={() => focusArticle(article.id)}
+                                              >
+                                                图谱定位
+                                              </Button>,
+                                            ]}
+                                          >
                                             <Space direction="vertical" size={0} style={{ width: '100%' }}>
                                               <a href={article.url} target="_blank" rel="noreferrer">
                                                 {article.title_zh || article.title}

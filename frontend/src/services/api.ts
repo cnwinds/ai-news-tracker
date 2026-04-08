@@ -860,12 +860,18 @@ class ApiService {
     node_type?: string;
     q?: string;
     limit_nodes?: number;
+    focus_node_keys?: string[];
+    expand_depth?: number;
   }): Promise<KnowledgeGraphSnapshotResponse> {
     const queryParams = new URLSearchParams();
     if (params?.community_id !== undefined) queryParams.append('community_id', params.community_id.toString());
     if (params?.node_type) queryParams.append('node_type', params.node_type);
     if (params?.q) queryParams.append('q', params.q);
     if (params?.limit_nodes !== undefined) queryParams.append('limit_nodes', params.limit_nodes.toString());
+    if (params?.focus_node_keys?.length) {
+      params.focus_node_keys.forEach((nodeKey) => queryParams.append('focus_node_keys', nodeKey));
+    }
+    if (params?.expand_depth !== undefined) queryParams.append('expand_depth', params.expand_depth.toString());
     const suffix = queryParams.toString() ? `?${queryParams.toString()}` : '';
     return this.handleRequest(
       this.client.get<KnowledgeGraphSnapshotResponse>(`/knowledge-graph/snapshot${suffix}`)

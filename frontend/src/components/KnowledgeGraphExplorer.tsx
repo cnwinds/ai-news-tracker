@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Button,
   Card,
@@ -13,13 +13,29 @@ import {
   Tag,
   Typography,
 } from 'antd';
-import { BgColorsOutlined, NodeIndexOutlined, ReloadOutlined } from '@ant-design/icons';
+import {
+  AimOutlined,
+  ApartmentOutlined,
+  BgColorsOutlined,
+  CommentOutlined,
+  MinusOutlined,
+  NodeIndexOutlined,
+  PlusOutlined,
+  ReloadOutlined,
+} from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 
 import { apiService } from '@/services/api';
+import { useAIConversation } from '@/contexts/AIConversationContext';
+import { useKnowledgeGraphView } from '@/contexts/KnowledgeGraphViewContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getThemeColor } from '@/utils/theme';
+import {
+  buildKnowledgeGraphEdgeKey,
+  buildNodeQuestion,
+} from '@/utils/knowledgeGraph';
 import type {
+  AIQueryEngine,
   KnowledgeGraphCommunitySummary,
   KnowledgeGraphNodeDetail,
   KnowledgeGraphNodeSummary,
@@ -34,10 +50,22 @@ type PositionedNode = KnowledgeGraphNodeSummary & {
   radius: number;
 };
 
+type ViewportState = {
+  scale: number;
+  x: number;
+  y: number;
+};
+
 const SVG_WIDTH = 980;
 const SVG_HEIGHT = 620;
+const MIN_SCALE = 0.6;
+const MAX_SCALE = 2.4;
 
 const PALETTE = ['#0f766e', '#2563eb', '#dc2626', '#ca8a04', '#7c3aed', '#ea580c', '#0891b2', '#4f46e5'];
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
 
 function getNodeTypeColor(nodeType: string) {
   const normalized = String(nodeType || 'concept');
@@ -115,22 +143,76 @@ function computeLayout(nodes: KnowledgeGraphNodeSummary[]): PositionedNode[] {
   return positioned;
 }
 
+function getDefaultViewport(): ViewportState {
+  return { scale: 1, x: 0, y: 0 };
+}
+
 export default function KnowledgeGraphExplorer() {
   const { theme } = useTheme();
+  const { openModal, setSelectedEngine } = useAIConversation();
+  const { graphCommand, focusArticle, focusCommunity } = useKnowledgeGraphView();
+  const dragStateRef = useRef<{
+    active: boolean;
+    startX: number;
+    startY: number;
+    originX: number;
+    originY: number;
+  }>({
+    active: false,
+    startX: 0,
+    startY: 0,
+    originX: 0,
+    originY: 0,
+  });
+
   const [searchTerm, setSearchTerm] = useState('');
   const [nodeTypeFilter, setNodeTypeFilter] = useState<string>();
   const [communityFilter, setCommunityFilter] = useState<number>();
   const [limitNodes, setLimitNodes] = useState(80);
   const [selectedNodeKey, setSelectedNodeKey] = useState<string>();
+  const [focusNodeKeys, setFocusNodeKeys] = useState<string[]>([]);
+  const [expandDepth, setExpandDepth] = useState(0);
+  const [highlightedNodeKeys, setHighlightedNodeKeys] = useState<string[]>([]);
+  const [highlightedEdgeKeys, setHighlightedEdgeKeys] = useState<string[]>([]);
+  const [viewport, setViewport] = useState<ViewportState>(getDefaultViewport);
+
+  const resetViewport = useCallback(() => {
+    setViewport(getDefaultViewport());
+  }, []);
+
+  useEffect(() => {
+    if (!graphCommand?.id) {
+      return;
+    }
+    setSearchTerm(graphCommand.searchTerm ?? '');
+    setNodeTypeFilter(graphCommand.nodeType);
+    setCommunityFilter(graphCommand.communityId);
+    setSelectedNodeKey(graphCommand.selectedNodeKey);
+    setFocusNodeKeys(graphCommand.focusNodeKeys);
+    setExpandDepth(graphCommand.expandDepth);
+    setHighlightedNodeKeys(graphCommand.highlightedNodeKeys);
+    setHighlightedEdgeKeys(graphCommand.highlightedEdgeKeys);
+    resetViewport();
+  }, [graphCommand?.id, resetViewport]);
 
   const { data: snapshot, isLoading, refetch, isFetching } = useQuery({
-    queryKey: ['knowledge-graph-snapshot', searchTerm, nodeTypeFilter, communityFilter, limitNodes],
+    queryKey: [
+      'knowledge-graph-snapshot',
+      searchTerm,
+      nodeTypeFilter,
+      communityFilter,
+      limitNodes,
+      focusNodeKeys.join('|'),
+      expandDepth,
+    ],
     queryFn: () =>
       apiService.getKnowledgeGraphSnapshot({
         q: searchTerm.trim() || undefined,
         node_type: nodeTypeFilter || undefined,
         community_id: communityFilter,
         limit_nodes: limitNodes,
+        focus_node_keys: focusNodeKeys.length > 0 ? focusNodeKeys : undefined,
+        expand_depth: focusNodeKeys.length > 0 ? expandDepth : undefined,
       }),
   });
 
@@ -144,11 +226,31 @@ export default function KnowledgeGraphExplorer() {
   const links = snapshot?.links || [];
   const communities = snapshot?.communities || [];
 
+  useEffect(() => {
+    if (!selectedNodeKey || !snapshot) {
+      return;
+    }
+    const existsInSnapshot = nodes.some((node) => node.node_key === selectedNodeKey);
+    if (!existsInSnapshot) {
+      setSelectedNodeKey(undefined);
+    }
+  }, [nodes, selectedNodeKey, snapshot]);
+
   const positionedNodes = useMemo(() => computeLayout(nodes), [nodes]);
 
   const nodeMap = useMemo(
     () => new Map(positionedNodes.map((node) => [node.node_key, node])),
     [positionedNodes]
+  );
+
+  const highlightedNodeKeySet = useMemo(
+    () => new Set(highlightedNodeKeys),
+    [highlightedNodeKeys]
+  );
+
+  const highlightedEdgeKeySet = useMemo(
+    () => new Set(highlightedEdgeKeys),
+    [highlightedEdgeKeys]
   );
 
   const selectedNeighborKeys = useMemo(() => {
@@ -189,13 +291,93 @@ export default function KnowledgeGraphExplorer() {
     [communities, communityFilter]
   );
 
+  const clearExplorerState = useCallback(() => {
+    setSearchTerm('');
+    setNodeTypeFilter(undefined);
+    setCommunityFilter(undefined);
+    setSelectedNodeKey(undefined);
+    setFocusNodeKeys([]);
+    setExpandDepth(0);
+    setHighlightedNodeKeys([]);
+    setHighlightedEdgeKeys([]);
+    resetViewport();
+  }, [resetViewport]);
+
+  const handleNodeClick = useCallback((nodeKey: string) => {
+    setSelectedNodeKey(nodeKey);
+    setHighlightedNodeKeys([]);
+    setHighlightedEdgeKeys([]);
+    if (expandDepth > 0) {
+      setFocusNodeKeys([nodeKey]);
+    }
+  }, [expandDepth]);
+
+  const handleNeighborhoodChange = useCallback((value: number) => {
+    setExpandDepth(value);
+    if (value > 0) {
+      const anchorNodeKey = selectedNodeKey || focusNodeKeys[0];
+      if (anchorNodeKey) {
+        setFocusNodeKeys([anchorNodeKey]);
+      }
+    }
+  }, [focusNodeKeys, selectedNodeKey]);
+
+  const handleAskAboutNode = useCallback((mode: AIQueryEngine) => {
+    if (!nodeDetail?.node) {
+      return;
+    }
+    setSelectedEngine(mode);
+    openModal(buildNodeQuestion(nodeDetail.node, mode));
+  }, [nodeDetail?.node, openModal, setSelectedEngine]);
+
+  const handleWheel = useCallback((event: React.WheelEvent<SVGSVGElement>) => {
+    event.preventDefault();
+    setViewport((previous) => ({
+      ...previous,
+      scale: clamp(previous.scale + (event.deltaY < 0 ? 0.14 : -0.14), MIN_SCALE, MAX_SCALE),
+    }));
+  }, []);
+
+  const handleMouseDown = useCallback((event: React.MouseEvent<SVGSVGElement>) => {
+    if (event.button !== 0) {
+      return;
+    }
+    dragStateRef.current = {
+      active: true,
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: viewport.x,
+      originY: viewport.y,
+    };
+  }, [viewport.x, viewport.y]);
+
+  const handleMouseMove = useCallback((event: React.MouseEvent<SVGSVGElement>) => {
+    if (!dragStateRef.current.active) {
+      return;
+    }
+    const deltaX = (event.clientX - dragStateRef.current.startX) / viewport.scale;
+    const deltaY = (event.clientY - dragStateRef.current.startY) / viewport.scale;
+    setViewport((previous) => ({
+      ...previous,
+      x: dragStateRef.current.originX + deltaX,
+      y: dragStateRef.current.originY + deltaY,
+    }));
+  }, [viewport.scale]);
+
+  const stopDragging = useCallback(() => {
+    dragStateRef.current.active = false;
+  }, []);
+
   return (
     <Card
       title="图谱画布"
       extra={
-        <Button icon={<ReloadOutlined />} onClick={() => refetch()} loading={isFetching}>
-          刷新画布
-        </Button>
+        <Space size={8}>
+          <Button icon={<ReloadOutlined />} onClick={() => refetch()} loading={isFetching}>
+            刷新画布
+          </Button>
+          <Button onClick={resetViewport}>重置视图</Button>
+        </Space>
       }
     >
       <Space direction="vertical" size="large" style={{ width: '100%' }}>
@@ -235,16 +417,39 @@ export default function KnowledgeGraphExplorer() {
               value,
             }))}
           />
-          <Button
-            onClick={() => {
-              setSearchTerm('');
-              setNodeTypeFilter(undefined);
-              setCommunityFilter(undefined);
-              setSelectedNodeKey(undefined);
-            }}
-          >
-            清空筛选
-          </Button>
+          <Select<number>
+            value={expandDepth}
+            onChange={handleNeighborhoodChange}
+            style={{ width: 150 }}
+            options={[
+              { label: '聚焦子图', value: 0 },
+              { label: '1 跳邻域', value: 1 },
+              { label: '2 跳邻域', value: 2 },
+            ]}
+          />
+          <Space size={4}>
+            <Button
+              icon={<MinusOutlined />}
+              onClick={() => setViewport((previous) => ({ ...previous, scale: clamp(previous.scale - 0.12, MIN_SCALE, MAX_SCALE) }))}
+            />
+            <Button
+              icon={<PlusOutlined />}
+              onClick={() => setViewport((previous) => ({ ...previous, scale: clamp(previous.scale + 0.12, MIN_SCALE, MAX_SCALE) }))}
+            />
+          </Space>
+          <Button onClick={clearExplorerState}>恢复全图</Button>
+          {selectedCommunity && (
+            <Button
+              icon={<ApartmentOutlined />}
+              onClick={() =>
+                focusCommunity(selectedCommunity.community_id, {
+                  selectedNodeKey: selectedCommunity.top_nodes[0]?.node_key,
+                })
+              }
+            >
+              打开社区
+            </Button>
+          )}
         </Space>
 
         <Row gutter={[16, 16]}>
@@ -269,7 +474,15 @@ export default function KnowledgeGraphExplorer() {
                   <Empty description="当前筛选条件下没有可展示的节点" />
                 </div>
               ) : (
-                <svg viewBox={`0 0 ${SVG_WIDTH} ${SVG_HEIGHT}`} style={{ width: '100%', height: '100%', display: 'block' }}>
+                <svg
+                  viewBox={`0 0 ${SVG_WIDTH} ${SVG_HEIGHT}`}
+                  style={{ width: '100%', height: '100%', display: 'block', touchAction: 'none', cursor: dragStateRef.current.active ? 'grabbing' : 'grab' }}
+                  onWheel={handleWheel}
+                  onMouseDown={handleMouseDown}
+                  onMouseMove={handleMouseMove}
+                  onMouseUp={stopDragging}
+                  onMouseLeave={stopDragging}
+                >
                   <defs>
                     <pattern id="kg-grid" width="36" height="36" patternUnits="userSpaceOnUse">
                       <path
@@ -288,72 +501,99 @@ export default function KnowledgeGraphExplorer() {
                     </text>
                   )}
 
-                  {links.map((link) => {
-                    const source = nodeMap.get(link.source);
-                    const target = nodeMap.get(link.target);
-                    if (!source || !target) {
-                      return null;
-                    }
+                  <g transform={`translate(${viewport.x} ${viewport.y}) scale(${viewport.scale})`}>
+                    {links.map((link) => {
+                      const source = nodeMap.get(link.source);
+                      const target = nodeMap.get(link.target);
+                      if (!source || !target) {
+                        return null;
+                      }
 
-                    const isHighlighted =
-                      !selectedNodeKey ||
-                      link.source === selectedNodeKey ||
-                      link.target === selectedNodeKey;
-                    const opacity = selectedNodeKey ? (isHighlighted ? 0.85 : 0.12) : 0.35;
+                      const edgeKey = buildKnowledgeGraphEdgeKey(link.source, link.target);
+                      const isPathEdge = highlightedEdgeKeySet.has(edgeKey);
+                      const isSelectedEdge =
+                        !highlightedEdgeKeySet.size &&
+                        selectedNodeKey &&
+                        (link.source === selectedNodeKey || link.target === selectedNodeKey);
+                      const opacity = highlightedEdgeKeySet.size
+                        ? (isPathEdge ? 0.95 : 0.08)
+                        : selectedNodeKey
+                          ? (isSelectedEdge ? 0.85 : 0.12)
+                          : 0.35;
 
-                    return (
-                      <line
-                        key={`${link.source}-${link.target}`}
-                        x1={source.x}
-                        y1={source.y}
-                        x2={target.x}
-                        y2={target.y}
-                        stroke={theme === 'dark' ? 'rgba(148,163,184,0.55)' : 'rgba(71,85,105,0.35)'}
-                        strokeWidth={1 + Math.min(link.weight, 4)}
-                        opacity={opacity}
-                      />
-                    );
-                  })}
-
-                  {positionedNodes.map((node) => {
-                    const color = getNodeTypeColor(node.node_type);
-                    const isSelected = selectedNodeKey === node.node_key;
-                    const isRelated = selectedNodeKey ? selectedNeighborKeys.has(node.node_key) : true;
-                    const opacity = selectedNodeKey ? (isRelated ? 1 : 0.2) : 1;
-                    const showLabel = isSelected || labelKeys.has(node.node_key);
-
-                    return (
-                      <g
-                        key={node.node_key}
-                        transform={`translate(${node.x}, ${node.y})`}
-                        style={{ cursor: 'pointer', opacity }}
-                        onClick={() => setSelectedNodeKey(node.node_key)}
-                      >
-                        <circle
-                          r={node.radius + (isSelected ? 7 : 0)}
-                          fill={isSelected ? `${color}22` : `${color}18`}
-                          stroke="none"
+                      return (
+                        <line
+                          key={`${link.source}-${link.target}`}
+                          x1={source.x}
+                          y1={source.y}
+                          x2={target.x}
+                          y2={target.y}
+                          stroke={
+                            isPathEdge
+                              ? (theme === 'dark' ? '#fb923c' : '#ea580c')
+                              : theme === 'dark'
+                                ? 'rgba(148,163,184,0.55)'
+                                : 'rgba(71,85,105,0.35)'
+                          }
+                          strokeWidth={(isPathEdge ? 3 : 1) + Math.min(link.weight, 4)}
+                          opacity={opacity}
                         />
-                        <circle
-                          r={node.radius}
-                          fill={color}
-                          stroke={isSelected ? '#f8fafc' : theme === 'dark' ? '#020617' : '#ffffff'}
-                          strokeWidth={isSelected ? 3 : 1.5}
-                        />
-                        {showLabel && (
-                          <text
-                            x={node.radius + 8}
-                            y={4}
-                            fontSize={12}
-                            fontWeight={isSelected ? 700 : 500}
-                            fill={theme === 'dark' ? '#f8fafc' : '#0f172a'}
-                          >
-                            {node.label.length > 24 ? `${node.label.slice(0, 24)}...` : node.label}
-                          </text>
-                        )}
-                      </g>
-                    );
-                  })}
+                      );
+                    })}
+
+                    {positionedNodes.map((node) => {
+                      const color = getNodeTypeColor(node.node_type);
+                      const isSelected = selectedNodeKey === node.node_key;
+                      const isPathNode = highlightedNodeKeySet.has(node.node_key);
+                      const isRelated = highlightedNodeKeySet.size
+                        ? highlightedNodeKeySet.has(node.node_key)
+                        : selectedNodeKey
+                          ? selectedNeighborKeys.has(node.node_key)
+                          : true;
+                      const opacity = selectedNodeKey || highlightedNodeKeySet.size ? (isRelated ? 1 : 0.16) : 1;
+                      const showLabel = isSelected || isPathNode || labelKeys.has(node.node_key);
+
+                      return (
+                        <g
+                          key={node.node_key}
+                          transform={`translate(${node.x}, ${node.y})`}
+                          style={{ cursor: 'pointer', opacity }}
+                          onClick={() => handleNodeClick(node.node_key)}
+                        >
+                          <circle
+                            r={node.radius + (isSelected ? 7 : isPathNode ? 5 : 0)}
+                            fill={isSelected ? `${color}22` : isPathNode ? '#fb923c22' : `${color}18`}
+                            stroke="none"
+                          />
+                          <circle
+                            r={node.radius}
+                            fill={color}
+                            stroke={
+                              isPathNode
+                                ? (theme === 'dark' ? '#fdba74' : '#ea580c')
+                                : isSelected
+                                  ? '#f8fafc'
+                                  : theme === 'dark'
+                                    ? '#020617'
+                                    : '#ffffff'
+                            }
+                            strokeWidth={isSelected || isPathNode ? 3 : 1.5}
+                          />
+                          {showLabel && (
+                            <text
+                              x={node.radius + 8}
+                              y={4}
+                              fontSize={12}
+                              fontWeight={isSelected || isPathNode ? 700 : 500}
+                              fill={theme === 'dark' ? '#f8fafc' : '#0f172a'}
+                            >
+                              {node.label.length > 24 ? `${node.label.slice(0, 24)}...` : node.label}
+                            </text>
+                          )}
+                        </g>
+                      );
+                    })}
+                  </g>
                 </svg>
               )}
             </div>
@@ -380,7 +620,23 @@ export default function KnowledgeGraphExplorer() {
                   <Spin />
                 </div>
               ) : (
-                <NodeDetailCard detail={nodeDetail} theme={theme} />
+                <NodeDetailCard
+                  detail={nodeDetail}
+                  theme={theme}
+                  onAsk={handleAskAboutNode}
+                  onCommunityClick={(communityId) => focusCommunity(communityId)}
+                  onFocusNeighborhood={(depth) => {
+                    if (!selectedNodeKey) {
+                      return;
+                    }
+                    setFocusNodeKeys([selectedNodeKey]);
+                    setExpandDepth(depth);
+                    setHighlightedNodeKeys([]);
+                    setHighlightedEdgeKeys([]);
+                  }}
+                  onNeighborClick={handleNodeClick}
+                  onArticleFocus={(articleId) => focusArticle(articleId)}
+                />
               )}
             </Card>
           </Col>
@@ -389,6 +645,9 @@ export default function KnowledgeGraphExplorer() {
         <Space wrap size={[8, 8]}>
           <Tag icon={<BgColorsOutlined />}>节点 {snapshot?.total_nodes || 0}</Tag>
           <Tag>边 {snapshot?.total_links || 0}</Tag>
+          <Tag>缩放 {Math.round(viewport.scale * 100)}%</Tag>
+          {focusNodeKeys.length > 0 && <Tag icon={<AimOutlined />}>聚焦节点 {focusNodeKeys.length}</Tag>}
+          {highlightedEdgeKeys.length > 0 && <Tag color="orange">路径高亮</Tag>}
           <Tag>生成时间 {snapshot?.generated_at ? new Date(snapshot.generated_at).toLocaleString() : '-'}</Tag>
           {snapshot?.build?.sync_mode && <Tag>构建模式 {snapshot.build.sync_mode}</Tag>}
         </Space>
@@ -400,9 +659,19 @@ export default function KnowledgeGraphExplorer() {
 function NodeDetailCard({
   detail,
   theme,
+  onAsk,
+  onCommunityClick,
+  onFocusNeighborhood,
+  onNeighborClick,
+  onArticleFocus,
 }: {
   detail?: KnowledgeGraphNodeDetail;
   theme: 'light' | 'dark';
+  onAsk: (mode: AIQueryEngine) => void;
+  onCommunityClick: (communityId: number) => void;
+  onFocusNeighborhood: (depth: number) => void;
+  onNeighborClick: (nodeKey: string) => void;
+  onArticleFocus: (articleId: number) => void;
 }) {
   if (!detail) {
     return (
@@ -431,12 +700,28 @@ function NodeDetailCard({
         )}
       </Space>
 
+      <Space wrap>
+        <Button type="primary" icon={<CommentOutlined />} onClick={() => onAsk('graph')}>
+          Graph 问答
+        </Button>
+        <Button onClick={() => onAsk('hybrid')}>Hybrid 问答</Button>
+        <Button icon={<AimOutlined />} onClick={() => onFocusNeighborhood(1)}>
+          1 跳邻域
+        </Button>
+        <Button onClick={() => onFocusNeighborhood(2)}>2 跳邻域</Button>
+      </Space>
+
       {detail.matched_communities.length > 0 && (
         <div>
           <Text strong>所在社区</Text>
           <div style={{ marginTop: 8 }}>
             {detail.matched_communities.map((community: KnowledgeGraphCommunitySummary) => (
-              <Tag key={community.community_id} color="purple">
+              <Tag
+                key={community.community_id}
+                color="purple"
+                style={{ cursor: 'pointer' }}
+                onClick={() => onCommunityClick(community.community_id)}
+              >
                 {community.label}
               </Tag>
             ))}
@@ -451,7 +736,18 @@ function NodeDetailCard({
           dataSource={detail.neighbors}
           locale={{ emptyText: '暂无邻居节点' }}
           renderItem={(neighbor) => (
-            <List.Item>
+            <List.Item
+              actions={[
+                <Button
+                  key="focus-neighbor"
+                  type="link"
+                  size="small"
+                  onClick={() => onNeighborClick(neighbor.node_key)}
+                >
+                  聚焦
+                </Button>,
+              ]}
+            >
               <Space direction="vertical" size={0} style={{ width: '100%' }}>
                 <Text>{neighbor.label}</Text>
                 <Text type="secondary">{neighbor.node_type}</Text>
@@ -484,7 +780,18 @@ function NodeDetailCard({
           dataSource={detail.related_articles}
           locale={{ emptyText: '暂无相关文章' }}
           renderItem={(article) => (
-            <List.Item>
+            <List.Item
+              actions={[
+                <Button
+                  key="focus-article"
+                  type="link"
+                  size="small"
+                  onClick={() => onArticleFocus(article.id)}
+                >
+                  图谱定位
+                </Button>,
+              ]}
+            >
               <Space direction="vertical" size={0} style={{ width: '100%' }}>
                 <a href={article.url} target="_blank" rel="noreferrer">
                   {article.title_zh || article.title}

@@ -24,6 +24,7 @@ import ModelExplorer from '@/components/ModelExplorer';
 import KnowledgeGraphPanel from '@/components/KnowledgeGraphPanel';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { useKnowledgeGraphView } from '@/contexts/KnowledgeGraphViewContext';
 import { useMessage } from '@/hooks/useMessage';
 
 const { Content } = Layout;
@@ -33,6 +34,7 @@ export default function Dashboard() {
   const [settingsDrawerOpen, setSettingsDrawerOpen] = useState(false);
   const { theme } = useTheme();
   const { isAuthenticated, username, logout } = useAuth();
+  const { graphCommand } = useKnowledgeGraphView();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const message = useMessage();
@@ -47,6 +49,13 @@ export default function Dashboard() {
     queryClient.invalidateQueries({ queryKey: ['knowledge-graph-settings'] });
     queryClient.invalidateQueries({ queryKey: ['knowledge-graph-stats'] });
   }, [queryClient, settingsDrawerOpen]);
+
+  useEffect(() => {
+    if (!graphCommand?.id) {
+      return;
+    }
+    setSelectedTab('knowledge-graph');
+  }, [graphCommand?.id]);
 
   const tabs = [
     {

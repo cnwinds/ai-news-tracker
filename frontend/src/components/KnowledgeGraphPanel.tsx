@@ -24,13 +24,16 @@ import {
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { apiService } from '@/services/api';
-import { useAuth } from '@/contexts/AuthContext';
-import { useErrorHandler } from '@/hooks/useErrorHandler';
+import KnowledgeGraphCommunityDrawer from '@/components/KnowledgeGraphCommunityDrawer';
 import KnowledgeGraphExplorer from '@/components/KnowledgeGraphExplorer';
+import { useAuth } from '@/contexts/AuthContext';
+import { useKnowledgeGraphView } from '@/contexts/KnowledgeGraphViewContext';
+import { useErrorHandler } from '@/hooks/useErrorHandler';
+import { apiService } from '@/services/api';
 import type {
   AIQueryEngine,
   KnowledgeGraphBuildSummary,
+  KnowledgeGraphCommunitySummary,
   KnowledgeGraphPathResponse,
   KnowledgeGraphQueryResponse,
 } from '@/types';
@@ -47,10 +50,13 @@ function formatBuildStatus(status: KnowledgeGraphBuildSummary['status']) {
   return { color: 'default', text: '等待中' };
 }
 
+const clickableTagStyle = { cursor: 'pointer' } as const;
+
 export default function KnowledgeGraphPanel() {
   const queryClient = useQueryClient();
   const { isAuthenticated } = useAuth();
   const { createErrorHandler, showSuccess, showWarning } = useErrorHandler();
+  const { graphCommand, focusArticle, focusCommunity, focusNode, focusPath } = useKnowledgeGraphView();
 
   const [question, setQuestion] = useState('');
   const [queryMode, setQueryMode] = useState<AIQueryEngine>('hybrid');
@@ -61,6 +67,8 @@ export default function KnowledgeGraphPanel() {
   const [nodeSearch, setNodeSearch] = useState('');
   const [syncMode, setSyncMode] = useState<SyncRunMode>('auto');
   const [maxArticles, setMaxArticles] = useState<number>(100);
+  const [communityDrawerOpen, setCommunityDrawerOpen] = useState(false);
+  const [activeCommunityId, setActiveCommunityId] = useState<number>();
 
   const { data: settings } = useQuery({
     queryKey: ['knowledge-graph-settings'],
@@ -100,6 +108,14 @@ export default function KnowledgeGraphPanel() {
     setMaxArticles(settings.max_articles_per_sync);
   }, [settings]);
 
+  useEffect(() => {
+    if (!graphCommand?.openCommunityId) {
+      return;
+    }
+    setActiveCommunityId(graphCommand.openCommunityId);
+    setCommunityDrawerOpen(true);
+  }, [graphCommand?.id, graphCommand?.openCommunityId]);
+
   const nodeOptions = useMemo(() => {
     const items = nodeSearch.trim() ? (nodeResults?.items || []) : (stats?.top_nodes || []);
     return items.map((node) => ({
@@ -113,7 +129,18 @@ export default function KnowledgeGraphPanel() {
     queryClient.invalidateQueries({ queryKey: ['knowledge-graph-stats'] });
     queryClient.invalidateQueries({ queryKey: ['knowledge-graph-builds'] });
     queryClient.invalidateQueries({ queryKey: ['knowledge-graph-communities'] });
+    queryClient.invalidateQueries({ queryKey: ['knowledge-graph-community-detail'] });
     queryClient.invalidateQueries({ queryKey: ['knowledge-graph-nodes'] });
+    queryClient.invalidateQueries({ queryKey: ['knowledge-graph-snapshot'] });
+    queryClient.invalidateQueries({ queryKey: ['knowledge-graph-node-detail'] });
+  };
+
+  const openCommunityDrawer = (community: KnowledgeGraphCommunitySummary) => {
+    setActiveCommunityId(community.community_id);
+    setCommunityDrawerOpen(true);
+    focusCommunity(community.community_id, {
+      selectedNodeKey: community.top_nodes[0]?.node_key,
+    });
   };
 
   const syncMutation = useMutation({
@@ -160,6 +187,15 @@ export default function KnowledgeGraphPanel() {
       }),
     onSuccess: (response) => {
       setPathResult(response);
+      if (response.found) {
+        focusPath(
+          response.nodes.map((node) => node.node_key),
+          response.edges.map((edge) => ({
+            source: edge.source_node_key,
+            target: edge.target_node_key,
+          }))
+        );
+      }
     },
     onError: createErrorHandler({
       operationName: '查询知识图谱路径',
@@ -199,7 +235,7 @@ export default function KnowledgeGraphPanel() {
           message={stats?.enabled ? '知识图谱已接入系统' : '知识图谱当前已关闭'}
           description={
             stats?.enabled
-              ? '你可以在这里查看图谱覆盖率、触发手动同步、做图谱问答以及查询实体路径。'
+              ? '你可以在这里查看图谱覆盖率、触发手动同步、做图谱问答以及查询实体路径。所有问答结果、路径结果、节点入口和社区入口都可以继续驱动画布探索。'
               : '请先在系统设置中启用知识图谱，再执行同步和问答。'
           }
         />
@@ -351,7 +387,12 @@ export default function KnowledgeGraphPanel() {
                         <div style={{ marginTop: 8 }}>
                           {queryResult.matched_nodes.length > 0 ? (
                             queryResult.matched_nodes.map((node) => (
-                              <Tag key={node.node_key}>
+                              <Tag
+                                key={node.node_key}
+                                color="geekblue"
+                                style={clickableTagStyle}
+                                onClick={() => focusNode(node.node_key)}
+                              >
                                 {node.label} / {node.node_type}
                               </Tag>
                             ))
@@ -365,7 +406,12 @@ export default function KnowledgeGraphPanel() {
                         <div style={{ marginTop: 8 }}>
                           {queryResult.matched_communities.length > 0 ? (
                             queryResult.matched_communities.map((community) => (
-                              <Tag key={community.community_id} color="blue">
+                              <Tag
+                                key={community.community_id}
+                                color="blue"
+                                style={clickableTagStyle}
+                                onClick={() => openCommunityDrawer(community)}
+                              >
                                 {community.label}
                               </Tag>
                             ))
@@ -381,7 +427,18 @@ export default function KnowledgeGraphPanel() {
                           dataSource={queryResult.related_articles}
                           locale={{ emptyText: '暂无相关文章' }}
                           renderItem={(article) => (
-                            <List.Item>
+                            <List.Item
+                              actions={[
+                                <Button
+                                  key="focus-article"
+                                  type="link"
+                                  size="small"
+                                  onClick={() => focusArticle(article.id)}
+                                >
+                                  图谱定位
+                                </Button>,
+                              ]}
+                            >
                               <Space direction="vertical" size={0} style={{ width: '100%' }}>
                                 <a href={article.url} target="_blank" rel="noreferrer">
                                   {article.title_zh || article.title}
@@ -399,7 +456,7 @@ export default function KnowledgeGraphPanel() {
                 ) : (
                   <Empty
                     image={Empty.PRESENTED_IMAGE_SIMPLE}
-                    description="输入问题后，这里会展示图谱问答结果"
+                    description="输入问题后，这里会展示图谱问答结果，并且可以把命中节点、社区和文章继续送入画布。"
                   />
                 )}
               </Space>
@@ -445,11 +502,36 @@ export default function KnowledgeGraphPanel() {
                 {pathResult && (
                   <Card size="small" title={pathResult.found ? '路径结果' : '路径未找到'}>
                     {pathResult.found ? (
-                      <Space direction="vertical" size="small">
+                      <Space direction="vertical" size="small" style={{ width: '100%' }}>
                         <Text>路径长度：{pathResult.distance}</Text>
                         <Text>
                           {pathResult.nodes.map((node) => node.label).join(' -> ')}
                         </Text>
+                        <Space wrap>
+                          {pathResult.nodes.map((node) => (
+                            <Tag
+                              key={node.node_key}
+                              color="orange"
+                              style={clickableTagStyle}
+                              onClick={() => focusNode(node.node_key)}
+                            >
+                              {node.label}
+                            </Tag>
+                          ))}
+                        </Space>
+                        <Button
+                          onClick={() =>
+                            focusPath(
+                              pathResult.nodes.map((node) => node.node_key),
+                              pathResult.edges.map((edge) => ({
+                                source: edge.source_node_key,
+                                target: edge.target_node_key,
+                              }))
+                            )
+                          }
+                        >
+                          在画布中重新高亮
+                        </Button>
                         <List
                           size="small"
                           dataSource={pathResult.edges}
@@ -479,7 +561,23 @@ export default function KnowledgeGraphPanel() {
                 dataSource={nodeSearch.trim() ? nodeResults?.items || [] : stats?.top_nodes || []}
                 locale={{ emptyText: '暂无节点' }}
                 renderItem={(node) => (
-                  <List.Item>
+                  <List.Item
+                    style={{ cursor: 'pointer' }}
+                    onClick={() => focusNode(node.node_key)}
+                    actions={[
+                      <Button
+                        key="focus-node"
+                        type="link"
+                        size="small"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          focusNode(node.node_key);
+                        }}
+                      >
+                        画布定位
+                      </Button>,
+                    ]}
+                  >
                     <Space direction="vertical" size={0} style={{ width: '100%' }}>
                       <Text strong>{node.label}</Text>
                       <Text type="secondary">
@@ -502,12 +600,45 @@ export default function KnowledgeGraphPanel() {
                 dataSource={communities?.items || []}
                 locale={{ emptyText: '暂无社区数据' }}
                 renderItem={(community) => (
-                  <List.Item>
-                    <Space direction="vertical" size={0} style={{ width: '100%' }}>
+                  <List.Item
+                    style={{ cursor: 'pointer' }}
+                    onClick={() => openCommunityDrawer(community)}
+                    actions={[
+                      <Button
+                        key="open-community"
+                        type="link"
+                        size="small"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          openCommunityDrawer(community);
+                        }}
+                      >
+                        打开社区
+                      </Button>,
+                    ]}
+                  >
+                    <Space direction="vertical" size={4} style={{ width: '100%' }}>
                       <Text strong>{community.label}</Text>
                       <Text type="secondary">
                         节点 {community.node_count} · 边 {community.edge_count} · 文章 {community.article_count}
                       </Text>
+                      {community.top_nodes.length > 0 && (
+                        <Space wrap size={[8, 8]}>
+                          {community.top_nodes.slice(0, 3).map((node) => (
+                            <Tag
+                              key={node.node_key}
+                              color="purple"
+                              style={clickableTagStyle}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                focusNode(node.node_key, { communityId: community.community_id });
+                              }}
+                            >
+                              {node.label}
+                            </Tag>
+                          ))}
+                        </Space>
+                      )}
                     </Space>
                   </List.Item>
                 )}
@@ -543,6 +674,12 @@ export default function KnowledgeGraphPanel() {
           </Col>
         </Row>
       </Space>
+
+      <KnowledgeGraphCommunityDrawer
+        open={communityDrawerOpen}
+        communityId={activeCommunityId}
+        onClose={() => setCommunityDrawerOpen(false)}
+      />
     </Spin>
   );
 }

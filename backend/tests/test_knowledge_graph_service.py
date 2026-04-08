@@ -1,5 +1,6 @@
-import tempfile
+import shutil
 import unittest
+import uuid
 from datetime import datetime
 from pathlib import Path
 
@@ -17,7 +18,10 @@ class KnowledgeGraphServiceTests(unittest.TestCase):
         Base.metadata.create_all(bind=self.engine)
         self.SessionLocal = sessionmaker(bind=self.engine, autoflush=False, autocommit=False)
         self.session = self.SessionLocal()
-        self.temp_dir = tempfile.TemporaryDirectory()
+        temp_root = Path(__file__).resolve().parent / ".tmp"
+        temp_root.mkdir(parents=True, exist_ok=True)
+        self.temp_dir = temp_root / uuid.uuid4().hex
+        self.temp_dir.mkdir(parents=True, exist_ok=True)
 
         self.original_enabled = settings.KNOWLEDGE_GRAPH_ENABLED
         self.original_query_depth = settings.KNOWLEDGE_GRAPH_QUERY_DEPTH
@@ -53,17 +57,17 @@ class KnowledgeGraphServiceTests(unittest.TestCase):
         self.article_id = article.id
 
         self.service = KnowledgeGraphService(db=self.session, ai_analyzer=None)
-        snapshot_root = Path(self.temp_dir.name)
-        self.service.snapshot_dir = snapshot_root
-        self.service.snapshot_path = snapshot_root / "current_snapshot.json"
-        self.service.report_path = snapshot_root / "latest_report.md"
+        self.service.snapshot_dir = self.temp_dir
+        self.service.snapshot_path = self.temp_dir / "current_snapshot.json"
+        self.service.report_path = self.temp_dir / "latest_report.md"
 
     def tearDown(self):
         settings.KNOWLEDGE_GRAPH_ENABLED = self.original_enabled
         settings.KNOWLEDGE_GRAPH_QUERY_DEPTH = self.original_query_depth
         settings.KNOWLEDGE_GRAPH_MAX_ARTICLES_PER_SYNC = self.original_max_articles
         self.session.close()
-        self.temp_dir.cleanup()
+        self.engine.dispose()
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     def test_sync_articles_creates_snapshot_and_graph_records(self):
         result = self.service.sync_articles(sync_mode="deterministic", trigger_source="test")
@@ -108,6 +112,32 @@ class KnowledgeGraphServiceTests(unittest.TestCase):
         self.assertGreaterEqual(snapshot["total_nodes"], 1)
         self.assertIn("source", snapshot["available_node_types"])
         self.assertTrue(any(node["node_type"] == "source" for node in snapshot["nodes"]))
+
+    def test_snapshot_view_supports_focus_node_keys_and_expand_depth(self):
+        self.service.sync_articles(sync_mode="deterministic", trigger_source="test")
+
+        source_nodes = self.service.search_nodes(query="OpenAI", node_type="source", limit=5)
+        self.assertTrue(source_nodes)
+
+        snapshot = self.service.get_snapshot_view(
+            focus_node_keys=[source_nodes[0]["node_key"]],
+            expand_depth=1,
+            limit_nodes=20,
+        )
+        node_keys = {node["node_key"] for node in snapshot["nodes"]}
+        self.assertIn(source_nodes[0]["node_key"], node_keys)
+        self.assertGreaterEqual(len(snapshot["links"]), 1)
+
+    def test_community_detail_includes_summary_text_and_relation_types(self):
+        self.service.sync_articles(sync_mode="deterministic", trigger_source="test")
+
+        communities = self.service.get_communities(limit=5)
+        self.assertTrue(communities)
+
+        detail = self.service.get_community_detail(communities[0]["community_id"])
+        self.assertIn(communities[0]["label"], detail["summary_text"])
+        self.assertIsInstance(detail["relation_types"], list)
+        self.assertGreaterEqual(len(detail["nodes"]), 1)
 
 
 if __name__ == "__main__":

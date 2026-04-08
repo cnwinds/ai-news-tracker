@@ -88,6 +88,8 @@ async def get_knowledge_graph_snapshot(
     node_type: Optional[str] = Query(None),
     q: Optional[str] = Query(None),
     limit_nodes: int = Query(80, ge=10, le=200),
+    focus_node_keys: Optional[list[str]] = Query(None),
+    expand_depth: int = Query(0, ge=0, le=2),
     service: KnowledgeGraphService = Depends(get_knowledge_graph_service),
 ):
     return KnowledgeGraphSnapshotResponse(
@@ -96,6 +98,8 @@ async def get_knowledge_graph_snapshot(
             node_type=node_type,
             query=q,
             limit_nodes=limit_nodes,
+            focus_node_keys=focus_node_keys,
+            expand_depth=expand_depth,
         )
     )
 

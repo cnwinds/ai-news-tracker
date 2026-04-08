@@ -12,6 +12,7 @@ import {
   Typography,
 } from 'antd';
 import {
+  ApartmentOutlined,
   CloseOutlined,
   DeleteOutlined,
   DownOutlined,
@@ -28,6 +29,7 @@ import dayjs from 'dayjs';
 import { apiService } from '@/services/api';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { useKnowledgeGraphView } from '@/contexts/KnowledgeGraphViewContext';
 import { useDeleteArticle } from '@/hooks/useArticles';
 import { getThemeColor } from '@/utils/theme';
 import { createMarkdownComponents, normalizeMarkdownImageContent, remarkGfm } from '@/utils/markdown';
@@ -46,6 +48,7 @@ interface ArticleDetailModalProps {
 export default function ArticleDetailModal({ articleId, open, onClose }: ArticleDetailModalProps) {
   const { theme } = useTheme();
   const { isAuthenticated, username } = useAuth();
+  const { focusArticle, focusCommunity, focusNode } = useKnowledgeGraphView();
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [isContentExpanded, setIsContentExpanded] = useState(false);
   const queryClient = useQueryClient();
@@ -311,12 +314,24 @@ export default function ArticleDetailModal({ articleId, open, onClose }: Article
                 <Spin size="small" />
               ) : graphContext && (
                 <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                  <Space wrap>
+                    <Button
+                      icon={<ApartmentOutlined />}
+                      onClick={() => focusArticle(article.id)}
+                    >
+                      在图谱中查看这篇文章
+                    </Button>
+                  </Space>
                   <div>
                     <Text strong>关联实体</Text>
                     <div style={{ marginTop: 8 }}>
                       {graphContext.nodes.length > 0 ? (
                         graphContext.nodes.map((node) => (
-                          <Tag key={node.node_key}>
+                          <Tag
+                            key={node.node_key}
+                            style={{ cursor: 'pointer' }}
+                            onClick={() => focusNode(node.node_key)}
+                          >
                             {node.label} / {node.node_type}
                           </Tag>
                         ))
@@ -331,7 +346,12 @@ export default function ArticleDetailModal({ articleId, open, onClose }: Article
                     <div style={{ marginTop: 8 }}>
                       {graphContext.communities.length > 0 ? (
                         graphContext.communities.map((community) => (
-                          <Tag key={community.community_id} color="blue">
+                          <Tag
+                            key={community.community_id}
+                            color="blue"
+                            style={{ cursor: 'pointer' }}
+                            onClick={() => focusCommunity(community.community_id)}
+                          >
                             {community.label}
                           </Tag>
                         ))
@@ -348,7 +368,19 @@ export default function ArticleDetailModal({ articleId, open, onClose }: Article
                       locale={{ emptyText: '暂无相关文章' }}
                       dataSource={graphContext.related_articles}
                       renderItem={(relatedArticle) => (
-                        <List.Item style={{ paddingInline: 0 }}>
+                        <List.Item
+                          style={{ paddingInline: 0 }}
+                          actions={[
+                            <Button
+                              key="focus-related-article"
+                              type="link"
+                              size="small"
+                              onClick={() => focusArticle(relatedArticle.id)}
+                            >
+                              图谱定位
+                            </Button>,
+                          ]}
+                        >
                           <Space direction="vertical" size={0} style={{ width: '100%' }}>
                             <a href={relatedArticle.url} target="_blank" rel="noreferrer">
                               {relatedArticle.title_zh || relatedArticle.title}
@@ -369,6 +401,12 @@ export default function ArticleDetailModal({ articleId, open, onClose }: Article
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
               <Space wrap>
+                <Button
+                  icon={<ApartmentOutlined />}
+                  onClick={() => focusArticle(article.id)}
+                >
+                  图谱定位
+                </Button>
                 <Button
                   type="primary"
                   icon={<LinkOutlined />}

@@ -179,6 +179,8 @@ class KnowledgeGraphCommunityDetail(BaseModel):
     community: KnowledgeGraphCommunitySummary
     nodes: List[KnowledgeGraphNodeSummary]
     articles: List[KnowledgeGraphArticleReference]
+    summary_text: str = ""
+    relation_types: List[str] = Field(default_factory=list)
 
 
 class KnowledgeGraphLinkSummary(BaseModel):
