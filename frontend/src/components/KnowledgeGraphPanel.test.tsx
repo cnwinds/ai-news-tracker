@@ -166,20 +166,60 @@ describe('KnowledgeGraphPanel', () => {
     });
   });
 
-  it('organizes the workbench around quick actions and tabbed tools', async () => {
+  it('renders the knowledge graph page in the new section order', async () => {
     renderWithProviders(<KnowledgeGraphPanel />);
 
-    expect(await screen.findByText('知识图谱工作台')).toBeInTheDocument();
-    expect(await screen.findByText('图谱已启用')).toBeInTheDocument();
+    expect(await screen.findByText('当前知识图谱状态')).toBeInTheDocument();
+    expect(screen.getByText('工具工作台')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '知识图谱' })).toBeInTheDocument();
+    expect(screen.getByText('运维与构建')).toBeInTheDocument();
+    expect(screen.getByText('运行状态')).toBeInTheDocument();
     expect(await screen.findByText('Mock Graph Explorer')).toBeInTheDocument();
     expect(screen.getByText('图谱问答')).toBeInTheDocument();
+    expect(screen.getByText('图谱已启用')).toBeInTheDocument();
+  });
 
-    await userEvent.click(screen.getByRole('button', { name: /查一条关系路径/ }));
+  it('renders markdown answers in the qa workbench', async () => {
+    mocks.queryKnowledgeGraph.mockResolvedValue({
+      question: '最近有哪些变化？',
+      mode: 'hybrid',
+      resolved_mode: 'graph',
+      answer: '## 结论\n- 第一条\n- 第二条',
+      matched_nodes: [],
+      matched_communities: [],
+      related_articles: [],
+      context_node_count: 2,
+      context_edge_count: 1,
+    });
+
+    renderWithProviders(<KnowledgeGraphPanel />);
+
+    await screen.findByText('工具工作台');
+
+    const questionInput = screen
+      .getAllByPlaceholderText(/最近推理模型相关实体之间最关键的关系变化/)
+      .find((element) => element.getAttribute('aria-hidden') !== 'true');
+
+    expect(questionInput).toBeTruthy();
+    await userEvent.type(questionInput as HTMLElement, '最近有哪些变化？');
+    await userEvent.click(screen.getByRole('button', { name: '开始问答' }));
+
+    expect(await screen.findByRole('heading', { name: '结论' })).toBeInTheDocument();
+    expect(screen.getByText('第一条')).toBeInTheDocument();
+    expect(screen.getByText('第二条')).toBeInTheDocument();
+  });
+
+  it('switches between path and navigation tools', async () => {
+    renderWithProviders(<KnowledgeGraphPanel />);
+
+    await screen.findByText('工具工作台');
+
+    await userEvent.click(screen.getByText('关系路径'));
     expect(await screen.findByRole('button', { name: '查询最短路径' })).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole('button', { name: /跳到实体 \/ 社区/ }));
+    await userEvent.click(screen.getByText('实体导航'));
     expect(await screen.findByText('实体入口')).toBeInTheDocument();
     expect(await screen.findByText('社区入口')).toBeInTheDocument();
-    expect(await screen.findByText('推理模型社区')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: '打开社区' })).toBeInTheDocument();
   });
 });

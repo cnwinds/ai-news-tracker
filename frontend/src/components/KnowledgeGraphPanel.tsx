@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import ReactMarkdown from 'react-markdown';
 import {
   Alert,
   Badge,
@@ -20,7 +21,6 @@ import {
 import {
   ApartmentOutlined,
   BranchesOutlined,
-  BulbOutlined,
   CommentOutlined,
   HistoryOutlined,
   NodeIndexOutlined,
@@ -47,6 +47,11 @@ import type {
   KnowledgeGraphPathResponse,
   KnowledgeGraphQueryResponse,
 } from '@/types';
+import {
+  createMarkdownComponents,
+  normalizeMarkdownImageContent,
+  remarkGfm,
+} from '@/utils/markdown';
 import { getThemeColor } from '@/utils/theme';
 
 const { Paragraph, Text, Title } = Typography;
@@ -62,9 +67,18 @@ function formatBuildStatus(status: KnowledgeGraphBuildSummary['status']) {
   return { color: 'default', text: '等待中' };
 }
 
+function formatRunMode(mode?: SyncRunMode) {
+  if (mode === 'agent') return 'Agent';
+  if (mode === 'deterministic') return '确定性';
+  return '自动';
+}
+
 function getGraphCommandSummary(command: KnowledgeGraphNavigationCommand | null) {
   if (!command) {
-    return null;
+    return {
+      title: '全局视图',
+      description: '当前画布处于默认浏览状态，适合先观察整体结构，再进入问答、路径或实体钻取。',
+    };
   }
 
   const focusCount = command.focusNodeKeys.length;
@@ -113,9 +127,46 @@ function buildWorkbenchTabLabel(icon: ReactNode, label: string) {
   );
 }
 
+function BuildHistoryList({
+  builds,
+  loading,
+}: {
+  builds: KnowledgeGraphBuildSummary[];
+  loading: boolean;
+}) {
+  return (
+    <List
+      size="small"
+      loading={loading}
+      dataSource={builds}
+      locale={{ emptyText: '暂无构建记录' }}
+      renderItem={(build) => {
+        const status = formatBuildStatus(build.status);
+        return (
+          <List.Item>
+            <Space direction="vertical" size={2} style={{ width: '100%' }}>
+              <Space wrap>
+                <Text strong>{build.build_id.slice(0, 12)}</Text>
+                <Tag color={status.color}>{status.text}</Tag>
+                <Tag>{dayjs(build.started_at).format('MM-DD HH:mm')}</Tag>
+              </Space>
+              <Text type="secondary">
+                {build.trigger_source} · {build.sync_mode} · 处理 {build.processed_articles}/{build.total_articles}
+              </Text>
+              <Text type="secondary">
+                跳过 {build.skipped_articles} · 失败 {build.failed_articles} · 节点 {build.nodes_upserted} · 边 {build.edges_upserted}
+              </Text>
+              {build.error_message && <Text type="danger">{build.error_message}</Text>}
+            </Space>
+          </List.Item>
+        );
+      }}
+    />
+  );
+}
+
 export default function KnowledgeGraphPanel() {
   const queryClient = useQueryClient();
-  const workbenchRef = useRef<HTMLDivElement | null>(null);
   const { theme } = useTheme();
   const { isAuthenticated } = useAuth();
   const { createErrorHandler, showSuccess, showWarning } = useErrorHandler();
@@ -134,6 +185,8 @@ export default function KnowledgeGraphPanel() {
   const [maxArticles, setMaxArticles] = useState<number>(100);
   const [communityDrawerOpen, setCommunityDrawerOpen] = useState(false);
   const [activeCommunityId, setActiveCommunityId] = useState<number>();
+
+  const markdownComponents = useMemo(() => createMarkdownComponents(theme), [theme]);
 
   const { data: settings } = useQuery({
     queryKey: ['knowledge-graph-settings'],
@@ -216,11 +269,6 @@ export default function KnowledgeGraphPanel() {
     focusCommunity(community.community_id, {
       selectedNodeKey: community.top_nodes[0]?.node_key,
     });
-  };
-
-  const jumpToWorkbench = (tab: WorkbenchTabKey) => {
-    setActiveWorkbenchTab(tab);
-    workbenchRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
   const syncMutation = useMutation({
@@ -324,6 +372,7 @@ export default function KnowledgeGraphPanel() {
   const communityItems = communities?.items || stats?.top_communities || [];
   const lastBuildStatus = stats?.last_build ? formatBuildStatus(stats.last_build.status) : null;
   const coveragePercent = Number(((stats?.coverage ?? 0) * 100).toFixed(1));
+  const normalizedAnswer = normalizeMarkdownImageContent(queryResult?.answer || '');
 
   const pageCardStyle = {
     borderRadius: 24,
@@ -331,19 +380,14 @@ export default function KnowledgeGraphPanel() {
     overflow: 'hidden',
   } as const;
 
-  const heroSurfaceStyle = {
+  const surfaceStyle = {
     borderRadius: 18,
     border: `1px solid ${getThemeColor(theme, 'border')}`,
-    background: theme === 'dark' ? 'rgba(2, 6, 23, 0.52)' : 'rgba(255, 255, 255, 0.78)',
-    backdropFilter: 'blur(8px)',
+    background: theme === 'dark' ? 'rgba(2, 6, 23, 0.44)' : 'rgba(255, 255, 255, 0.84)',
   } as const;
 
-  const heroCardStyle = {
-    ...pageCardStyle,
-    background:
-      theme === 'dark'
-        ? 'linear-gradient(135deg, rgba(30,64,175,0.32) 0%, rgba(15,23,42,0.98) 52%, rgba(15,118,110,0.28) 100%)'
-        : 'linear-gradient(135deg, rgba(219,234,254,0.95) 0%, rgba(255,255,255,0.98) 52%, rgba(204,251,241,0.95) 100%)',
+  const metricCardBodyStyle = {
+    padding: 18,
   } as const;
 
   const workbenchItems = [
@@ -353,7 +397,7 @@ export default function KnowledgeGraphPanel() {
       children: (
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>
           <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-            先在画布中缩小范围，再围绕当前图谱关系提问，回答中的节点、社区和文章都可以继续驱动画布。
+            先围绕当前图谱提问，再用命中节点、社区和文章继续驱动画布。回答支持 Markdown 展示，适合直接输出结构化结论。
           </Paragraph>
           <Space wrap>
             <Select<AIQueryEngine>
@@ -380,16 +424,18 @@ export default function KnowledgeGraphPanel() {
             value={question}
             onChange={(event) => setQuestion(event.target.value)}
             autoSize={{ minRows: 3, maxRows: 6 }}
-            placeholder="例如：OpenAI、Anthropic 和推理模型之间最近有哪些明显的关系变化？"
+            placeholder="例如：请总结最近推理模型相关实体之间最关键的关系变化，并按主题分组输出。"
           />
           {queryResult ? (
             <Card
               size="small"
-              style={heroSurfaceStyle}
+              style={surfaceStyle}
               title={`回答结果（实际模式：${queryResult.resolved_mode}）`}
             >
               <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-                <Paragraph style={{ marginBottom: 0, whiteSpace: 'pre-wrap' }}>{queryResult.answer}</Paragraph>
+                <ReactMarkdown components={markdownComponents} remarkPlugins={[remarkGfm]}>
+                  {normalizedAnswer}
+                </ReactMarkdown>
                 <Space wrap>
                   <Tag>节点 {queryResult.context_node_count}</Tag>
                   <Tag>边 {queryResult.context_edge_count}</Tag>
@@ -469,7 +515,7 @@ export default function KnowledgeGraphPanel() {
           ) : (
             <Empty
               image={Empty.PRESENTED_IMAGE_SIMPLE}
-              description="输入问题后，这里会沉淀图谱问答结果，并保留可继续探索的入口。"
+              description="输入问题后，这里会显示支持 Markdown 的问答结果，并保留继续探索的入口。"
             />
           )}
         </Space>
@@ -481,7 +527,7 @@ export default function KnowledgeGraphPanel() {
       children: (
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>
           <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-            适合用来追踪两个实体、组织或文章之间是否存在可解释的连接路径，命中后会直接在画布中高亮。
+            用来追踪两个实体、组织或文章之间是否存在可解释的连接路径。命中后会直接在下方知识图谱里高亮。
           </Paragraph>
           <Search
             placeholder="搜索路径起点 / 终点候选节点"
@@ -523,7 +569,7 @@ export default function KnowledgeGraphPanel() {
           {pathResult ? (
             <Card
               size="small"
-              style={heroSurfaceStyle}
+              style={surfaceStyle}
               title={pathResult.found ? '路径结果' : '路径未找到'}
             >
               {pathResult.found ? (
@@ -553,7 +599,7 @@ export default function KnowledgeGraphPanel() {
                       )
                     }
                   >
-                    在画布中重新高亮
+                    在图谱中重新高亮
                   </Button>
                   <List
                     size="small"
@@ -575,7 +621,7 @@ export default function KnowledgeGraphPanel() {
           ) : (
             <Empty
               image={Empty.PRESENTED_IMAGE_SIMPLE}
-              description="选定两个节点后，这里会展示路径解释，并且同步驱动画布高亮。"
+              description="选定两个节点后，这里会展示路径解释，并同步驱动下方知识图谱高亮。"
             />
           )}
         </Space>
@@ -587,7 +633,7 @@ export default function KnowledgeGraphPanel() {
       children: (
         <Space direction="vertical" size="large" style={{ width: '100%' }}>
           <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-            这里是从列表进入画布的快速入口。适合先选实体或社区，再回到上方图谱画布继续看关系。
+            适合从列表快速进入图谱。先选实体或社区，再到下方知识图谱里继续看邻域、社区和文章。
           </Paragraph>
           <div>
             <Text strong>实体入口</Text>
@@ -617,7 +663,7 @@ export default function KnowledgeGraphPanel() {
                         focusNode(node.node_key);
                       }}
                     >
-                      画布定位
+                      图谱定位
                     </Button>,
                   ]}
                 >
@@ -692,81 +738,200 @@ export default function KnowledgeGraphPanel() {
   return (
     <Spin spinning={statsLoading}>
       <Space direction="vertical" size="large" style={{ width: '100%' }}>
-        <Card style={heroCardStyle} styles={{ body: { padding: 24 } }}>
-          <Row gutter={[20, 20]}>
-            <Col xs={24} xl={14}>
-              <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-                <Space wrap size={[8, 8]}>
-                  <Badge
-                    status={stats?.enabled ? 'success' : 'warning'}
-                    text={stats?.enabled ? '图谱已启用' : '图谱未启用'}
-                  />
-                  <Tag>自动同步 {settings?.auto_sync_enabled ? '开启' : '关闭'}</Tag>
-                  <Tag>默认查询深度 {settings?.query_depth ?? '-'}</Tag>
-                  {stats?.snapshot_updated_at && (
-                    <Tag>快照更新 {dayjs(stats.snapshot_updated_at).format('MM-DD HH:mm')}</Tag>
-                  )}
-                </Space>
+        <Card
+          style={pageCardStyle}
+          title="当前知识图谱状态"
+          extra={
+            <Button icon={<ReloadOutlined />} onClick={refreshGraphQueries}>
+              刷新数据
+            </Button>
+          }
+        >
+          <Space direction="vertical" size="large" style={{ width: '100%' }}>
+            <Row gutter={[16, 16]}>
+              <Col xs={12} md={8} xl={4}>
+                <Card size="small" style={surfaceStyle} styles={{ body: metricCardBodyStyle }}>
+                  <Statistic title="节点总数" value={stats?.total_nodes ?? 0} prefix={<ApartmentOutlined />} />
+                </Card>
+              </Col>
+              <Col xs={12} md={8} xl={4}>
+                <Card size="small" style={surfaceStyle} styles={{ body: metricCardBodyStyle }}>
+                  <Statistic title="边总数" value={stats?.total_edges ?? 0} prefix={<BranchesOutlined />} />
+                </Card>
+              </Col>
+              <Col xs={12} md={8} xl={4}>
+                <Card size="small" style={surfaceStyle} styles={{ body: metricCardBodyStyle }}>
+                  <Statistic title="文章总数" value={stats?.total_articles ?? 0} />
+                </Card>
+              </Col>
+              <Col xs={12} md={8} xl={4}>
+                <Card size="small" style={surfaceStyle} styles={{ body: metricCardBodyStyle }}>
+                  <Statistic title="已同步文章" value={stats?.synced_articles ?? 0} prefix={<SyncOutlined />} />
+                </Card>
+              </Col>
+              <Col xs={12} md={8} xl={4}>
+                <Card size="small" style={surfaceStyle} styles={{ body: metricCardBodyStyle }}>
+                  <Statistic title="失败文章" value={stats?.failed_articles ?? 0} />
+                </Card>
+              </Col>
+              <Col xs={12} md={8} xl={4}>
+                <Card size="small" style={surfaceStyle} styles={{ body: metricCardBodyStyle }}>
+                  <Statistic title="覆盖率" value={coveragePercent} suffix="%" />
+                </Card>
+              </Col>
+            </Row>
 
-                <div>
-                  <Title level={3} style={{ margin: 0, color: getThemeColor(theme, 'text') }}>
-                    知识图谱工作台
-                  </Title>
-                  <Paragraph style={{ marginTop: 12, marginBottom: 0, color: getThemeColor(theme, 'textSecondary') }}>
-                    这页现在只保留四件事情：先看图谱结构，再用工具台提问、查路径、跳实体，最后在底部回看构建历史。
-                  </Paragraph>
+            <Row gutter={[16, 16]}>
+              <Col xs={24} xl={14}>
+                <div style={{ ...surfaceStyle, padding: 20 }}>
+                  <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                    <div>
+                      <Title level={5} style={{ margin: 0, color: getThemeColor(theme, 'text') }}>
+                        运行状态
+                      </Title>
+                      <Paragraph style={{ marginTop: 8, marginBottom: 0, color: getThemeColor(theme, 'textSecondary') }}>
+                        这里聚合图谱可用性、同步配置、查询深度和最近快照时间，用户进入页面先判断图谱是否可用、数据是否新鲜。
+                      </Paragraph>
+                    </div>
+                    <Space wrap size={[8, 8]}>
+                      <Badge
+                        status={stats?.enabled ? 'success' : 'warning'}
+                        text={stats?.enabled ? '图谱已启用' : '图谱未启用'}
+                      />
+                      <Tag>自动同步 {settings?.auto_sync_enabled ? '开启' : '关闭'}</Tag>
+                      <Tag>运行模式 {formatRunMode(syncMode)}</Tag>
+                      <Tag>查询深度 {settings?.query_depth ?? '-'}</Tag>
+                      <Tag>采集状态 {lastBuildStatus?.text || '暂无记录'}</Tag>
+                      {stats?.snapshot_updated_at && (
+                        <Tag>快照更新 {dayjs(stats.snapshot_updated_at).format('MM-DD HH:mm')}</Tag>
+                      )}
+                    </Space>
+                    {stats?.last_build && lastBuildStatus && (
+                      <div style={{ ...surfaceStyle, padding: 16 }}>
+                        <Space direction="vertical" size={6}>
+                          <Space wrap>
+                            <Text strong>最近一次构建</Text>
+                            <Tag color={lastBuildStatus.color}>{lastBuildStatus.text}</Tag>
+                          </Space>
+                          <Text type="secondary">
+                            {stats.last_build.trigger_source} · {stats.last_build.sync_mode}
+                          </Text>
+                          <Text type="secondary">
+                            处理 {stats.last_build.processed_articles}/{stats.last_build.total_articles} 篇文章，新增节点 {stats.last_build.nodes_upserted}，新增边 {stats.last_build.edges_upserted}
+                          </Text>
+                        </Space>
+                      </div>
+                    )}
+                  </Space>
                 </div>
+              </Col>
 
-                {commandSummary && (
-                  <div style={{ ...heroSurfaceStyle, padding: 16 }}>
-                    <Text strong style={{ color: getThemeColor(theme, 'text') }}>
-                      {commandSummary.title}
-                    </Text>
-                    <Paragraph style={{ marginTop: 8, marginBottom: 0, color: getThemeColor(theme, 'textSecondary') }}>
-                      {commandSummary.description}
-                    </Paragraph>
-                  </div>
-                )}
+              <Col xs={24} xl={10}>
+                <div style={{ ...surfaceStyle, padding: 20, height: '100%' }}>
+                  <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                    <div>
+                      <Title level={5} style={{ margin: 0, color: getThemeColor(theme, 'text') }}>
+                        当前图谱视角
+                      </Title>
+                      <Paragraph style={{ marginTop: 8, marginBottom: 0, color: getThemeColor(theme, 'textSecondary') }}>
+                        明确告诉用户当前画布是在看全图、某个社区、某个节点，还是一条关系路径，避免在问答和可视化之间丢上下文。
+                      </Paragraph>
+                    </div>
+                    <div style={{ ...surfaceStyle, padding: 16 }}>
+                      <Text strong style={{ color: getThemeColor(theme, 'text') }}>
+                        {commandSummary.title}
+                      </Text>
+                      <Paragraph style={{ marginTop: 8, marginBottom: 0, color: getThemeColor(theme, 'textSecondary') }}>
+                        {commandSummary.description}
+                      </Paragraph>
+                    </div>
+                    {communityItems.length > 0 && (
+                      <div>
+                        <Text strong>重点社区</Text>
+                        <div style={{ marginTop: 10 }}>
+                          {communityItems.slice(0, 4).map((community) => (
+                            <Tag
+                              key={community.community_id}
+                              color="blue"
+                              style={{ cursor: 'pointer', marginBottom: 8 }}
+                              onClick={() => openCommunityDrawer(community)}
+                            >
+                              {community.label}
+                            </Tag>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </Space>
+                </div>
+              </Col>
+            </Row>
+          </Space>
+        </Card>
 
-                <Space wrap>
-                  <Button
-                    type="primary"
-                    icon={<CommentOutlined />}
-                    disabled={!stats?.enabled}
-                    onClick={() => jumpToWorkbench('qa')}
-                  >
-                    问一个图谱问题
-                  </Button>
-                  <Button
-                    icon={<BranchesOutlined />}
-                    disabled={!stats?.enabled}
-                    onClick={() => jumpToWorkbench('path')}
-                  >
-                    查一条关系路径
-                  </Button>
-                  <Button
-                    icon={<NodeIndexOutlined />}
-                    disabled={!stats?.enabled}
-                    onClick={() => jumpToWorkbench('navigate')}
-                  >
-                    跳到实体 / 社区
-                  </Button>
-                </Space>
-              </Space>
-            </Col>
+        {!stats?.enabled && (
+          <Alert
+            type="warning"
+            showIcon
+            message="知识图谱当前已关闭"
+            description="请先在系统设置中启用知识图谱，再执行同步、问答、路径查询和图谱探索。"
+          />
+        )}
 
+        <Card
+          style={pageCardStyle}
+          title="工具工作台"
+          extra={<Text type="secondary">围绕当前图谱做问答、路径追踪和实体导航</Text>}
+        >
+          <Tabs
+            activeKey={activeWorkbenchTab}
+            onChange={(key) => setActiveWorkbenchTab(key as WorkbenchTabKey)}
+            items={workbenchItems}
+          />
+        </Card>
+
+        <div>
+          <Space direction="vertical" size="small" style={{ width: '100%' }}>
+            <div>
+              <Title level={4} style={{ margin: 0, color: getThemeColor(theme, 'text') }}>
+                知识图谱
+              </Title>
+              <Paragraph style={{ marginTop: 8, marginBottom: 0, color: getThemeColor(theme, 'textSecondary') }}>
+                在这里做可视化交互，配合上方工作台形成问答或查路径，再回图谱定位的闭环。
+              </Paragraph>
+            </div>
+            {stats?.enabled ? (
+              <KnowledgeGraphExplorer />
+            ) : (
+              <Card style={pageCardStyle}>
+                <Empty description="知识图谱未启用，当前无法展示图谱画布" />
+              </Card>
+            )}
+          </Space>
+        </div>
+
+        <Card
+          style={pageCardStyle}
+          title={
+            <Space>
+              <HistoryOutlined />
+              <span>运维与构建</span>
+            </Space>
+          }
+          extra={<Text type="secondary">低频运维动作和构建回看集中放在底部</Text>}
+        >
+          <Row gutter={[16, 16]}>
             <Col xs={24} xl={10}>
-              <div style={{ ...heroSurfaceStyle, padding: 20, height: '100%' }}>
+              <div style={{ ...surfaceStyle, padding: 20, height: '100%' }}>
                 <Space direction="vertical" size="middle" style={{ width: '100%' }}>
                   <div>
-                    <Text strong style={{ color: getThemeColor(theme, 'text') }}>
-                      运维入口
-                    </Text>
+                    <Title level={5} style={{ margin: 0, color: getThemeColor(theme, 'text') }}>
+                      运维工具
+                    </Title>
                     <Paragraph style={{ marginTop: 8, marginBottom: 0, color: getThemeColor(theme, 'textSecondary') }}>
-                      低频的同步和刷新动作集中放在这里，不再和问答、路径、导航混在一起。
+                      这里只保留刷新、增量同步和全量重建。它们是低频动作，不再占据页面主操作区。
                     </Paragraph>
                   </div>
-
                   <Space wrap>
                     <Select<SyncRunMode>
                       value={syncMode}
@@ -788,10 +953,9 @@ export default function KnowledgeGraphPanel() {
                       }))}
                     />
                   </Space>
-
                   <Space wrap>
                     <Button icon={<ReloadOutlined />} onClick={refreshGraphQueries}>
-                      刷新数据
+                      刷新图谱数据
                     </Button>
                     <Button
                       type="primary"
@@ -811,141 +975,26 @@ export default function KnowledgeGraphPanel() {
                       全量重建
                     </Button>
                   </Space>
+                </Space>
+              </div>
+            </Col>
 
-                  {stats?.last_build && lastBuildStatus && (
-                    <div style={{ ...heroSurfaceStyle, padding: 16 }}>
-                      <Space direction="vertical" size={8}>
-                        <Space wrap>
-                          <Text strong>最近一次构建</Text>
-                          <Tag color={lastBuildStatus.color}>{lastBuildStatus.text}</Tag>
-                        </Space>
-                        <Text type="secondary">
-                          {stats.last_build.trigger_source} · {stats.last_build.sync_mode}
-                        </Text>
-                        <Text type="secondary">
-                          处理 {stats.last_build.processed_articles}/{stats.last_build.total_articles} 篇文章
-                        </Text>
-                        <Text type="secondary">
-                          新增节点 {stats.last_build.nodes_upserted} · 新增边 {stats.last_build.edges_upserted}
-                        </Text>
-                      </Space>
-                    </div>
-                  )}
+            <Col xs={24} xl={14}>
+              <div style={{ ...surfaceStyle, padding: 20 }}>
+                <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                  <div>
+                    <Title level={5} style={{ margin: 0, color: getThemeColor(theme, 'text') }}>
+                      构建历史
+                    </Title>
+                    <Paragraph style={{ marginTop: 8, marginBottom: 0, color: getThemeColor(theme, 'textSecondary') }}>
+                      最近的构建记录直接与运维工具并排展示，便于执行同步后立刻回看结果。
+                    </Paragraph>
+                  </div>
+                  <BuildHistoryList builds={builds} loading={buildsLoading} />
                 </Space>
               </div>
             </Col>
           </Row>
-        </Card>
-
-        {!stats?.enabled && (
-          <Alert
-            type="warning"
-            showIcon
-            message="知识图谱当前已关闭"
-            description="请先在系统设置中启用知识图谱，再执行同步、问答、路径查询和画布探索。"
-          />
-        )}
-
-        <Row gutter={[16, 16]}>
-          <Col xs={12} md={6}>
-            <Card style={pageCardStyle}>
-              <Statistic title="节点总数" value={stats?.total_nodes ?? 0} prefix={<ApartmentOutlined />} />
-            </Card>
-          </Col>
-          <Col xs={12} md={6}>
-            <Card style={pageCardStyle}>
-              <Statistic title="边总数" value={stats?.total_edges ?? 0} prefix={<BranchesOutlined />} />
-            </Card>
-          </Col>
-          <Col xs={12} md={6}>
-            <Card style={pageCardStyle}>
-              <Statistic title="已同步文章" value={stats?.synced_articles ?? 0} prefix={<SyncOutlined />} />
-            </Card>
-          </Col>
-          <Col xs={12} md={6}>
-            <Card style={pageCardStyle} styles={{ body: { paddingBottom: 12 } }}>
-              <Statistic title="覆盖率" value={coveragePercent} suffix="%" prefix={<BulbOutlined />} />
-              <div style={{ marginTop: 12 }}>
-                <Text type="secondary">图谱覆盖文章比例</Text>
-                <div
-                  style={{
-                    marginTop: 8,
-                    height: 8,
-                    borderRadius: 999,
-                    overflow: 'hidden',
-                    background: getThemeColor(theme, 'bgSecondary'),
-                  }}
-                >
-                  <div
-                    style={{
-                      width: `${coveragePercent}%`,
-                      height: '100%',
-                      background: theme === 'dark' ? '#60a5fa' : '#2563eb',
-                    }}
-                  />
-                </div>
-              </div>
-            </Card>
-          </Col>
-        </Row>
-
-        {stats?.enabled && <KnowledgeGraphExplorer />}
-
-        <div ref={workbenchRef}>
-          <Card
-            style={pageCardStyle}
-            title={
-              <Space>
-                <NodeIndexOutlined />
-                <span>工具工作台</span>
-              </Space>
-            }
-            extra={<Text type="secondary">围绕当前图谱做提问、导航和路径追踪</Text>}
-          >
-            <Tabs
-              activeKey={activeWorkbenchTab}
-              onChange={(key) => setActiveWorkbenchTab(key as WorkbenchTabKey)}
-              items={workbenchItems}
-            />
-          </Card>
-        </div>
-
-        <Card
-          style={pageCardStyle}
-          title={
-            <Space>
-              <HistoryOutlined />
-              <span>构建历史</span>
-            </Space>
-          }
-          extra={<Text type="secondary">仅保留回看用途，不再占据主操作区</Text>}
-        >
-          <List
-            size="small"
-            loading={buildsLoading}
-            dataSource={builds}
-            locale={{ emptyText: '暂无构建记录' }}
-            renderItem={(build) => {
-              const status = formatBuildStatus(build.status);
-              return (
-                <List.Item>
-                  <Space direction="vertical" size={2} style={{ width: '100%' }}>
-                    <Space wrap>
-                      <Text strong>{build.build_id.slice(0, 12)}</Text>
-                      <Tag color={status.color}>{status.text}</Tag>
-                      <Tag>{dayjs(build.started_at).format('MM-DD HH:mm')}</Tag>
-                    </Space>
-                    <Text type="secondary">
-                      {build.trigger_source} · {build.sync_mode} · 处理 {build.processed_articles}/{build.total_articles}
-                    </Text>
-                    <Text type="secondary">
-                      跳过 {build.skipped_articles} · 失败 {build.failed_articles} · 节点 {build.nodes_upserted} · 边 {build.edges_upserted}
-                    </Text>
-                  </Space>
-                </List.Item>
-              );
-            }}
-          />
         </Card>
       </Space>
 
