@@ -1,17 +1,27 @@
-/**
- * AI 对话全局状态管理
- */
-import { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 
-import type { ArticleSearchResult } from '@/types';
+import type {
+  AIQueryEngine,
+  ArticleSearchResult,
+  KnowledgeGraphArticleReference,
+  KnowledgeGraphCommunitySummary,
+  KnowledgeGraphNodeSummary,
+} from '@/types';
 
 export interface Message {
   id: string;
   type: 'user' | 'assistant';
   content: string;
   timestamp: Date;
+  engine?: AIQueryEngine;
+  resolvedMode?: AIQueryEngine;
   articles?: ArticleSearchResult[];
   sources?: string[];
+  matchedNodes?: KnowledgeGraphNodeSummary[];
+  matchedCommunities?: KnowledgeGraphCommunitySummary[];
+  relatedArticles?: KnowledgeGraphArticleReference[];
+  contextNodeCount?: number;
+  contextEdgeCount?: number;
 }
 
 export interface ChatHistory {
@@ -22,33 +32,52 @@ export interface ChatHistory {
   updatedAt: Date;
 }
 
+interface StoredMessage extends Omit<Message, 'timestamp'> {
+  timestamp: string;
+}
+
+interface StoredChatHistory extends Omit<ChatHistory, 'createdAt' | 'updatedAt' | 'messages'> {
+  messages: StoredMessage[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 interface AIConversationContextType {
-  // 模态层状态
   isModalOpen: boolean;
   openModal: (question?: string, chatId?: string) => void;
   closeModal: () => void;
-  
-  // 当前对话
   currentChatId: string | null;
   setCurrentChatId: (chatId: string | null) => void;
   currentMessages: Message[];
   setCurrentMessages: (messages: Message[] | ((prev: Message[]) => Message[])) => void;
-  
-  // 对话历史
   chatHistories: ChatHistory[];
   loadChatHistory: (chatId: string) => void;
   createNewChat: () => void;
   updateChatHistory: (chatId: string, messages: Message[]) => void;
   deleteChatHistory: (chatId: string) => void;
-  
-  // 搜索相关
   searchQuery: string;
   setSearchQuery: (query: string) => void;
+  selectedEngine: AIQueryEngine;
+  setSelectedEngine: (engine: AIQueryEngine) => void;
 }
 
 const AIConversationContext = createContext<AIConversationContextType | undefined>(undefined);
 
 const STORAGE_KEY = 'ai_conversation_history';
+const ENGINE_STORAGE_KEY = 'ai_conversation_engine';
+
+function inferEngineFromMessages(messages: Message[]): AIQueryEngine | null {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message.engine) {
+      return message.engine;
+    }
+    if (message.resolvedMode) {
+      return message.resolvedMode;
+    }
+  }
+  return null;
+}
 
 export function AIConversationProvider({ children }: { children: ReactNode }) {
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -56,105 +85,106 @@ export function AIConversationProvider({ children }: { children: ReactNode }) {
   const [currentMessages, setCurrentMessagesState] = useState<Message[]>([]);
   const [chatHistories, setChatHistories] = useState<ChatHistory[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedEngine, setSelectedEngineState] = useState<AIQueryEngine>(() => {
+    const saved = localStorage.getItem(ENGINE_STORAGE_KEY);
+    if (saved === 'auto' || saved === 'rag' || saved === 'graph' || saved === 'hybrid') {
+      return saved;
+    }
+    return 'auto';
+  });
 
-  // 包装 setCurrentMessages 以支持函数式更新
+  const setSelectedEngine = useCallback((engine: AIQueryEngine) => {
+    setSelectedEngineState(engine);
+    localStorage.setItem(ENGINE_STORAGE_KEY, engine);
+  }, []);
+
   const setCurrentMessages = useCallback((messages: Message[] | ((prev: Message[]) => Message[])) => {
     if (typeof messages === 'function') {
       setCurrentMessagesState(messages);
-    } else {
-      setCurrentMessagesState(messages);
+      return;
     }
+    setCurrentMessagesState(messages);
   }, []);
 
-  // 从 localStorage 加载历史记录
-  const loadHistoriesFromStorage = useCallback(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        interface StoredChatHistory {
-          id: string;
-          title: string;
-          messages: Array<{
-            id: string;
-            type: 'user' | 'assistant';
-            content: string;
-            timestamp: string;
-            articles?: ArticleSearchResult[];
-            sources?: string[];
-          }>;
-          createdAt: string;
-          updatedAt: string;
-        }
-        const parsed: StoredChatHistory[] = JSON.parse(saved);
-        const histories: ChatHistory[] = parsed.map((h) => ({
-          ...h,
-          createdAt: new Date(h.createdAt),
-          updatedAt: new Date(h.updatedAt),
-          messages: h.messages.map((m) => ({
-            ...m,
-            timestamp: new Date(m.timestamp),
-          })),
-        }));
-        setChatHistories(histories);
-        return histories;
-      }
-    } catch (e) {
-      console.error('加载聊天历史失败:', e);
-    }
-    return [];
-  }, []);
-
-  // 保存历史记录到 localStorage
   const saveHistoriesToStorage = useCallback((histories: ChatHistory[]) => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(histories));
-    } catch (e) {
-      console.error('保存聊天历史失败:', e);
+    } catch (error) {
+      console.error('保存聊天历史失败:', error);
     }
   }, []);
 
-  // 初始化时加载历史记录
+  const loadHistoriesFromStorage = useCallback(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (!saved) {
+        return [];
+      }
+      const parsed = JSON.parse(saved) as StoredChatHistory[];
+      const histories: ChatHistory[] = parsed.map((history) => ({
+        ...history,
+        createdAt: new Date(history.createdAt),
+        updatedAt: new Date(history.updatedAt),
+        messages: history.messages.map((message) => ({
+          ...message,
+          timestamp: new Date(message.timestamp),
+        })),
+      }));
+      setChatHistories(histories);
+      return histories;
+    } catch (error) {
+      console.error('加载聊天历史失败:', error);
+      return [];
+    }
+  }, []);
+
   useEffect(() => {
     loadHistoriesFromStorage();
   }, [loadHistoriesFromStorage]);
 
+  const loadChatHistory = useCallback((chatId: string) => {
+    const history = chatHistories.find((item) => item.id === chatId);
+    if (!history) {
+      return;
+    }
+    setCurrentChatId(chatId);
+    setCurrentMessages(history.messages);
+    const inferredEngine = inferEngineFromMessages(history.messages);
+    if (inferredEngine) {
+      setSelectedEngine(inferredEngine);
+    }
+  }, [chatHistories, setCurrentMessages, setSelectedEngine]);
+
   const openModal = useCallback((question?: string, chatId?: string) => {
     if (chatId) {
-      // 加载指定历史对话
-      const history = chatHistories.find((h) => h.id === chatId);
-      if (history) {
-        setCurrentChatId(chatId);
-        setCurrentMessages(history.messages);
-      }
-    } else if (question) {
-      // 新对话，使用问题作为初始消息
-      setCurrentChatId(null);
-      setCurrentMessages([{
-        id: Date.now().toString(),
-        type: 'user',
-        content: question,
-        timestamp: new Date(),
-      }]);
-    } else {
-      // 打开空对话
-      setCurrentChatId(null);
-      setCurrentMessages([]);
+      loadChatHistory(chatId);
+      setIsModalOpen(true);
+      return;
     }
+
+    if (question) {
+      setCurrentChatId(null);
+      setCurrentMessages([
+        {
+          id: Date.now().toString(),
+          type: 'user',
+          content: question,
+          timestamp: new Date(),
+          engine: selectedEngine,
+        },
+      ]);
+      setIsModalOpen(true);
+      return;
+    }
+
+    setCurrentChatId(null);
+    setCurrentMessages([]);
     setIsModalOpen(true);
-  }, [chatHistories, setCurrentMessages]);
+  }, [loadChatHistory, selectedEngine, setCurrentMessages]);
 
   const closeModal = useCallback(() => {
     setIsModalOpen(false);
-    // 不重置当前对话，保留状态以便下次打开
   }, []);
-
-  const loadChatHistory = useCallback((chatId: string) => {
-    const history = chatHistories.find((h) => h.id === chatId);
-    if (history) {
-      setCurrentChatId(chatId);
-      setCurrentMessages(history.messages);
-    }
-  }, [chatHistories, setCurrentMessages]);
 
   const createNewChat = useCallback(() => {
     setCurrentChatId(null);
@@ -162,46 +192,43 @@ export function AIConversationProvider({ children }: { children: ReactNode }) {
   }, [setCurrentMessages]);
 
   const updateChatHistory = useCallback((chatId: string, messages: Message[]) => {
-    setChatHistories((prevHistories) => {
-      const histories = [...prevHistories];
-      const index = histories.findIndex((h) => h.id === chatId);
-      
-      const title = messages.find((m) => m.type === 'user')?.content || '新对话';
-      const chatTitle = title.length > 30 ? title.substring(0, 30) + '...' : title;
-      
-      if (index >= 0) {
-        // 更新现有历史
-        histories[index] = {
-          ...histories[index],
+    setChatHistories((previous) => {
+      const histories = [...previous];
+      const existingIndex = histories.findIndex((history) => history.id === chatId);
+      const firstUserMessage = messages.find((message) => message.type === 'user');
+      const title = firstUserMessage?.content || '新对话';
+      const chatTitle = title.length > 30 ? `${title.slice(0, 30)}...` : title;
+
+      if (existingIndex >= 0) {
+        histories[existingIndex] = {
+          ...histories[existingIndex],
           messages,
           updatedAt: new Date(),
         };
       } else {
-        // 创建新历史
-        const newHistory: ChatHistory = {
+        histories.unshift({
           id: chatId,
           title: chatTitle,
           messages,
           createdAt: new Date(),
           updatedAt: new Date(),
-        };
-        histories.unshift(newHistory);
+        });
       }
-      
+
       saveHistoriesToStorage(histories);
       return histories;
     });
   }, [saveHistoriesToStorage]);
 
   const deleteChatHistory = useCallback((chatId: string) => {
-    setChatHistories((prevHistories) => {
-      const newHistories = prevHistories.filter((h) => h.id !== chatId);
-      saveHistoriesToStorage(newHistories);
+    setChatHistories((previous) => {
+      const histories = previous.filter((history) => history.id !== chatId);
+      saveHistoriesToStorage(histories);
       if (currentChatId === chatId) {
         setCurrentChatId(null);
         setCurrentMessages([]);
       }
-      return newHistories;
+      return histories;
     });
   }, [currentChatId, saveHistoriesToStorage, setCurrentMessages]);
 
@@ -222,6 +249,8 @@ export function AIConversationProvider({ children }: { children: ReactNode }) {
         deleteChatHistory,
         searchQuery,
         setSearchQuery,
+        selectedEngine,
+        setSelectedEngine,
       }}
     >
       {children}
@@ -231,7 +260,7 @@ export function AIConversationProvider({ children }: { children: ReactNode }) {
 
 export function useAIConversation() {
   const context = useContext(AIConversationContext);
-  if (context === undefined) {
+  if (!context) {
     throw new Error('useAIConversation must be used within AIConversationProvider');
   }
   return context;

@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 from backend.app.core.settings import settings
 from backend.app.db import get_db
 from backend.app.db.repositories import LLMProviderRepository, ImageProviderRepository
+from backend.app.schemas.knowledge_graph import KnowledgeGraphSettings
 from backend.app.schemas.settings import (
     CollectionSettings, 
     AutoCollectionSettings, 
@@ -971,5 +972,45 @@ async def update_social_media_settings(
         reddit_user_agent=settings.REDDIT_USER_AGENT or None,
         auto_report_enabled=settings.SOCIAL_MEDIA_AUTO_REPORT_ENABLED,
         auto_report_time=settings.SOCIAL_MEDIA_AUTO_REPORT_TIME,
+    )
+
+
+@router.get("/knowledge-graph", response_model=KnowledgeGraphSettings)
+async def get_knowledge_graph_settings():
+    """Get knowledge graph settings."""
+    settings.load_settings_from_db(force_reload=True)
+    return KnowledgeGraphSettings(
+        enabled=settings.KNOWLEDGE_GRAPH_ENABLED,
+        auto_sync_enabled=settings.KNOWLEDGE_GRAPH_AUTO_SYNC_ENABLED,
+        run_mode=settings.get_knowledge_graph_run_mode(),
+        max_articles_per_sync=settings.KNOWLEDGE_GRAPH_MAX_ARTICLES_PER_SYNC,
+        query_depth=settings.KNOWLEDGE_GRAPH_QUERY_DEPTH,
+    )
+
+
+@router.put("/knowledge-graph", response_model=KnowledgeGraphSettings)
+async def update_knowledge_graph_settings(
+    new_settings: KnowledgeGraphSettings,
+    current_user: str = Depends(require_auth),
+):
+    """Update knowledge graph settings."""
+    del current_user
+    success = settings.save_knowledge_graph_settings(
+        enabled=new_settings.enabled,
+        auto_sync_enabled=new_settings.auto_sync_enabled,
+        run_mode=new_settings.run_mode,
+        max_articles_per_sync=new_settings.max_articles_per_sync,
+        query_depth=new_settings.query_depth,
+    )
+    if not success:
+        raise HTTPException(status_code=500, detail="保存知识图谱配置失败")
+
+    settings.load_settings_from_db(force_reload=True)
+    return KnowledgeGraphSettings(
+        enabled=settings.KNOWLEDGE_GRAPH_ENABLED,
+        auto_sync_enabled=settings.KNOWLEDGE_GRAPH_AUTO_SYNC_ENABLED,
+        run_mode=settings.get_knowledge_graph_run_mode(),
+        max_articles_per_sync=settings.KNOWLEDGE_GRAPH_MAX_ARTICLES_PER_SYNC,
+        query_depth=settings.KNOWLEDGE_GRAPH_QUERY_DEPTH,
     )
 

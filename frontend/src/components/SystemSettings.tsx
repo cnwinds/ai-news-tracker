@@ -1,21 +1,20 @@
-/**
- * 系统配置组件
- */
 import { Alert, Tabs } from 'antd';
+
 import { useAuth } from '@/contexts/AuthContext';
 import SourceManagement from '@/components/SourceManagement';
 import DataCleanup from '@/components/DataCleanup';
 import CollectionHistory from '@/components/CollectionHistory';
 import AccessAnalytics from '@/components/AccessAnalytics';
 import {
-  LLMSettingsTab,
-  ImageSettingsTab,
-  NotificationSettingsTab,
-  SummarySettingsTab,
-  PasswordSettingsTab,
-  SocialMediaSettingsTab,
-  RAGSettingsTab,
   DatabaseSettingsTab,
+  ImageSettingsTab,
+  KnowledgeGraphSettingsTab,
+  LLMSettingsTab,
+  NotificationSettingsTab,
+  PasswordSettingsTab,
+  RAGSettingsTab,
+  SocialMediaSettingsTab,
+  SummarySettingsTab,
 } from './settings';
 
 export default function SystemSettings() {
@@ -24,7 +23,7 @@ export default function SystemSettings() {
   const tabItems = [
     {
       key: 'llm',
-      label: 'LLM配置',
+      label: 'LLM 配置',
       children: <LLMSettingsTab />,
     },
     {
@@ -64,8 +63,13 @@ export default function SystemSettings() {
     },
     {
       key: 'rag-index',
-      label: 'RAG索引管理',
+      label: 'RAG 索引管理',
       children: <RAGSettingsTab />,
+    },
+    {
+      key: 'knowledge-graph',
+      label: '知识图谱',
+      children: <KnowledgeGraphSettingsTab />,
     },
     {
       key: 'password',
@@ -89,7 +93,7 @@ export default function SystemSettings() {
       {!isAuthenticated && (
         <Alert
           message="只读模式"
-          description="您当前未登录，只能查看设置，无法进行修改。请先登录以获取编辑权限。"
+          description="当前未登录，只能查看配置，无法保存修改。请先登录后再进行系统设置。"
           type="warning"
           showIcon
           style={{ marginBottom: 16 }}

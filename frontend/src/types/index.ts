@@ -4,6 +4,7 @@ export type SourceFilterMode = 'include' | 'exclude';
 export type CollectionTaskStatusType = 'running' | 'completed' | 'error';
 export type NotificationPlatform = 'feishu' | 'dingtalk';
 export type MessageRole = 'user' | 'assistant';
+export type AIQueryEngine = 'auto' | 'rag' | 'graph' | 'hybrid';
 
 export interface Article {
   id: number;
@@ -320,6 +321,16 @@ export interface RAGQueryResponse {
   articles: ArticleSearchResult[];
 }
 
+export interface RAGStreamChunk {
+  type: 'articles' | 'content' | 'done' | 'error';
+  data: {
+    articles?: ArticleSearchResult[];
+    sources?: string[];
+    content?: string;
+    message?: string;
+  };
+}
+
 export interface RAGStatsResponse {
   total_articles: number;
   indexed_articles: number;
@@ -333,6 +344,198 @@ export interface RAGBatchIndexResponse {
   success: number;
   failed: number;
   message: string;
+}
+
+export interface ConversationArticleReference {
+  id: number;
+  title: string;
+  title_zh?: string;
+  url: string;
+  source: string;
+  published_at?: string;
+  summary?: string;
+  detailed_summary?: string;
+  importance?: ImportanceLevel;
+  tags?: string[];
+  similarity?: number;
+  relation_count?: number;
+  distance?: number | null;
+}
+
+export interface KnowledgeGraphSettings {
+  enabled: boolean;
+  auto_sync_enabled: boolean;
+  run_mode: 'auto' | 'agent' | 'deterministic';
+  max_articles_per_sync: number;
+  query_depth: number;
+}
+
+export interface KnowledgeGraphBuildSummary {
+  build_id: string;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  trigger_source: string;
+  sync_mode: string;
+  total_articles: number;
+  processed_articles: number;
+  skipped_articles: number;
+  failed_articles: number;
+  nodes_upserted: number;
+  edges_upserted: number;
+  error_message?: string | null;
+  started_at: string;
+  completed_at?: string | null;
+  extra_data?: Record<string, unknown> | null;
+}
+
+export interface KnowledgeGraphNodeSummary {
+  node_key: string;
+  label: string;
+  node_type: string;
+  aliases: string[];
+  metadata: Record<string, unknown>;
+  degree: number;
+  article_count: number;
+  community_id?: number | null;
+  centrality: number;
+}
+
+export interface KnowledgeGraphEdgeSummary {
+  source_node_key: string;
+  target_node_key: string;
+  relation_type: string;
+  confidence: 'EXTRACTED' | 'INFERRED' | 'AMBIGUOUS';
+  confidence_score: number;
+  weight: number;
+  source_article_id?: number | null;
+  evidence_snippet?: string | null;
+  metadata?: Record<string, unknown> | null;
+}
+
+export interface KnowledgeGraphArticleReference extends ConversationArticleReference {
+  relation_count: number;
+  distance?: number | null;
+}
+
+export interface KnowledgeGraphCommunitySummary {
+  community_id: number;
+  label: string;
+  node_count: number;
+  edge_count: number;
+  article_count: number;
+  top_nodes: KnowledgeGraphNodeSummary[];
+}
+
+export interface KnowledgeGraphStatsResponse {
+  enabled: boolean;
+  total_nodes: number;
+  total_edges: number;
+  total_article_nodes: number;
+  total_articles: number;
+  synced_articles: number;
+  failed_articles: number;
+  coverage: number;
+  snapshot_updated_at?: string | null;
+  node_type_counts: Record<string, number>;
+  relation_type_counts: Record<string, number>;
+  top_nodes: KnowledgeGraphNodeSummary[];
+  top_communities: KnowledgeGraphCommunitySummary[];
+  last_build?: KnowledgeGraphBuildSummary | null;
+}
+
+export interface KnowledgeGraphSyncRequest {
+  article_ids?: number[] | null;
+  force_rebuild?: boolean;
+  sync_mode?: 'auto' | 'agent' | 'deterministic' | null;
+  max_articles?: number | null;
+  trigger_source?: string;
+}
+
+export interface KnowledgeGraphSyncResponse {
+  build: KnowledgeGraphBuildSummary;
+  stats?: KnowledgeGraphStatsResponse | null;
+}
+
+export interface KnowledgeGraphNodeListResponse {
+  items: KnowledgeGraphNodeSummary[];
+  total: number;
+}
+
+export interface KnowledgeGraphNodeDetail {
+  node: KnowledgeGraphNodeSummary;
+  neighbors: KnowledgeGraphNodeSummary[];
+  edges: KnowledgeGraphEdgeSummary[];
+  related_articles: KnowledgeGraphArticleReference[];
+  matched_communities: KnowledgeGraphCommunitySummary[];
+}
+
+export interface KnowledgeGraphCommunityListResponse {
+  items: KnowledgeGraphCommunitySummary[];
+  total: number;
+}
+
+export interface KnowledgeGraphCommunityDetail {
+  community: KnowledgeGraphCommunitySummary;
+  nodes: KnowledgeGraphNodeSummary[];
+  articles: KnowledgeGraphArticleReference[];
+}
+
+export interface KnowledgeGraphPathRequest {
+  source_node_key: string;
+  target_node_key: string;
+}
+
+export interface KnowledgeGraphPathResponse {
+  found: boolean;
+  source_node_key: string;
+  target_node_key: string;
+  distance?: number | null;
+  nodes: KnowledgeGraphNodeSummary[];
+  edges: KnowledgeGraphEdgeSummary[];
+  message?: string | null;
+}
+
+export interface KnowledgeGraphQueryRequest {
+  question: string;
+  mode?: AIQueryEngine;
+  top_k?: number;
+  query_depth?: number;
+  conversation_history?: ConversationMessage[];
+}
+
+export interface KnowledgeGraphQueryResponse {
+  question: string;
+  mode: AIQueryEngine;
+  resolved_mode: AIQueryEngine;
+  answer: string;
+  matched_nodes: KnowledgeGraphNodeSummary[];
+  matched_communities: KnowledgeGraphCommunitySummary[];
+  related_articles: KnowledgeGraphArticleReference[];
+  context_node_count: number;
+  context_edge_count: number;
+}
+
+export interface KnowledgeGraphStreamChunk {
+  type: 'graph_context' | 'content' | 'done' | 'error';
+  data: {
+    mode?: AIQueryEngine;
+    resolved_mode?: AIQueryEngine;
+    matched_nodes?: KnowledgeGraphNodeSummary[];
+    matched_communities?: KnowledgeGraphCommunitySummary[];
+    related_articles?: KnowledgeGraphArticleReference[];
+    context_node_count?: number;
+    context_edge_count?: number;
+    content?: string;
+    message?: string;
+  };
+}
+
+export interface KnowledgeGraphArticleContextResponse {
+  article_id: number;
+  article?: KnowledgeGraphArticleReference | null;
+  nodes: KnowledgeGraphNodeSummary[];
+  edges: KnowledgeGraphEdgeSummary[];
+  communities: KnowledgeGraphCommunitySummary[];
+  related_articles: KnowledgeGraphArticleReference[];
 }
 
 // 社交平台相关类型定义

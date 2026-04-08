@@ -1,20 +1,30 @@
-/**
- * 文章详情模态框组件
- * 显示文章的完整内容、摘要等信息
- */
-import { useState, useEffect } from 'react';
-import { Modal, Typography, Spin, Tag, Space, Button, Divider, Empty, Popconfirm } from 'antd';
+import { useEffect, useState } from 'react';
+import {
+  Button,
+  Divider,
+  Empty,
+  List,
+  Modal,
+  Popconfirm,
+  Space,
+  Spin,
+  Tag,
+  Typography,
+} from 'antd';
 import {
   CloseOutlined,
+  DeleteOutlined,
+  DownOutlined,
   LinkOutlined,
   ShareAltOutlined,
-  StarOutlined,
   StarFilled,
-  DownOutlined,
+  StarOutlined,
   UpOutlined,
-  DeleteOutlined
 } from '@ant-design/icons';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import ReactMarkdown from 'react-markdown';
+import dayjs from 'dayjs';
+
 import { apiService } from '@/services/api';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -24,8 +34,6 @@ import { createMarkdownComponents, normalizeMarkdownImageContent, remarkGfm } fr
 import { copyToClipboard } from '@/utils/clipboard';
 import { useMessage } from '@/hooks/useMessage';
 import { getOrCreateSessionId } from '@/utils/sessionId';
-import ReactMarkdown from 'react-markdown';
-import dayjs from 'dayjs';
 
 const { Title, Text } = Typography;
 
@@ -35,26 +43,20 @@ interface ArticleDetailModalProps {
   onClose: () => void;
 }
 
-
-export default function ArticleDetailModal({ 
-  articleId, 
-  open, 
-  onClose 
-}: ArticleDetailModalProps) {
+export default function ArticleDetailModal({ articleId, open, onClose }: ArticleDetailModalProps) {
   const { theme } = useTheme();
   const { isAuthenticated, username } = useAuth();
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [isContentExpanded, setIsContentExpanded] = useState(false);
+  const queryClient = useQueryClient();
+  const message = useMessage();
 
   useEffect(() => {
-    const handleResize = () => {
-      setIsMobile(window.innerWidth < 768);
-    };
+    const handleResize = () => setIsMobile(window.innerWidth < 768);
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // 获取文章详情
   const { data: article, isLoading, error } = useQuery({
     queryKey: ['article', articleId],
     queryFn: () => apiService.getArticle(articleId!),
@@ -62,26 +64,32 @@ export default function ArticleDetailModal({
     staleTime: 30000,
   });
 
-  // 当文章详情打开时，记录查看文章事件
+  const { data: graphContext, isLoading: graphContextLoading } = useQuery({
+    queryKey: ['knowledge-graph-article-context', articleId],
+    queryFn: () => apiService.getKnowledgeGraphArticleContext(articleId!),
+    enabled: open && articleId !== null,
+    staleTime: 30000,
+  });
+
   useEffect(() => {
-    if (open && article) {
-      apiService.logAccess(
-        'click',
-        window.location.pathname,
-        `查看文章: ${article.title}`,
-        username || getOrCreateSessionId()
-      ).catch((error) => {
-        console.debug('Failed to log article view:', error);
-      });
+    if (!open || !article) {
+      return;
     }
-  }, [open, article, username]);
+    apiService.logAccess(
+      'click',
+      window.location.pathname,
+      `查看文章: ${article.title}`,
+      username || getOrCreateSessionId()
+    ).catch((logError) => {
+      console.debug('Failed to log article view:', logError);
+    });
+  }, [article, open, username]);
 
-  const queryClient = useQueryClient();
-
-  // 收藏/取消收藏
   const favoriteMutation = useMutation({
     mutationFn: async () => {
-      if (!article) return;
+      if (!article) {
+        return;
+      }
       if (article.is_favorited) {
         await apiService.unfavoriteArticle(article.id);
       } else {
@@ -89,31 +97,40 @@ export default function ArticleDetailModal({
       }
     },
     onSuccess: () => {
-      // 刷新文章数据
       queryClient.invalidateQueries({ queryKey: ['article', articleId] });
     },
   });
 
-  const handleFavorite = async () => {
-    if (!article) return;
+  const deleteMutation = useDeleteArticle();
+
+  const handleFavorite = () => {
+    if (!article) {
+      return;
+    }
     favoriteMutation.mutate();
   };
 
-  // 删除文章
-  const deleteMutation = useDeleteArticle();
-
   const handleDelete = () => {
-    if (!article) return;
+    if (!article) {
+      return;
+    }
     deleteMutation.mutate(article.id, {
       onSuccess: () => {
-        // 删除成功后关闭模态框
         onClose();
       },
     });
   };
 
+  const handleCopyShareLink = () => {
+    if (!article) {
+      return;
+    }
+    const shareUrl = `${window.location.origin}/share/${article.id}`;
+    void copyToClipboard(shareUrl, { onSuccess: (msg) => message.success(msg) }, '分享链接已复制');
+  };
+
   const modalStyle: React.CSSProperties = {
-    maxWidth: isMobile ? '100%' : '900px',
+    maxWidth: isMobile ? '100%' : '960px',
     margin: isMobile ? 0 : '0 auto',
   };
 
@@ -122,14 +139,6 @@ export default function ArticleDetailModal({
     maxHeight: '80vh',
     overflowY: 'auto',
     background: getThemeColor(theme, 'bgElevated'),
-  };
-
-  const message = useMessage();
-
-  const handleCopyShareLink = () => {
-    if (!article) return;
-    const shareUrl = `${window.location.origin}/share/${article.id}`;
-    void copyToClipboard(shareUrl, { onSuccess: (msg) => message.success(msg) }, '分享链接已复制');
   };
 
   return (
@@ -143,14 +152,11 @@ export default function ArticleDetailModal({
       styles={{
         body: modalBodyStyle,
         mask: {
-          backgroundColor: theme === 'dark' 
-            ? 'rgba(0, 0, 0, 0.6)' 
-            : 'rgba(0, 0, 0, 0.4)',
+          backgroundColor: theme === 'dark' ? 'rgba(0, 0, 0, 0.6)' : 'rgba(0, 0, 0, 0.4)',
           backdropFilter: 'blur(10px)',
         },
       }}
     >
-      {/* 顶部栏 */}
       <div
         style={{
           padding: '16px 24px',
@@ -169,25 +175,18 @@ export default function ArticleDetailModal({
           {article && (
             <>
               {article.importance && (
-                <Tag
-                  color={
-                    article.importance === 'high' ? 'red' :
-                    article.importance === 'medium' ? 'orange' : 'default'
-                  }
-                  style={{ flexShrink: 0 }}
-                >
-                  {article.importance === 'high' ? '高' :
-                   article.importance === 'medium' ? '中' : '低'}
+                <Tag color={article.importance === 'high' ? 'red' : article.importance === 'medium' ? 'orange' : 'default'}>
+                  {article.importance === 'high' ? '高' : article.importance === 'medium' ? '中' : '低'}
                 </Tag>
               )}
               <Text
                 strong
                 style={{
-                  fontSize: isMobile ? '16px' : '18px',
+                  fontSize: isMobile ? 16 : 18,
                   color: getThemeColor(theme, 'text'),
                   flex: 1,
                   minWidth: 0,
-                  lineHeight: '1.4',
+                  lineHeight: 1.4,
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
                   whiteSpace: 'nowrap',
@@ -195,145 +194,181 @@ export default function ArticleDetailModal({
               >
                 {article.title_zh || article.title}
               </Text>
-              <Tag color="blue" style={{ flexShrink: 0 }}>
-                {article.source}
-              </Tag>
+              <Tag color="blue">{article.source}</Tag>
             </>
           )}
         </div>
-        <Button
-          type="text"
-          icon={<CloseOutlined />}
-          onClick={onClose}
-          title="关闭 (Esc)"
-          style={{ flexShrink: 0 }}
-        />
+        <Button type="text" icon={<CloseOutlined />} onClick={onClose} />
       </div>
 
-      {/* 内容区域 */}
       <div style={{ padding: isMobile ? '16px' : '24px' }}>
         {isLoading ? (
           <div style={{ textAlign: 'center', padding: '50px 0' }}>
             <Spin size="large" />
-            <div style={{ marginTop: 16, color: getThemeColor(theme, 'textSecondary') }}>
-              加载中...
-            </div>
+            <div style={{ marginTop: 16, color: getThemeColor(theme, 'textSecondary') }}>加载中...</div>
           </div>
         ) : error ? (
-          <Empty
-            description="加载文章失败"
-            style={{ marginTop: 50 }}
-          />
+          <Empty description="加载文章失败" style={{ marginTop: 50 }} />
         ) : article ? (
           <>
-            {/* 元信息 */}
-            <div style={{ marginBottom: 24 }}>
-              <Space size="middle" wrap>
-                {article.published_at && (
-                  <Text type="secondary">
-                    <strong>发布时间：</strong>
-                    {dayjs(article.published_at).format('YYYY-MM-DD HH:mm')}
-                  </Text>
-                )}
-                {article.author && (
-                  <Text type="secondary">
-                    <strong>作者：</strong>
-                    {article.author}
-                  </Text>
-                )}
-              </Space>
-            </div>
+            <Space size="middle" wrap style={{ marginBottom: 24 }}>
+              {article.published_at && (
+                <Text type="secondary">
+                  <strong>发布时间：</strong>
+                  {dayjs(article.published_at).format('YYYY-MM-DD HH:mm')}
+                </Text>
+              )}
+              {article.author && (
+                <Text type="secondary">
+                  <strong>作者：</strong>
+                  {article.author}
+                </Text>
+              )}
+            </Space>
 
-            {/* AI生成的精读（优先显示detailed_summary，如果没有则显示summary） */}
             {(article.detailed_summary || article.summary) && (
-              <div style={{ marginBottom: 24 }}>
+              <section style={{ marginBottom: 24 }}>
+                <Title level={4} style={{ marginTop: 0, color: getThemeColor(theme, 'text') }}>
+                  AI 精读
+                </Title>
                 <div
                   style={{
-                    padding: '16px',
+                    padding: 16,
                     backgroundColor: getThemeColor(theme, 'bgSecondary'),
-                    borderRadius: '8px',
+                    borderRadius: 8,
                     border: `1px solid ${getThemeColor(theme, 'border')}`,
                     color: getThemeColor(theme, 'text'),
-                    lineHeight: '1.8',
+                    lineHeight: 1.8,
                   }}
                 >
-                  <ReactMarkdown 
+                  <ReactMarkdown
                     components={createMarkdownComponents(theme)}
                     remarkPlugins={[remarkGfm]}
                   >
-                    {normalizeMarkdownImageContent(article.detailed_summary || article.summary)}
+                    {normalizeMarkdownImageContent(article.detailed_summary || article.summary || '')}
                   </ReactMarkdown>
                 </div>
-              </div>
+              </section>
             )}
 
-            {/* 文章内容 */}
-            {article.content ? (
-              <div style={{ marginBottom: 24 }}>
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    cursor: 'pointer',
-                    marginBottom: 12,
-                  }}
-                  onClick={() => setIsContentExpanded(!isContentExpanded)}
-                >
-                  <Title level={4} style={{ color: getThemeColor(theme, 'text'), margin: 0 }}>
-                    文章内容
-                  </Title>
-                  <Button
-                    type="text"
-                    icon={isContentExpanded ? <UpOutlined /> : <DownOutlined />}
-                    size="small"
-                    style={{ color: getThemeColor(theme, 'textSecondary'), marginLeft: 8 }}
-                  />
-                </div>
-                {isContentExpanded && (
+            <section style={{ marginBottom: 24 }}>
+              <div
+                style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', marginBottom: 12 }}
+                onClick={() => setIsContentExpanded((value) => !value)}
+              >
+                <Title level={4} style={{ color: getThemeColor(theme, 'text'), margin: 0 }}>
+                  文章内容
+                </Title>
+                <Button
+                  type="text"
+                  icon={isContentExpanded ? <UpOutlined /> : <DownOutlined />}
+                  size="small"
+                  style={{ color: getThemeColor(theme, 'textSecondary'), marginLeft: 8 }}
+                />
+              </div>
+              {article.content ? (
+                isContentExpanded ? (
                   <div
                     style={{
-                      padding: '16px',
+                      padding: 16,
                       backgroundColor: getThemeColor(theme, 'bgSecondary'),
-                      borderRadius: '8px',
+                      borderRadius: 8,
                       border: `1px solid ${getThemeColor(theme, 'border')}`,
                       color: getThemeColor(theme, 'text'),
-                      lineHeight: '1.8',
+                      lineHeight: 1.8,
                       wordBreak: 'break-word',
                     }}
                   >
-                    <ReactMarkdown 
+                    <ReactMarkdown
                       components={createMarkdownComponents(theme)}
                       remarkPlugins={[remarkGfm]}
                     >
                       {normalizeMarkdownImageContent(article.content)}
                     </ReactMarkdown>
                   </div>
-                )}
-              </div>
-            ) : (
-              <div style={{ marginBottom: 24 }}>
-                <Text type="secondary">文章内容未保存，请查看原文链接</Text>
-              </div>
-            )}
+                ) : null
+              ) : (
+                <Text type="secondary">文章正文未保存，请通过原文链接查看。</Text>
+              )}
+            </section>
 
-            {/* 标签 */}
             {article.tags && article.tags.length > 0 && (
-              <div style={{ marginBottom: 24 }}>
-                <Text strong style={{ color: getThemeColor(theme, 'text') }}>
-                  标签：
-                </Text>
+              <section style={{ marginBottom: 24 }}>
+                <Text strong>标签：</Text>
                 <Space size={[8, 8]} wrap style={{ marginLeft: 8 }}>
-                  {article.tags.map((tag, idx) => (
-                    <Tag key={idx}>{tag}</Tag>
+                  {article.tags.map((tag) => (
+                    <Tag key={tag}>{tag}</Tag>
                   ))}
                 </Space>
-              </div>
+              </section>
             )}
 
-            {/* 操作按钮 */}
+            <section style={{ marginBottom: 24 }}>
+              <Title level={4} style={{ marginTop: 0, color: getThemeColor(theme, 'text') }}>
+                图谱上下文
+              </Title>
+              {graphContextLoading ? (
+                <Spin size="small" />
+              ) : graphContext && (
+                <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                  <div>
+                    <Text strong>关联实体</Text>
+                    <div style={{ marginTop: 8 }}>
+                      {graphContext.nodes.length > 0 ? (
+                        graphContext.nodes.map((node) => (
+                          <Tag key={node.node_key}>
+                            {node.label} / {node.node_type}
+                          </Tag>
+                        ))
+                      ) : (
+                        <Text type="secondary">当前文章还没有同步出可展示的图谱实体。</Text>
+                      )}
+                    </div>
+                  </div>
+
+                  <div>
+                    <Text strong>命中社区</Text>
+                    <div style={{ marginTop: 8 }}>
+                      {graphContext.communities.length > 0 ? (
+                        graphContext.communities.map((community) => (
+                          <Tag key={community.community_id} color="blue">
+                            {community.label}
+                          </Tag>
+                        ))
+                      ) : (
+                        <Text type="secondary">暂无社区归属。</Text>
+                      )}
+                    </div>
+                  </div>
+
+                  <div>
+                    <Text strong>相关文章</Text>
+                    <List
+                      size="small"
+                      locale={{ emptyText: '暂无相关文章' }}
+                      dataSource={graphContext.related_articles}
+                      renderItem={(relatedArticle) => (
+                        <List.Item style={{ paddingInline: 0 }}>
+                          <Space direction="vertical" size={0} style={{ width: '100%' }}>
+                            <a href={relatedArticle.url} target="_blank" rel="noreferrer">
+                              {relatedArticle.title_zh || relatedArticle.title}
+                            </a>
+                            <Text type="secondary">
+                              {relatedArticle.source} · 关系数 {relatedArticle.relation_count}
+                            </Text>
+                          </Space>
+                        </List.Item>
+                      )}
+                    />
+                  </div>
+                </Space>
+              )}
+            </section>
+
             <Divider />
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Space>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+              <Space wrap>
                 <Button
                   type="primary"
                   icon={<LinkOutlined />}
@@ -345,10 +380,7 @@ export default function ArticleDetailModal({
                 >
                   查看原文
                 </Button>
-                <Button
-                  icon={<ShareAltOutlined />}
-                  onClick={handleCopyShareLink}
-                >
+                <Button icon={<ShareAltOutlined />} onClick={handleCopyShareLink}>
                   分享链接
                 </Button>
                 <Button
@@ -360,7 +392,7 @@ export default function ArticleDetailModal({
                 </Button>
                 <Popconfirm
                   title="确定要删除这篇文章吗？"
-                  description="删除后无法恢复"
+                  description="删除后无法恢复。"
                   onConfirm={handleDelete}
                   okText="确定"
                   cancelText="取消"
@@ -377,7 +409,7 @@ export default function ArticleDetailModal({
                   </Button>
                 </Popconfirm>
               </Space>
-              <Text type="secondary" style={{ fontSize: '12px' }}>
+              <Text type="secondary" style={{ fontSize: 12 }}>
                 采集时间：{dayjs(article.collected_at).format('YYYY-MM-DD HH:mm:ss')}
               </Text>
             </div>

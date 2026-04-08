@@ -1,18 +1,18 @@
-/**
- * Dashboard 主页面
- */
-import { useState, useEffect, type CSSProperties } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import { Layout, Tabs, Drawer, Button, Space } from 'antd';
 import {
-  FileTextOutlined,
+  ApartmentOutlined,
   BarChartOutlined,
-  ReadOutlined,
+  FileTextOutlined,
   LoginOutlined,
   LogoutOutlined,
-  ShareAltOutlined,
+  ReadOutlined,
   RocketOutlined,
+  ShareAltOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
+
 import ArticleList from '@/components/ArticleList';
 import DailySummary from '@/components/DailySummary';
 import Statistics from '@/components/Statistics';
@@ -21,9 +21,9 @@ import GlobalNavigation from '@/components/GlobalNavigation';
 import AIConversationModal from '@/components/AIConversationModal';
 import SocialMediaReport from '@/components/SocialMediaReport';
 import ModelExplorer from '@/components/ModelExplorer';
+import KnowledgeGraphPanel from '@/components/KnowledgeGraphPanel';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
-import { useQueryClient } from '@tanstack/react-query';
 import { useMessage } from '@/hooks/useMessage';
 
 const { Content } = Layout;
@@ -37,14 +37,16 @@ export default function Dashboard() {
   const queryClient = useQueryClient();
   const message = useMessage();
 
-  // 当打开设置页面时，自动刷新数据
   useEffect(() => {
-    if (settingsDrawerOpen) {
-      queryClient.invalidateQueries({ queryKey: ['llm-settings'] });
-      queryClient.invalidateQueries({ queryKey: ['llm-providers'] });
-      queryClient.invalidateQueries({ queryKey: ['notification-settings'] });
+    if (!settingsDrawerOpen) {
+      return;
     }
-  }, [settingsDrawerOpen, queryClient]);
+    queryClient.invalidateQueries({ queryKey: ['llm-settings'] });
+    queryClient.invalidateQueries({ queryKey: ['llm-providers'] });
+    queryClient.invalidateQueries({ queryKey: ['notification-settings'] });
+    queryClient.invalidateQueries({ queryKey: ['knowledge-graph-settings'] });
+    queryClient.invalidateQueries({ queryKey: ['knowledge-graph-stats'] });
+  }, [queryClient, settingsDrawerOpen]);
 
   const tabs = [
     {
@@ -66,6 +68,16 @@ export default function Dashboard() {
         </span>
       ),
       children: <DailySummary />,
+    },
+    {
+      key: 'knowledge-graph',
+      label: (
+        <span>
+          <ApartmentOutlined />
+          知识图谱
+        </span>
+      ),
+      children: <KnowledgeGraphPanel />,
     },
     {
       key: 'exploration',
@@ -99,7 +111,6 @@ export default function Dashboard() {
     },
   ];
 
-  // 根据主题设置 Content 背景色
   const contentStyle: CSSProperties = {
     padding: '24px',
     background: theme === 'dark' ? '#1a1a1a' : '#f0f2f5',
@@ -119,7 +130,9 @@ export default function Dashboard() {
           />
         </Content>
       </Layout>
+
       <AIConversationModal />
+
       <Drawer
         title={
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -133,11 +146,11 @@ export default function Dashboard() {
                     icon={<LogoutOutlined />}
                     onClick={() => {
                       logout();
-                      message.success('已登出');
+                      message.success('已退出登录');
                       navigate('/');
                     }}
                   >
-                    登出
+                    退出
                   </Button>
                 </>
               ) : (

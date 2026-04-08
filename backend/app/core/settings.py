@@ -85,6 +85,7 @@ class Settings:
         self._collector_settings_loaded = False
         self._notification_settings_loaded = False
         self._social_media_settings_loaded = False
+        self._knowledge_graph_settings_loaded = False
         
         # 设置默认值（如果数据库中没有配置，将使用这些值）
         self.MAX_ARTICLE_AGE_DAYS: int = int(os.getenv("MAX_ARTICLE_AGE_DAYS", "30"))
@@ -123,6 +124,13 @@ class Settings:
         self.SOCIAL_MEDIA_AUTO_REPORT_ENABLED: bool = False
         self.SOCIAL_MEDIA_AUTO_REPORT_TIME: str = "09:00"
 
+        # 知识图谱配置（从数据库加载）
+        self.KNOWLEDGE_GRAPH_ENABLED: bool = True
+        self.KNOWLEDGE_GRAPH_AUTO_SYNC_ENABLED: bool = True
+        self.KNOWLEDGE_GRAPH_RUN_MODE: str = "auto"  # auto/agent/deterministic
+        self.KNOWLEDGE_GRAPH_MAX_ARTICLES_PER_SYNC: int = 100
+        self.KNOWLEDGE_GRAPH_QUERY_DEPTH: int = 2
+
         # 自主探索定时任务配置（环境变量）
         self.AUTO_EXPLORATION_ENABLED: bool = os.getenv("AUTO_EXPLORATION_ENABLED", "false").lower() == "true"
         self.AUTO_EXPLORATION_TIME: str = os.getenv("AUTO_EXPLORATION_TIME", "03:00")
@@ -154,6 +162,7 @@ class Settings:
             self._collector_settings_loaded = False
             self._notification_settings_loaded = False
             self._social_media_settings_loaded = False
+            self._knowledge_graph_settings_loaded = False
         
         self._load_collection_settings()
         self._load_summary_settings()
@@ -162,6 +171,7 @@ class Settings:
         self._load_collector_settings()
         self._load_notification_settings()
         self._load_social_media_settings()
+        self._load_knowledge_graph_settings()
     
     def _get_db_session(self):
         """获取数据库会话（如果数据库已初始化）
@@ -1394,6 +1404,144 @@ class Settings:
         except Exception as e:
             logger.error(f"保存社交平台配置失败: {e}", exc_info=True)
             return False
+
+    def _load_knowledge_graph_settings(self):
+        """加载知识图谱配置（从数据库读取，支持运行时修改）"""
+        if self._knowledge_graph_settings_loaded:
+            return
+
+        session = self._get_db_session()
+        if session is None:
+            return
+
+        try:
+            with session as s:
+                self.KNOWLEDGE_GRAPH_ENABLED = self._load_setting(
+                    s,
+                    "knowledge_graph_enabled",
+                    self.KNOWLEDGE_GRAPH_ENABLED,
+                    "bool",
+                )
+                self.KNOWLEDGE_GRAPH_AUTO_SYNC_ENABLED = self._load_setting(
+                    s,
+                    "knowledge_graph_auto_sync_enabled",
+                    self.KNOWLEDGE_GRAPH_AUTO_SYNC_ENABLED,
+                    "bool",
+                )
+                run_mode = str(
+                    self._load_setting(
+                        s,
+                        "knowledge_graph_run_mode",
+                        self.KNOWLEDGE_GRAPH_RUN_MODE,
+                        "string",
+                    )
+                    or "auto"
+                ).strip().lower()
+                if run_mode not in {"auto", "agent", "deterministic"}:
+                    run_mode = "auto"
+                self.KNOWLEDGE_GRAPH_RUN_MODE = run_mode
+                self.KNOWLEDGE_GRAPH_MAX_ARTICLES_PER_SYNC = self._load_setting(
+                    s,
+                    "knowledge_graph_max_articles_per_sync",
+                    self.KNOWLEDGE_GRAPH_MAX_ARTICLES_PER_SYNC,
+                    "int",
+                )
+                self.KNOWLEDGE_GRAPH_QUERY_DEPTH = self._load_setting(
+                    s,
+                    "knowledge_graph_query_depth",
+                    self.KNOWLEDGE_GRAPH_QUERY_DEPTH,
+                    "int",
+                )
+
+            self._knowledge_graph_settings_loaded = True
+        except Exception as e:
+            logger.debug(f"从数据库加载知识图谱配置失败: {e}")
+
+    def save_knowledge_graph_settings(
+        self,
+        *,
+        enabled: bool,
+        auto_sync_enabled: bool,
+        run_mode: str,
+        max_articles_per_sync: int,
+        query_depth: int,
+    ) -> bool:
+        """保存知识图谱配置到数据库"""
+        normalized_mode = str(run_mode or "auto").strip().lower()
+        if normalized_mode not in {"auto", "agent", "deterministic"}:
+            normalized_mode = "auto"
+
+        max_articles_value = max(1, min(1000, int(max_articles_per_sync)))
+        query_depth_value = max(1, min(6, int(query_depth)))
+
+        try:
+            from backend.app.db import get_db
+
+            db = get_db()
+            with db.get_session() as session:
+                self._save_setting(
+                    session,
+                    "knowledge_graph_enabled",
+                    enabled,
+                    "bool",
+                    "是否启用知识图谱功能",
+                )
+                self._save_setting(
+                    session,
+                    "knowledge_graph_auto_sync_enabled",
+                    auto_sync_enabled,
+                    "bool",
+                    "是否在采集后自动同步知识图谱",
+                )
+                self._save_setting(
+                    session,
+                    "knowledge_graph_run_mode",
+                    normalized_mode,
+                    "string",
+                    "知识图谱执行模式（auto/agent/deterministic）",
+                )
+                self._save_setting(
+                    session,
+                    "knowledge_graph_max_articles_per_sync",
+                    max_articles_value,
+                    "int",
+                    "知识图谱单次同步的最大文章数",
+                )
+                self._save_setting(
+                    session,
+                    "knowledge_graph_query_depth",
+                    query_depth_value,
+                    "int",
+                    "知识图谱问答默认查询深度",
+                )
+
+            self.KNOWLEDGE_GRAPH_ENABLED = bool(enabled)
+            self.KNOWLEDGE_GRAPH_AUTO_SYNC_ENABLED = bool(auto_sync_enabled)
+            self.KNOWLEDGE_GRAPH_RUN_MODE = normalized_mode
+            self.KNOWLEDGE_GRAPH_MAX_ARTICLES_PER_SYNC = max_articles_value
+            self.KNOWLEDGE_GRAPH_QUERY_DEPTH = query_depth_value
+            self._knowledge_graph_settings_loaded = True
+            return True
+        except Exception as e:
+            logger.error(f"保存知识图谱配置失败: {e}", exc_info=True)
+            return False
+
+    def get_knowledge_graph_snapshot_dir(self) -> Path:
+        """获取知识图谱快照目录"""
+        snapshot_dir = self.DATA_DIR / "knowledge_graph"
+        snapshot_dir.mkdir(parents=True, exist_ok=True)
+        return snapshot_dir
+
+    def get_knowledge_graph_run_mode(self) -> str:
+        """获取知识图谱执行模式"""
+        mode = str(self.KNOWLEDGE_GRAPH_RUN_MODE or "auto").strip().lower()
+        if mode not in {"auto", "agent", "deterministic"}:
+            mode = "auto"
+        return mode
+
+    def is_knowledge_graph_enabled(self) -> bool:
+        """检查知识图谱是否启用"""
+        return bool(self.KNOWLEDGE_GRAPH_ENABLED)
     
     def get_social_media_auto_report_cron(self) -> Optional[str]:
         """根据定时生成时间生成cron表达式"""

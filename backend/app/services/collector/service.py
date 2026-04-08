@@ -282,6 +282,37 @@ class CollectionService:
                 logger.warning(f"⚠️  自动索引失败（不影响采集流程）: {e}")
                 stats["rag_indexed"] = 0
 
+        try:
+            from backend.app.core.settings import settings
+            from backend.app.services.knowledge_graph import KnowledgeGraphService
+
+            settings.load_settings_from_db(force_reload=True)
+            if settings.KNOWLEDGE_GRAPH_ENABLED and settings.KNOWLEDGE_GRAPH_AUTO_SYNC_ENABLED:
+                logger.info("\n[KG] Starting automatic knowledge graph sync...")
+                with db.get_session() as session:
+                    kg_service = KnowledgeGraphService(db=session, ai_analyzer=self.ai_analyzer)
+                    kg_result = kg_service.sync_articles(
+                        force_rebuild=False,
+                        sync_mode=settings.get_knowledge_graph_run_mode(),
+                        max_articles=settings.KNOWLEDGE_GRAPH_MAX_ARTICLES_PER_SYNC,
+                        trigger_source="collection",
+                    )
+                    build = kg_result.get("build") or {}
+                    stats["knowledge_graph_synced"] = build.get("processed_articles", 0)
+                    stats["knowledge_graph_skipped"] = build.get("skipped_articles", 0)
+                    logger.info(
+                        "[KG] Sync completed: processed=%s skipped=%s",
+                        stats["knowledge_graph_synced"],
+                        stats["knowledge_graph_skipped"],
+                    )
+            else:
+                stats["knowledge_graph_synced"] = 0
+                stats["knowledge_graph_skipped"] = 0
+        except Exception as e:
+            logger.warning("[KG] Automatic sync failed but collection will continue: %s", e)
+            stats["knowledge_graph_synced"] = 0
+            stats["knowledge_graph_skipped"] = 0
+
         stats["end_time"] = datetime.now()
         stats["duration"] = (stats["end_time"] - stats["start_time"]).total_seconds()
 

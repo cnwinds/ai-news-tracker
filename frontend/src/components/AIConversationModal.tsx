@@ -1,47 +1,62 @@
-/**
- * AI 对话模态层组件
- * 全屏居中的悬浮层，支持流式响应、引用跳转、多轮对话
- */
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { 
-  Modal, 
-  Input, 
-  Button, 
-  Typography, 
-  Spin, 
-  List, 
-  Avatar, 
-  Space, 
-  Tag,
+import {
+  Avatar,
+  Button,
+  Collapse,
   Empty,
-  Collapse
+  Input,
+  List,
+  Modal,
+  Select,
+  Space,
+  Spin,
+  Tag,
+  Typography,
 } from 'antd';
-import { 
-  CloseOutlined, 
-  SendOutlined, 
-  UserOutlined, 
-  RobotOutlined,
-  HistoryOutlined,
+import {
+  CloseOutlined,
   DeleteOutlined,
+  DownOutlined,
+  HistoryOutlined,
+  RobotOutlined,
+  SendOutlined,
   UpOutlined,
-  DownOutlined
+  UserOutlined,
 } from '@ant-design/icons';
-import { useAIConversation } from '@/contexts/AIConversationContext';
-import { apiService } from '@/services/api';
-import type { RAGQueryRequest, ArticleSearchResult } from '@/types';
-import { useTheme } from '@/contexts/ThemeContext';
-import { getThemeColor, getMessageBubbleStyle } from '@/utils/theme';
-import { createMarkdownComponents, remarkGfm } from '@/utils/markdown';
 import ReactMarkdown from 'react-markdown';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
-import type { MarkdownLinkProps } from '@/types';
+
+import { apiService } from '@/services/api';
+import { useAIConversation, type Message } from '@/contexts/AIConversationContext';
+import { useTheme } from '@/contexts/ThemeContext';
+import { getThemeColor, getMessageBubbleStyle } from '@/utils/theme';
+import { createMarkdownComponents, remarkGfm } from '@/utils/markdown';
+import type {
+  AIQueryEngine,
+  ArticleSearchResult,
+  KnowledgeGraphArticleReference,
+  RAGQueryRequest,
+} from '@/types';
 
 dayjs.extend(relativeTime);
 
 const { TextArea } = Input;
 const { Text } = Typography;
+
+type ReferenceArticle = ArticleSearchResult | KnowledgeGraphArticleReference;
+
+function buildErrorText(message: string) {
+  return `抱歉，处理当前问题时出现错误：${message}`;
+}
+
+function getReferenceArticles(message: Message): ReferenceArticle[] {
+  if (message.relatedArticles && message.relatedArticles.length > 0) {
+    return message.relatedArticles;
+  }
+  return message.articles || [];
+}
 
 export default function AIConversationModal() {
   const { theme } = useTheme();
@@ -57,78 +72,93 @@ export default function AIConversationModal() {
     updateChatHistory,
     deleteChatHistory,
     loadChatHistory,
+    selectedEngine,
+    setSelectedEngine,
   } = useAIConversation();
 
   const [inputValue, setInputValue] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [isHistoryDrawerOpen, setIsHistoryDrawerOpen] = useState(false);
   const [isHistoryDrawerClosing, setIsHistoryDrawerClosing] = useState(false);
-  const [topK] = useState(5);
-  const [expandedSources, setExpandedSources] = useState<Record<string, boolean>>({});
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const citationRefs = useRef<Record<number, HTMLDivElement>>({});
-  const hasAutoTriggeredRef = useRef(false); // 用于防止重复自动触发
+  const [expandedPanels, setExpandedPanels] = useState<Record<string, boolean>>({});
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
 
-  // 滚动到底部
-  const scrollToBottom = () => {
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const hasAutoTriggeredRef = useRef(false);
+  const topK = 5;
+
+  const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+  }, []);
 
   useEffect(() => {
     scrollToBottom();
-  }, [currentMessages, isStreaming]);
+  }, [currentMessages, isStreaming, scrollToBottom]);
 
-  // 处理引用跳转
-  const scrollToCitation = (index: number) => {
-    const ref = citationRefs.current[index];
-    if (ref) {
-      ref.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      // 闪烁高亮
-      ref.style.transition = 'background-color 0.3s';
-      ref.style.backgroundColor = getThemeColor(theme, 'selectedBg');
-      setTimeout(() => {
-        ref.style.backgroundColor = 'transparent';
-      }, 1000);
-    }
-  };
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
-  // 发送AI请求的核心逻辑（可复用）
-  const sendAIRequest = useCallback((question: string, existingMessages: typeof currentMessages) => {
+  const finishAssistantMessage = useCallback((
+    chatId: string,
+    existingMessages: Message[],
+    assistantMessage: Message,
+  ) => {
+    const finalMessages = [...existingMessages, assistantMessage];
+    setCurrentMessages(finalMessages);
+    updateChatHistory(chatId, finalMessages);
+  }, [setCurrentMessages, updateChatHistory]);
+
+  const updateAssistantMessage = useCallback((assistantMessageId: string, updater: (message: Message) => Message) => {
+    setCurrentMessages((previous) =>
+      previous.map((message) => (message.id === assistantMessageId ? updater(message) : message))
+    );
+  }, [setCurrentMessages]);
+
+  const sendAIRequest = useCallback((
+    question: string,
+    existingMessages: Message[],
+    engine: AIQueryEngine
+  ) => {
     if (!question.trim() || isStreaming) {
       return;
     }
 
-    // 创建或更新聊天 ID
     let chatId = currentChatId;
     if (!chatId) {
       chatId = Date.now().toString();
-      // 设置当前聊天ID，确保同一对话使用同一个ID
       setCurrentChatId(chatId);
     }
 
-    // 创建初始的 AI 消息
-    const assistantMessageId = (Date.now() + 1).toString();
-    const initialAssistantMessage = {
+    const assistantMessageId = `${Date.now()}-assistant`;
+    const initialAssistantMessage: Message = {
       id: assistantMessageId,
-      type: 'assistant' as const,
+      type: 'assistant',
       content: '',
       timestamp: new Date(),
-      articles: [] as ArticleSearchResult[],
-      sources: [] as string[],
+      engine,
+      resolvedMode: engine === 'rag' ? 'rag' : undefined,
+      articles: [],
+      sources: [],
+      matchedNodes: [],
+      matchedCommunities: [],
+      relatedArticles: [],
+      contextNodeCount: 0,
+      contextEdgeCount: 0,
     };
 
     setCurrentMessages([...existingMessages, initialAssistantMessage]);
     setIsStreaming(true);
 
-    // 构建对话历史（只包含用户和助手消息，排除当前问题）
-    const conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }> = existingMessages
-      .filter(msg => msg.type === 'user' || msg.type === 'assistant')
-      .map(msg => ({
-        role: msg.type === 'user' ? 'user' as const : 'assistant' as const,
-        content: msg.content
+    const conversationHistory = existingMessages
+      .filter((message) => message.type === 'user' || message.type === 'assistant')
+      .map((message) => ({
+        role: message.type === 'user' ? 'user' as const : 'assistant' as const,
+        content: message.content,
       }));
 
-    // 发送流式请求，包含对话历史
     const request: RAGQueryRequest = {
       question: question.trim(),
       top_k: topK,
@@ -138,92 +168,143 @@ export default function AIConversationModal() {
     let accumulatedContent = '';
     let receivedArticles: ArticleSearchResult[] = [];
     let receivedSources: string[] = [];
+    let relatedArticles: KnowledgeGraphArticleReference[] = [];
+    let matchedNodes = initialAssistantMessage.matchedNodes || [];
+    let matchedCommunities = initialAssistantMessage.matchedCommunities || [];
+    let resolvedMode: AIQueryEngine = initialAssistantMessage.resolvedMode || engine;
+    let contextNodeCount = 0;
+    let contextEdgeCount = 0;
 
-    apiService.queryArticlesStream(request, (chunk) => {
-      if (chunk.type === 'articles') {
-        receivedArticles = chunk.data.articles || [];
-        receivedSources = chunk.data.sources || [];
-        
-        setCurrentMessages((prevMessages: typeof currentMessages) => {
-          return prevMessages.map((msg) => {
-            if (msg.id === assistantMessageId) {
-              return {
-                ...msg,
-                articles: receivedArticles,
-                sources: receivedSources,
-              };
-            }
-            return msg;
-          });
-        });
-      } else if (chunk.type === 'content') {
-        accumulatedContent += chunk.data.content || '';
-        
-        setCurrentMessages((prevMessages: typeof currentMessages) => {
-          return prevMessages.map((msg) => {
-            if (msg.id === assistantMessageId) {
-              return {
-                ...msg,
-                content: accumulatedContent,
-              };
-            }
-            return msg;
-          });
-        });
-      } else if (chunk.type === 'done') {
-        setIsStreaming(false);
-        
-        const finalMessages = [...existingMessages, {
-          ...initialAssistantMessage,
-          content: accumulatedContent,
-          articles: receivedArticles,
-          sources: receivedSources,
-        }];
-        
-        setCurrentMessages(finalMessages);
-        updateChatHistory(chatId!, finalMessages);
-      } else if (chunk.type === 'error') {
-        setIsStreaming(false);
-        const errorMessage = chunk.data.message || '未知错误';
-        
-        setCurrentMessages((prevMessages: typeof currentMessages) => {
-          return prevMessages.map((msg) => {
-            if (msg.id === assistantMessageId) {
-              return {
-                ...msg,
-                content: `抱歉，处理您的问题时出现错误：${errorMessage}`,
-              };
-            }
-            return msg;
-          });
-        });
-
-        const errorMessages = [...existingMessages, {
-          ...initialAssistantMessage,
-          content: `抱歉，处理您的问题时出现错误：${errorMessage}`,
-        }];
-        updateChatHistory(chatId!, errorMessages);
-      }
-    }).catch((error) => {
+    const finalizeSuccess = () => {
       setIsStreaming(false);
-      const errorMessage = error instanceof Error ? error.message : '未知错误';
-      
-      setCurrentMessages((prevMessages: typeof currentMessages) => {
-        return prevMessages.map((msg) => {
-          if (msg.id === assistantMessageId) {
-            return {
-              ...msg,
-              content: `抱歉，处理您的问题时出现错误：${errorMessage}`,
-            };
-          }
-          return msg;
-        });
+      finishAssistantMessage(chatId!, existingMessages, {
+        ...initialAssistantMessage,
+        content: accumulatedContent,
+        articles: receivedArticles,
+        sources: receivedSources,
+        relatedArticles,
+        matchedNodes,
+        matchedCommunities,
+        resolvedMode,
+        contextNodeCount,
+        contextEdgeCount,
       });
-    });
-  }, [isStreaming, currentChatId, topK, setCurrentMessages, updateChatHistory, setCurrentChatId]);
+    };
 
-  // 处理发送消息（从输入框）
-  const handleSend = () => {
+    const finalizeError = (errorMessage: string) => {
+      setIsStreaming(false);
+      const errorText = buildErrorText(errorMessage);
+      const finalAssistantMessage: Message = {
+        ...initialAssistantMessage,
+        content: errorText,
+        articles: receivedArticles,
+        sources: receivedSources,
+        relatedArticles,
+        matchedNodes,
+        matchedCommunities,
+        resolvedMode,
+        contextNodeCount,
+        contextEdgeCount,
+      };
+      updateAssistantMessage(assistantMessageId, () => finalAssistantMessage);
+      finishAssistantMessage(chatId!, existingMessages, finalAssistantMessage);
+    };
+
+    if (engine === 'rag') {
+      apiService.queryArticlesStream(request, (chunk) => {
+        if (chunk.type === 'articles') {
+          receivedArticles = chunk.data.articles || [];
+          receivedSources = chunk.data.sources || [];
+          updateAssistantMessage(assistantMessageId, (message) => ({
+            ...message,
+            articles: receivedArticles,
+            sources: receivedSources,
+          }));
+          return;
+        }
+
+        if (chunk.type === 'content') {
+          accumulatedContent += chunk.data.content || '';
+          updateAssistantMessage(assistantMessageId, (message) => ({
+            ...message,
+            content: accumulatedContent,
+          }));
+          return;
+        }
+
+        if (chunk.type === 'done') {
+          finalizeSuccess();
+          return;
+        }
+
+        if (chunk.type === 'error') {
+          finalizeError(chunk.data.message || '未知错误');
+        }
+      }).catch((error) => {
+        finalizeError(error instanceof Error ? error.message : '未知错误');
+      });
+      return;
+    }
+
+    apiService.queryKnowledgeGraphStream(
+      {
+        question: question.trim(),
+        mode: engine,
+        top_k: topK,
+        query_depth: undefined,
+        conversation_history: conversationHistory.length > 0 ? conversationHistory : undefined,
+      },
+      (chunk) => {
+        if (chunk.type === 'graph_context') {
+          matchedNodes = chunk.data.matched_nodes || [];
+          matchedCommunities = chunk.data.matched_communities || [];
+          relatedArticles = chunk.data.related_articles || [];
+          resolvedMode = chunk.data.resolved_mode || engine;
+          contextNodeCount = chunk.data.context_node_count || 0;
+          contextEdgeCount = chunk.data.context_edge_count || 0;
+          updateAssistantMessage(assistantMessageId, (message) => ({
+            ...message,
+            matchedNodes,
+            matchedCommunities,
+            relatedArticles,
+            resolvedMode,
+            contextNodeCount,
+            contextEdgeCount,
+          }));
+          return;
+        }
+
+        if (chunk.type === 'content') {
+          accumulatedContent += chunk.data.content || '';
+          updateAssistantMessage(assistantMessageId, (message) => ({
+            ...message,
+            content: accumulatedContent,
+          }));
+          return;
+        }
+
+        if (chunk.type === 'done') {
+          finalizeSuccess();
+          return;
+        }
+
+        if (chunk.type === 'error') {
+          finalizeError(chunk.data.message || '未知错误');
+        }
+      }
+    ).catch((error) => {
+      finalizeError(error instanceof Error ? error.message : '未知错误');
+    });
+  }, [
+    currentChatId,
+    finishAssistantMessage,
+    isStreaming,
+    setCurrentChatId,
+    setCurrentMessages,
+    updateAssistantMessage,
+  ]);
+
+  const handleSend = useCallback(() => {
     if (!inputValue.trim() || isStreaming) {
       return;
     }
@@ -231,96 +312,58 @@ export default function AIConversationModal() {
     const question = inputValue.trim();
     setInputValue('');
 
-    // 添加用户消息
-    const userMessage = {
-      id: Date.now().toString(),
-      type: 'user' as const,
+    const userMessage: Message = {
+      id: `${Date.now()}-user`,
+      type: 'user',
       content: question,
       timestamp: new Date(),
+      engine: selectedEngine,
     };
 
-    const newMessages = [...currentMessages, userMessage];
-    setCurrentMessages(newMessages);
+    const nextMessages = [...currentMessages, userMessage];
+    setCurrentMessages(nextMessages);
+    sendAIRequest(question, nextMessages, selectedEngine);
+  }, [currentMessages, inputValue, isStreaming, selectedEngine, sendAIRequest, setCurrentMessages]);
 
-    // 发送AI请求
-    sendAIRequest(question, newMessages);
-  };
-
-  // 自动触发AI回复：当模态层打开且只有一条用户消息时（新对话）
   useEffect(() => {
     if (!isModalOpen) {
-      // 模态层关闭时重置标记
       hasAutoTriggeredRef.current = false;
       return;
     }
 
-    // 如果已经自动触发过，不再触发
     if (hasAutoTriggeredRef.current) {
       return;
     }
 
-    // 检查是否应该自动触发：
-    // 1. 模态层已打开
-    // 2. 是新对话（没有chatId）
-    // 3. 只有一条消息
-    // 4. 这条消息是用户消息
-    // 5. 不在流式响应中
     if (
-      !currentChatId && // 确保是新对话，不是加载的历史对话
+      !currentChatId &&
       currentMessages.length === 1 &&
       currentMessages[0].type === 'user' &&
       !isStreaming
     ) {
-      const question = currentMessages[0].content;
-      if (question.trim()) {
-        hasAutoTriggeredRef.current = true;
-        // 延迟一小段时间，确保UI已渲染
-        setTimeout(() => {
-          sendAIRequest(question, currentMessages);
-        }, 100);
-      }
+      const initialMessage = currentMessages[0];
+      hasAutoTriggeredRef.current = true;
+      setTimeout(() => {
+        sendAIRequest(
+          initialMessage.content,
+          currentMessages,
+          initialMessage.engine || selectedEngine
+        );
+      }, 80);
     }
-  }, [isModalOpen, currentMessages, isStreaming, sendAIRequest, currentChatId]);
+  }, [currentChatId, currentMessages, isModalOpen, isStreaming, selectedEngine, sendAIRequest]);
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
+  const handleKeyPress = (event: React.KeyboardEvent) => {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
       handleSend();
     }
   };
 
-  // 处理回答文本中的引用格式
-  const processAnswerText = (text: string): string => {
-    let processed = text;
-    processed = processed.replace(/文章\s*(\d+)/g, '[$1]');
-    processed = processed.replace(/[———]\s*《[^》]+》[，,]\s*来源[：:]\s*[^\n]+/g, '');
-    processed = processed.replace(/[———]\s*《[^》]+》/g, '');
-    return processed;
-  };
-
-  // 提取引用编号
-  // const extractCitations = (text: string): number[] => {
-  //   const matches = text.match(/\[(\d+)\]/g);
-  //   if (!matches) return [];
-  //   return matches.map((match) => parseInt(match.replace(/[\[\]]/g, '')));
-  // };
-
-  // 响应式：检测移动端
-  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
-
-  useEffect(() => {
-    const handleResize = () => {
-      setIsMobile(window.innerWidth < 768);
-    };
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
-
-  // 模态层样式
   const modalStyle: React.CSSProperties = {
     top: 0,
     paddingBottom: 0,
-    maxWidth: isMobile ? '100%' : '900px',
+    maxWidth: isMobile ? '100%' : '980px',
     margin: isMobile ? 0 : '0 auto',
   };
 
@@ -329,22 +372,13 @@ export default function AIConversationModal() {
     height: '100vh',
     display: 'flex',
     flexDirection: 'column',
-    background: theme === 'dark' 
-      ? 'rgba(26, 26, 26, 0.95)' 
-      : 'rgba(255, 255, 255, 0.95)',
+    background: theme === 'dark' ? 'rgba(26, 26, 26, 0.95)' : 'rgba(255, 255, 255, 0.96)',
     backdropFilter: 'blur(10px)',
   };
 
-  const contentStyle: React.CSSProperties = {
-    flex: 1,
-    overflowY: 'auto',
-    padding: isMobile ? '16px' : '24px',
-    maxWidth: isMobile ? '100%' : '800px',
-    margin: '0 auto',
-    width: '100%',
-  };
-
-  if (!isModalOpen) return null;
+  if (!isModalOpen) {
+    return null;
+  }
 
   const modalContent = (
     <Modal
@@ -353,24 +387,15 @@ export default function AIConversationModal() {
       footer={null}
       closable={false}
       width="100%"
-      style={{
-        ...modalStyle,
-        position: 'relative',
-      }}
+      style={modalStyle}
       styles={{
-        body: {
-          ...modalBodyStyle,
-          position: 'relative',
-        },
+        body: modalBodyStyle,
         mask: {
-          backgroundColor: theme === 'dark' 
-            ? 'rgba(0, 0, 0, 0.6)' 
-            : 'rgba(0, 0, 0, 0.4)',
+          backgroundColor: theme === 'dark' ? 'rgba(0, 0, 0, 0.6)' : 'rgba(0, 0, 0, 0.4)',
           backdropFilter: 'blur(10px)',
         },
       }}
     >
-      {/* 顶部栏 */}
       <div
         style={{
           padding: '16px 24px',
@@ -382,9 +407,10 @@ export default function AIConversationModal() {
           position: 'sticky',
           top: 0,
           zIndex: 10,
+          gap: 12,
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+        <Space>
           <Button
             type="text"
             icon={<HistoryOutlined />}
@@ -392,334 +418,262 @@ export default function AIConversationModal() {
               setIsHistoryDrawerClosing(false);
               setIsHistoryDrawerOpen(true);
             }}
-            title="历史记录"
           >
             历史
           </Button>
           <Text strong style={{ color: getThemeColor(theme, 'text') }}>
-            {currentMessages.find((m) => m.type === 'user')?.content || 'AI 对话中...'}
+            {currentMessages.find((message) => message.type === 'user')?.content || 'AI 对话'}
           </Text>
-        </div>
-        <Button
-          type="text"
-          icon={<CloseOutlined />}
-          onClick={closeModal}
-          title="关闭 (Esc)"
-        />
+        </Space>
+        <Button type="text" icon={<CloseOutlined />} onClick={closeModal} />
       </div>
 
-      {/* 中间滚动区域 - 添加容器用于裁剪历史抽屉 */}
-      <div 
+      <div
         style={{
           position: 'relative',
           flex: 1,
-          overflow: 'hidden', // 关键：裁剪历史抽屉，让它看起来像是从容器内部拉出
+          overflow: 'hidden',
           display: 'flex',
           flexDirection: 'column',
         }}
       >
-        {/* 实际的内容滚动区域 */}
-        <div 
+        <div
           style={{
-            ...contentStyle,
             flex: 1,
             overflowY: 'auto',
-            position: 'relative',
+            padding: isMobile ? '16px' : '24px',
+            maxWidth: isMobile ? '100%' : '860px',
+            margin: '0 auto',
+            width: '100%',
           }}
         >
-        {currentMessages.length === 0 ? (
-          <Empty
-            description="开始与 AI 对话，询问关于文章内容的问题"
-            style={{ marginTop: 100 }}
-          />
-        ) : (
-          <List
-            dataSource={currentMessages}
-            renderItem={(message) => {
-              const isUser = message.type === 'user';
-              // const citations = !isUser ? extractCitations(message.content) : [];
+          {currentMessages.length === 0 ? (
+            <Empty
+              description="开始和 AI 对话，或从历史记录继续之前的话题"
+              style={{ marginTop: 120 }}
+            />
+          ) : (
+            <List
+              dataSource={currentMessages}
+              renderItem={(message) => {
+                const isUser = message.type === 'user';
+                const referenceArticles = getReferenceArticles(message);
 
-              return (
-                <List.Item style={{ border: 'none', padding: '16px 0' }}>
-                  <div
-                    style={{
-                      width: '100%',
-                      display: 'flex',
-                      flexDirection: isUser ? 'row-reverse' : 'row',
-                      gap: 12,
-                    }}
-                  >
-                    <Avatar
-                      icon={isUser ? <UserOutlined /> : <RobotOutlined />}
-                      style={{
-                        backgroundColor: isUser 
-                          ? getThemeColor(theme, 'userAvatarBg')
-                          : getThemeColor(theme, 'assistantAvatarBg'),
-                        flexShrink: 0,
-                      }}
-                    />
+                return (
+                  <List.Item style={{ border: 'none', padding: '16px 0' }}>
                     <div
                       style={{
-                        flex: 1,
-                        maxWidth: '75%',
+                        width: '100%',
                         display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: isUser ? 'flex-end' : 'flex-start',
+                        flexDirection: isUser ? 'row-reverse' : 'row',
+                        gap: 12,
                       }}
                     >
-                      {!isUser && message.articles && message.articles.length > 0 && (
-                        <div style={{ marginBottom: 8, width: '100%' }}>
-                          <Collapse
-                            ghost
-                            size="small"
-                            activeKey={expandedSources[message.id] ? ['sources'] : []}
-                            onChange={(keys) => {
-                              setExpandedSources((prev) => ({
-                                ...prev,
-                                [message.id]: keys.includes('sources'),
-                              }));
-                            }}
-                            style={{
-                              backgroundColor: 'transparent',
-                            }}
-                            items={[
-                              {
-                                key: 'sources',
-                                label: (
-                                  <div
-                                    style={{
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      gap: 6,
-                                      fontSize: '12px',
-                                      color: getThemeColor(theme, 'textSecondary'),
-                                      padding: '2px 0',
-                                    }}
-                                  >
-                                    <span>📚 参考来源 ({message.articles.length})</span>
-                                    {expandedSources[message.id] ? (
-                                      <UpOutlined style={{ fontSize: '10px' }} />
-                                    ) : (
-                                      <DownOutlined style={{ fontSize: '10px' }} />
-                                    )}
-                                  </div>
-                                ),
-                                children: (
-                                  <div style={{ paddingTop: 2, width: '100%', maxWidth: '100%', overflow: 'hidden' }}>
-                                    {message.articles.map((article, idx) => {
-                                      const articleNumber = idx + 1;
-                                      return (
-                                        <div
-                                          key={article.id}
-                                          ref={(el) => {
-                                            if (el) citationRefs.current[articleNumber] = el;
-                                          }}
-                                          style={{
-                                            display: 'flex',
-                                            alignItems: 'flex-start',
-                                            gap: 6,
-                                            padding: '1px 0',
-                                            cursor: 'pointer',
-                                            borderBottom: idx < message.articles!.length - 1
-                                              ? `1px solid ${getThemeColor(theme, 'border')}`
-                                              : 'none',
-                                            width: '100%',
-                                            maxWidth: '100%',
-                                            overflow: 'hidden',
-                                          }}
-                                          onClick={() => {
-                                            window.open(article.url, '_blank');
-                                          }}
-                                          onMouseEnter={(e) => {
-                                            e.currentTarget.style.backgroundColor = getThemeColor(theme, 'selectedBg');
-                                          }}
-                                          onMouseLeave={(e) => {
-                                            e.currentTarget.style.backgroundColor = 'transparent';
-                                          }}
-                                        >
-                                          <Text
-                                            strong
-                                            style={{
-                                              color: getThemeColor(theme, 'primary'),
-                                              fontSize: '12px',
-                                              minWidth: '18px',
-                                              flexShrink: 0,
-                                              lineHeight: '1.2',
-                                            }}
-                                          >
-                                            [{articleNumber}]
-                                          </Text>
-                                          <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
-                                            <Text
-                                              ellipsis
-                                              style={{
-                                                display: 'block',
-                                                color: getThemeColor(theme, 'text'),
-                                                fontSize: '12px',
-                                                marginBottom: 0,
-                                                lineHeight: '1.2',
-                                                wordBreak: 'break-word',
-                                                overflowWrap: 'break-word',
-                                                maxWidth: '100%',
-                                              }}
-                                            >
-                                              {article.title_zh || article.title}
-                                            </Text>
-                                            <Space size={2} style={{ fontSize: '10px', lineHeight: '1.1' }}>
-                                              <Tag color="blue" style={{ margin: 0, fontSize: '10px', padding: '0 3px', lineHeight: '12px' }}>
-                                                {article.source}
-                                              </Tag>
-                                              {article.published_at && (
-                                                <Text type="secondary" style={{ fontSize: '10px' }}>
-                                                  {dayjs(article.published_at).format('YYYY-MM-DD')}
-                                                </Text>
-                                              )}
-                                              {article.similarity && (
-                                                <Text type="secondary" style={{ fontSize: '10px' }}>
-                                                  {Math.round(article.similarity * 100)}%
-                                                </Text>
-                                              )}
-                                            </Space>
-                                          </div>
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                ),
-                              },
-                            ]}
-                          />
-                        </div>
-                      )}
-                      
+                      <Avatar
+                        icon={isUser ? <UserOutlined /> : <RobotOutlined />}
+                        style={{
+                          backgroundColor: isUser
+                            ? getThemeColor(theme, 'userAvatarBg')
+                            : getThemeColor(theme, 'assistantAvatarBg'),
+                          flexShrink: 0,
+                        }}
+                      />
+
                       <div
                         style={{
-                          ...getMessageBubbleStyle(theme, message.type),
-                          padding: '12px 16px',
-                          borderRadius: '12px',
-                          wordBreak: 'break-word',
+                          flex: 1,
+                          maxWidth: '78%',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: isUser ? 'flex-end' : 'flex-start',
                         }}
                       >
-                        {isUser ? (
-                          <Text style={{ color: getThemeColor(theme, 'userMessageText') }}>
-                            {message.content}
-                          </Text>
-                        ) : (
-                          <div>
-                            <ReactMarkdown 
-                              components={{
-                                ...createMarkdownComponents(theme),
-                                // 自定义引用链接
-                                a: ({ href, children }: MarkdownLinkProps) => {
-                                  const match = href?.match(/\[(\d+)\]/);
-                                  if (match) {
-                                    const index = parseInt(match[1]);
-                                    return (
-                                      <a
-                                        href="#"
-                                        onClick={(e) => {
-                                          e.preventDefault();
-                                          scrollToCitation(index);
-                                        }}
-                                        style={{
-                                          color: getThemeColor(theme, 'primary'),
-                                          textDecoration: 'none',
-                                          cursor: 'pointer',
-                                        }}
-                                      >
-                                        {children}
-                                      </a>
-                                    );
-                                  }
-                                  return <a href={href}>{children}</a>;
-                                },
-                              }}
-                              remarkPlugins={[remarkGfm]}
-                            >
-                              {processAnswerText(message.content)}
-                            </ReactMarkdown>
-                            {isStreaming && 
-                             message.id === currentMessages[currentMessages.length - 1]?.id && (
-                              <span
-                                style={{
-                                  display: 'inline-block',
-                                  width: '2px',
-                                  height: '1em',
-                                  backgroundColor: getThemeColor(theme, 'assistantMessageText'),
-                                  marginLeft: '2px',
-                                  animation: 'blink 1s step-end infinite',
-                                }}
-                              />
+                        {!isUser && (
+                          <Space wrap size={[6, 6]} style={{ marginBottom: 8 }}>
+                            {message.engine && <Tag>{message.engine}</Tag>}
+                            {message.resolvedMode && <Tag color="blue">实际模式: {message.resolvedMode}</Tag>}
+                            {typeof message.contextNodeCount === 'number' && message.contextNodeCount > 0 && (
+                              <Tag>节点 {message.contextNodeCount}</Tag>
                             )}
+                            {typeof message.contextEdgeCount === 'number' && message.contextEdgeCount > 0 && (
+                              <Tag>边 {message.contextEdgeCount}</Tag>
+                            )}
+                          </Space>
+                        )}
+
+                        {!isUser && (message.matchedNodes?.length || message.matchedCommunities?.length) ? (
+                          <div style={{ marginBottom: 8, width: '100%' }}>
+                            <CardLike theme={theme}>
+                              <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                                <div>
+                                  <Text strong>命中节点</Text>
+                                  <div style={{ marginTop: 8 }}>
+                                    {message.matchedNodes?.length ? (
+                                      message.matchedNodes.map((node) => (
+                                        <Tag key={node.node_key}>
+                                          {node.label} / {node.node_type}
+                                        </Tag>
+                                      ))
+                                    ) : (
+                                      <Text type="secondary">暂无</Text>
+                                    )}
+                                  </div>
+                                </div>
+                                <div>
+                                  <Text strong>命中社区</Text>
+                                  <div style={{ marginTop: 8 }}>
+                                    {message.matchedCommunities?.length ? (
+                                      message.matchedCommunities.map((community) => (
+                                        <Tag key={community.community_id} color="blue">
+                                          {community.label}
+                                        </Tag>
+                                      ))
+                                    ) : (
+                                      <Text type="secondary">暂无</Text>
+                                    )}
+                                  </div>
+                                </div>
+                              </Space>
+                            </CardLike>
+                          </div>
+                        ) : null}
+
+                        {!isUser && referenceArticles.length > 0 && (
+                          <div style={{ marginBottom: 8, width: '100%' }}>
+                            <Collapse
+                              ghost
+                              size="small"
+                              activeKey={expandedPanels[message.id] ? ['refs'] : []}
+                              onChange={(keys) => {
+                                setExpandedPanels((previous) => ({
+                                  ...previous,
+                                  [message.id]: keys.includes('refs'),
+                                }));
+                              }}
+                              items={[
+                                {
+                                  key: 'refs',
+                                  label: (
+                                    <Space size={6}>
+                                      <Text type="secondary">参考上下文 ({referenceArticles.length})</Text>
+                                      {expandedPanels[message.id] ? (
+                                        <UpOutlined style={{ fontSize: 10 }} />
+                                      ) : (
+                                        <DownOutlined style={{ fontSize: 10 }} />
+                                      )}
+                                    </Space>
+                                  ),
+                                  children: (
+                                    <List
+                                      size="small"
+                                      dataSource={referenceArticles}
+                                      renderItem={(article) => {
+                                        const hasRelationCount = 'relation_count' in article;
+                                        const hasSimilarity = 'similarity' in article;
+                                        return (
+                                          <List.Item style={{ paddingInline: 0 }}>
+                                            <Space direction="vertical" size={0} style={{ width: '100%' }}>
+                                              <a href={article.url} target="_blank" rel="noreferrer">
+                                                {article.title_zh || article.title}
+                                              </a>
+                                              <Text type="secondary">
+                                                {article.source}
+                                                {hasRelationCount ? ` · 关系数 ${article.relation_count}` : ''}
+                                                {hasSimilarity && article.similarity
+                                                  ? ` · 相似度 ${Math.round(article.similarity * 100)}%`
+                                                  : ''}
+                                              </Text>
+                                            </Space>
+                                          </List.Item>
+                                        );
+                                      }}
+                                    />
+                                  ),
+                                },
+                              ]}
+                            />
                           </div>
                         )}
+
+                        <div
+                          style={{
+                            ...getMessageBubbleStyle(theme, message.type),
+                            padding: '12px 16px',
+                            borderRadius: 12,
+                            width: '100%',
+                            wordBreak: 'break-word',
+                          }}
+                        >
+                          {isUser ? (
+                            <Text style={{ color: getThemeColor(theme, 'userMessageText') }}>
+                              {message.content}
+                            </Text>
+                          ) : (
+                            <div>
+                              <ReactMarkdown
+                                components={createMarkdownComponents(theme)}
+                                remarkPlugins={[remarkGfm]}
+                              >
+                                {message.content}
+                              </ReactMarkdown>
+                              {isStreaming && message.id === currentMessages[currentMessages.length - 1]?.id && (
+                                <span
+                                  style={{
+                                    display: 'inline-block',
+                                    width: 2,
+                                    height: '1em',
+                                    backgroundColor: getThemeColor(theme, 'assistantMessageText'),
+                                    marginLeft: 2,
+                                    animation: 'blink 1s step-end infinite',
+                                  }}
+                                />
+                              )}
+                            </div>
+                          )}
+                        </div>
+
+                        <Text type="secondary" style={{ fontSize: 11, marginTop: 4 }}>
+                          {dayjs(message.timestamp).format('YYYY-MM-DD HH:mm:ss')}
+                        </Text>
                       </div>
-
-                      <Text
-                        type="secondary"
-                        style={{
-                          fontSize: 11,
-                          marginTop: 4,
-                          textAlign: isUser ? 'right' : 'left',
-                        }}
-                      >
-                        {dayjs(message.timestamp).format('YYYY-MM-DD HH:mm:ss')}
-                      </Text>
                     </div>
-                  </div>
-                </List.Item>
-              );
-            }}
-          />
-        )}
-
-        {/* 加载状态 - 仅当最后一条消息不是AI消息时显示（避免与消息气泡内的加载状态重复） */}
-        {isStreaming && 
-         currentMessages.length > 0 && 
-         currentMessages[currentMessages.length - 1]?.type !== 'assistant' && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 0' }}>
-            <Avatar 
-              icon={<RobotOutlined />} 
-              style={{ 
-                backgroundColor: getThemeColor(theme, 'assistantAvatarBg'),
-                flexShrink: 0 
-              }} 
+                  </List.Item>
+                );
+              }}
             />
-            <div style={{
-              ...getMessageBubbleStyle(theme, 'assistant'),
-              padding: '12px 16px',
-              borderRadius: '12px',
-            }}>
-              <Spin size="small" />
-              <Text style={{
-                marginLeft: 8,
-                color: getThemeColor(theme, 'assistantMessageText'),
-              }}>
-                正在生成回答...
-              </Text>
+          )}
+
+          {isStreaming && currentMessages[currentMessages.length - 1]?.type !== 'assistant' && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 0' }}>
+              <Avatar
+                icon={<RobotOutlined />}
+                style={{ backgroundColor: getThemeColor(theme, 'assistantAvatarBg') }}
+              />
+              <div
+                style={{
+                  ...getMessageBubbleStyle(theme, 'assistant'),
+                  padding: '12px 16px',
+                  borderRadius: 12,
+                }}
+              >
+                <Spin size="small" />
+                <Text style={{ marginLeft: 8 }}>正在生成回答...</Text>
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
           <div ref={messagesEndRef} />
         </div>
 
-        {/* 历史记录侧边栏 - 从聊天容器内部右侧拉出，被外层容器的 overflow: hidden 裁剪 */}
         {(isHistoryDrawerOpen || isHistoryDrawerClosing) && (
           <>
-            {/* 遮罩层 - 只覆盖聊天内容区域，带淡入/淡出动画 */}
             <div
               style={{
                 position: 'absolute',
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
+                inset: 0,
                 backgroundColor: 'rgba(0, 0, 0, 0.15)',
                 zIndex: 1000,
-                animation: isHistoryDrawerClosing 
-                  ? 'fadeOut 0.3s ease-out forwards'
-                  : 'fadeIn 0.3s ease-out',
+                animation: isHistoryDrawerClosing ? 'fadeOut 0.3s ease-out forwards' : 'fadeIn 0.3s ease-out',
               }}
               onClick={() => {
                 setIsHistoryDrawerClosing(true);
@@ -729,14 +683,13 @@ export default function AIConversationModal() {
                 }, 300);
               }}
             />
-            {/* 抽屉内容 - 从容器左侧边缘拉出，被容器裁剪，看起来像是从内部展开 */}
             <div
               style={{
                 position: 'absolute',
                 top: 0,
                 left: 0,
                 bottom: 0,
-                width: '300px',
+                width: 320,
                 backgroundColor: getThemeColor(theme, 'bgElevated'),
                 borderRight: `1px solid ${getThemeColor(theme, 'border')}`,
                 zIndex: 1001,
@@ -748,35 +701,32 @@ export default function AIConversationModal() {
                   : 'slideInLeft 0.3s ease-out',
               }}
             >
-            {/* 抽屉头部 */}
-            <div
-              style={{
-                padding: '16px',
-                borderBottom: `1px solid ${getThemeColor(theme, 'border')}`,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-              }}
-            >
-              <Text strong style={{ color: getThemeColor(theme, 'text'), fontSize: '16px' }}>
-                对话历史
-              </Text>
-              <Button
-                type="text"
-                icon={<CloseOutlined />}
-                onClick={() => {
-                  setIsHistoryDrawerClosing(true);
-                  setTimeout(() => {
-                    setIsHistoryDrawerOpen(false);
-                    setIsHistoryDrawerClosing(false);
-                  }, 300);
+              <div
+                style={{
+                  padding: 16,
+                  borderBottom: `1px solid ${getThemeColor(theme, 'border')}`,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
                 }}
-                size="small"
-              />
-            </div>
-            {/* 抽屉内容 */}
-            <div style={{ flex: 1, overflowY: 'auto', padding: '16px' }}>
-              <Space direction="vertical" style={{ width: '100%', marginBottom: 16 }}>
+              >
+                <Text strong style={{ fontSize: 16 }}>
+                  对话历史
+                </Text>
+                <Button
+                  type="text"
+                  icon={<CloseOutlined />}
+                  onClick={() => {
+                    setIsHistoryDrawerClosing(true);
+                    setTimeout(() => {
+                      setIsHistoryDrawerOpen(false);
+                      setIsHistoryDrawerClosing(false);
+                    }, 300);
+                  }}
+                />
+              </div>
+
+              <div style={{ flex: 1, overflowY: 'auto', padding: 16 }}>
                 <Button
                   type="primary"
                   block
@@ -788,64 +738,59 @@ export default function AIConversationModal() {
                       setIsHistoryDrawerClosing(false);
                     }, 300);
                   }}
+                  style={{ marginBottom: 16 }}
                 >
                   新建对话
                 </Button>
-              </Space>
-              <List
-                dataSource={chatHistories}
-                renderItem={(history) => (
-                  <List.Item
-                    style={{
-                      padding: '8px 12px',
-                      cursor: 'pointer',
-                      borderRadius: '4px',
-                      backgroundColor: currentChatId === history.id 
-                        ? getThemeColor(theme, 'selectedBg')
-                        : 'transparent',
-                    }}
-                    onClick={() => {
-                      loadChatHistory(history.id);
-                      setIsHistoryDrawerClosing(true);
-                      setTimeout(() => {
-                        setIsHistoryDrawerOpen(false);
-                        setIsHistoryDrawerClosing(false);
-                      }, 300);
-                    }}
-                  >
-                    <div style={{ width: '100%' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                        <Text
-                          strong={currentChatId === history.id}
-                          ellipsis
-                          style={{ flex: 1, fontSize: 13 }}
-                        >
-                          {history.title}
+
+                <List
+                  dataSource={chatHistories}
+                  renderItem={(history) => (
+                    <List.Item
+                      style={{
+                        padding: '8px 12px',
+                        cursor: 'pointer',
+                        borderRadius: 4,
+                        backgroundColor:
+                          currentChatId === history.id ? getThemeColor(theme, 'selectedBg') : 'transparent',
+                      }}
+                      onClick={() => {
+                        loadChatHistory(history.id);
+                        setIsHistoryDrawerClosing(true);
+                        setTimeout(() => {
+                          setIsHistoryDrawerOpen(false);
+                          setIsHistoryDrawerClosing(false);
+                        }, 300);
+                      }}
+                    >
+                      <div style={{ width: '100%' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                          <Text strong={currentChatId === history.id} ellipsis style={{ flex: 1 }}>
+                            {history.title}
+                          </Text>
+                          <Button
+                            type="text"
+                            size="small"
+                            icon={<DeleteOutlined />}
+                            danger
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              deleteChatHistory(history.id);
+                            }}
+                          />
+                        </div>
+                        <Text type="secondary" style={{ fontSize: 11 }}>
+                          {dayjs(history.updatedAt).fromNow()}
                         </Text>
-                        <Button
-                          type="text"
-                          size="small"
-                          icon={<DeleteOutlined />}
-                          danger
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            deleteChatHistory(history.id);
-                          }}
-                        />
                       </div>
-                      <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 4 }}>
-                        {dayjs(history.updatedAt).fromNow()}
-                      </Text>
-                    </div>
-                  </List.Item>
-                )}
-              />
-            </div>
+                    </List.Item>
+                  )}
+                />
+              </div>
             </div>
           </>
         )}
 
-        {/* 底部追问栏 */}
         <div
           style={{
             padding: '16px 24px',
@@ -857,78 +802,90 @@ export default function AIConversationModal() {
             flexShrink: 0,
           }}
         >
-          <Space.Compact style={{ width: '100%', maxWidth: '800px', margin: '0 auto' }}>
-            <TextArea
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              onPressEnter={handleKeyPress}
-              placeholder="继续提问..."
-              autoSize={{ minRows: 1, maxRows: 4 }}
-              disabled={isStreaming}
-              style={{ flex: 1 }}
-            />
-            <Button
-              type="primary"
-              icon={<SendOutlined />}
-              onClick={handleSend}
-              loading={isStreaming}
-              disabled={!inputValue.trim() || isStreaming}
-              style={{ height: 'auto' }}
-            >
-              发送
-            </Button>
-          </Space.Compact>
+          <Space direction="vertical" size="small" style={{ width: '100%', maxWidth: 860, margin: '0 auto' }}>
+            <Space wrap>
+              <Text type="secondary">问答引擎</Text>
+              <Select<AIQueryEngine>
+                value={selectedEngine}
+                onChange={setSelectedEngine}
+                style={{ minWidth: 180 }}
+                options={[
+                  { label: '自动', value: 'auto' },
+                  { label: 'RAG', value: 'rag' },
+                  { label: 'Graph', value: 'graph' },
+                  { label: 'Hybrid', value: 'hybrid' },
+                ]}
+              />
+            </Space>
+
+            <Space.Compact style={{ width: '100%' }}>
+              <TextArea
+                value={inputValue}
+                onChange={(event) => setInputValue(event.target.value)}
+                onPressEnter={handleKeyPress}
+                placeholder="继续提问..."
+                autoSize={{ minRows: 1, maxRows: 4 }}
+                disabled={isStreaming}
+                style={{ flex: 1 }}
+              />
+              <Button
+                type="primary"
+                icon={<SendOutlined />}
+                onClick={handleSend}
+                loading={isStreaming}
+                disabled={!inputValue.trim() || isStreaming}
+                style={{ height: 'auto' }}
+              >
+                发送
+              </Button>
+            </Space.Compact>
+          </Space>
         </div>
       </div>
     </Modal>
   );
 
-  // 使用 Portal 挂载到 body
   return (
     <>
-      {/* 添加 CSS 动画样式 */}
       <style>{`
         @keyframes slideInLeft {
-          from {
-            transform: translateX(-100%);
-            opacity: 0;
-          }
-          to {
-            transform: translateX(0);
-            opacity: 1;
-          }
+          from { transform: translateX(-100%); opacity: 0; }
+          to { transform: translateX(0); opacity: 1; }
         }
-        
         @keyframes slideOutLeft {
-          from {
-            transform: translateX(0);
-            opacity: 1;
-          }
-          to {
-            transform: translateX(-100%);
-            opacity: 0;
-          }
+          from { transform: translateX(0); opacity: 1; }
+          to { transform: translateX(-100%); opacity: 0; }
         }
-        
         @keyframes fadeIn {
-          from {
-            opacity: 0;
-          }
-          to {
-            opacity: 1;
-          }
+          from { opacity: 0; }
+          to { opacity: 1; }
         }
-        
         @keyframes fadeOut {
-          from {
-            opacity: 1;
-          }
-          to {
-            opacity: 0;
-          }
+          from { opacity: 1; }
+          to { opacity: 0; }
+        }
+        @keyframes blink {
+          from { opacity: 1; }
+          50% { opacity: 0; }
+          to { opacity: 1; }
         }
       `}</style>
       {createPortal(modalContent, document.body)}
     </>
+  );
+}
+
+function CardLike({ children, theme }: { children: ReactNode; theme: 'light' | 'dark' }) {
+  return (
+    <div
+      style={{
+        padding: 12,
+        borderRadius: 10,
+        border: `1px solid ${getThemeColor(theme, 'border')}`,
+        background: getThemeColor(theme, 'bgSecondary'),
+      }}
+    >
+      {children}
+    </div>
   );
 }

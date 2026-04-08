@@ -3,7 +3,6 @@ import type {
   Article,
   ArticleListResponse,
   ArticleFilter,
-  ArticleSearchResult,
   CollectionTask,
   CollectionTaskStatus,
   DailySummary,
@@ -52,6 +51,22 @@ import type {
   ExplorationStatistics,
   ExplorationModelMarkRequest,
   ExplorationGenerateReportResponse,
+  KnowledgeGraphSettings,
+  KnowledgeGraphStatsResponse,
+  KnowledgeGraphSyncRequest,
+  KnowledgeGraphSyncResponse,
+  KnowledgeGraphBuildSummary,
+  KnowledgeGraphNodeListResponse,
+  KnowledgeGraphNodeDetail,
+  KnowledgeGraphCommunityListResponse,
+  KnowledgeGraphCommunityDetail,
+  KnowledgeGraphPathRequest,
+  KnowledgeGraphPathResponse,
+  KnowledgeGraphQueryRequest,
+  KnowledgeGraphQueryResponse,
+  KnowledgeGraphArticleContextResponse,
+  RAGStreamChunk,
+  KnowledgeGraphStreamChunk,
 } from '@/types';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1';
@@ -85,16 +100,6 @@ interface DefaultSource {
   description?: string;
   category?: string;
   source_type: string;
-}
-
-interface StreamChunk {
-  type: 'articles' | 'content' | 'done' | 'error';
-  data: {
-    articles?: ArticleSearchResult[];
-    sources?: string[];
-    content?: string;
-    message?: string;
-  };
 }
 
 class ApiService {
@@ -173,6 +178,97 @@ class ApiService {
         data: error,
       };
       throw apiError;
+    }
+  }
+
+  private async streamRequest<T>(
+    path: string,
+    request: unknown,
+    onChunk: (chunk: T) => void
+  ): Promise<void> {
+    try {
+      const token = this.token;
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json',
+      };
+
+      if (token) {
+        headers.Authorization = `Bearer ${token}`;
+      }
+
+      const response = await fetch(`${API_BASE_URL}${path}`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(request),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || errorData.message || `HTTP ${response.status}`);
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error('Unable to read stream response');
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          break;
+        }
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) {
+            continue;
+          }
+          try {
+            const jsonStr = line.slice(6);
+            const chunk = JSON.parse(jsonStr) as T;
+            onChunk(chunk);
+          } catch (e) {
+            if (import.meta.env.DEV) {
+              console.error('瑙ｆ瀽SSE鏁版嵁澶辫触:', e, line);
+            }
+          }
+        }
+      }
+
+      if (buffer.trim()) {
+        const lines = buffer.split('\n\n');
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) {
+            continue;
+          }
+          try {
+            const jsonStr = line.slice(6);
+            const chunk = JSON.parse(jsonStr) as T;
+            onChunk(chunk);
+          } catch (e) {
+            if (import.meta.env.DEV) {
+              console.error('瑙ｆ瀽SSE鏁版嵁澶辫触:', e, line);
+            }
+          }
+        }
+      }
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.error('娴佸紡鏌ヨ澶辫触:', error);
+      }
+      onChunk(({
+        type: 'error',
+        data: {
+          message: error instanceof Error ? error.message : '鏈煡閿欒',
+        },
+      } as unknown) as T);
+      throw error;
     }
   }
 
@@ -615,9 +711,11 @@ class ApiService {
 
   async queryArticlesStream(
     request: RAGQueryRequest,
-    onChunk: (chunk: StreamChunk) => void
+    onChunk: (chunk: RAGStreamChunk) => void
   ): Promise<void> {
-    try {
+    return this.streamRequest<RAGStreamChunk>('/rag/query/stream', request, onChunk);
+  }
+  /*
       const token = this.token;
       const headers: HeadersInit = {
         'Content-Type': 'application/json',
@@ -703,6 +801,7 @@ class ApiService {
     }
   }
 
+  */
   async getRAGStats(): Promise<RAGStatsResponse> {
     return this.handleRequest(
       this.client.get<RAGStatsResponse>('/rag/stats')
@@ -737,6 +836,94 @@ class ApiService {
   }
 
   // 认证相关
+  async getKnowledgeGraphSettings(): Promise<KnowledgeGraphSettings> {
+    return this.handleRequest(
+      this.client.get<KnowledgeGraphSettings>('/settings/knowledge-graph')
+    );
+  }
+
+  async updateKnowledgeGraphSettings(data: KnowledgeGraphSettings): Promise<KnowledgeGraphSettings> {
+    return this.handleRequest(
+      this.client.put<KnowledgeGraphSettings>('/settings/knowledge-graph', data)
+    );
+  }
+
+  async getKnowledgeGraphStats(): Promise<KnowledgeGraphStatsResponse> {
+    return this.handleRequest(
+      this.client.get<KnowledgeGraphStatsResponse>('/knowledge-graph/stats')
+    );
+  }
+
+  async syncKnowledgeGraph(request: KnowledgeGraphSyncRequest): Promise<KnowledgeGraphSyncResponse> {
+    return this.handleRequest(
+      this.client.post<KnowledgeGraphSyncResponse>('/knowledge-graph/sync', request)
+    );
+  }
+
+  async getKnowledgeGraphBuilds(limit: number = 20): Promise<KnowledgeGraphBuildSummary[]> {
+    return this.handleRequest(
+      this.client.get<KnowledgeGraphBuildSummary[]>(`/knowledge-graph/builds?limit=${limit}`)
+    );
+  }
+
+  async getKnowledgeGraphNodes(params?: {
+    q?: string;
+    node_type?: string;
+    limit?: number;
+  }): Promise<KnowledgeGraphNodeListResponse> {
+    const queryParams = new URLSearchParams();
+    if (params?.q) queryParams.append('q', params.q);
+    if (params?.node_type) queryParams.append('node_type', params.node_type);
+    if (params?.limit !== undefined) queryParams.append('limit', params.limit.toString());
+    const suffix = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return this.handleRequest(
+      this.client.get<KnowledgeGraphNodeListResponse>(`/knowledge-graph/nodes${suffix}`)
+    );
+  }
+
+  async getKnowledgeGraphNode(nodeKey: string): Promise<KnowledgeGraphNodeDetail> {
+    return this.handleRequest(
+      this.client.get<KnowledgeGraphNodeDetail>(`/knowledge-graph/nodes/${encodeURIComponent(nodeKey)}`)
+    );
+  }
+
+  async getKnowledgeGraphCommunities(limit: number = 20): Promise<KnowledgeGraphCommunityListResponse> {
+    return this.handleRequest(
+      this.client.get<KnowledgeGraphCommunityListResponse>(`/knowledge-graph/communities?limit=${limit}`)
+    );
+  }
+
+  async getKnowledgeGraphCommunity(communityId: number): Promise<KnowledgeGraphCommunityDetail> {
+    return this.handleRequest(
+      this.client.get<KnowledgeGraphCommunityDetail>(`/knowledge-graph/communities/${communityId}`)
+    );
+  }
+
+  async findKnowledgeGraphPath(request: KnowledgeGraphPathRequest): Promise<KnowledgeGraphPathResponse> {
+    return this.handleRequest(
+      this.client.post<KnowledgeGraphPathResponse>('/knowledge-graph/path', request)
+    );
+  }
+
+  async queryKnowledgeGraph(request: KnowledgeGraphQueryRequest): Promise<KnowledgeGraphQueryResponse> {
+    return this.handleRequest(
+      this.client.post<KnowledgeGraphQueryResponse>('/knowledge-graph/query', request)
+    );
+  }
+
+  async queryKnowledgeGraphStream(
+    request: KnowledgeGraphQueryRequest,
+    onChunk: (chunk: KnowledgeGraphStreamChunk) => void
+  ): Promise<void> {
+    return this.streamRequest<KnowledgeGraphStreamChunk>('/knowledge-graph/query/stream', request, onChunk);
+  }
+
+  async getKnowledgeGraphArticleContext(articleId: number): Promise<KnowledgeGraphArticleContextResponse> {
+    return this.handleRequest(
+      this.client.get<KnowledgeGraphArticleContextResponse>(`/knowledge-graph/articles/${articleId}/context`)
+    );
+  }
+
   async login(username: string, password: string): Promise<{ access_token: string; token_type: string }> {
     return this.handleRequest(
       this.client.post<{ access_token: string; token_type: string }>('/auth/login', {

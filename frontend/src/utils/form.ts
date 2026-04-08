@@ -4,7 +4,7 @@ import type { FormInstance } from 'antd/es/form';
  * 安全地设置 Form 字段值
  * 确保 Form 组件已挂载后再调用 setFieldsValue
  */
-export function safeSetFieldsValue<T extends Record<string, unknown> = Record<string, unknown>>(
+export function safeSetFieldsValue<T extends object = Record<string, unknown>>(
   form: FormInstance<T> | null | undefined,
   values: Partial<T>
 ): void {

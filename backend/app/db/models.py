@@ -492,3 +492,104 @@ class ExplorationReport(Base):
 
     def __repr__(self):
         return f"<ExplorationReport(id={self.id}, report_id='{self.report_id}', model_id={self.model_id})>"
+
+
+class KnowledgeGraphNode(Base):
+    """知识图谱节点表"""
+    __tablename__ = "knowledge_graph_nodes"
+
+    __table_args__ = (
+        Index("idx_kg_node_key_unique", "node_key", unique=True),
+        Index("idx_kg_node_type_label", "node_type", "label"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    node_key = Column(String(255), nullable=False, index=True)
+    label = Column(String(500), nullable=False, index=True)
+    node_type = Column(String(50), nullable=False, index=True)
+    aliases = Column(JSON, nullable=True)
+    metadata_json = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    def __repr__(self):
+        return f"<KnowledgeGraphNode(id={self.id}, key='{self.node_key}', type='{self.node_type}')>"
+
+
+class KnowledgeGraphEdge(Base):
+    """知识图谱边表"""
+    __tablename__ = "knowledge_graph_edges"
+
+    __table_args__ = (
+        Index("idx_kg_edge_article", "source_article_id"),
+        Index("idx_kg_edge_relation", "relation_type", "confidence"),
+        Index("idx_kg_edge_nodes", "source_node_id", "target_node_id"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    source_node_id = Column(Integer, ForeignKey("knowledge_graph_nodes.id"), nullable=False, index=True)
+    target_node_id = Column(Integer, ForeignKey("knowledge_graph_nodes.id"), nullable=False, index=True)
+    relation_type = Column(String(100), nullable=False, index=True)
+    confidence = Column(String(20), nullable=False, default="EXTRACTED", index=True)
+    confidence_score = Column(Float, nullable=False, default=1.0)
+    weight = Column(Float, nullable=False, default=1.0)
+    source_article_id = Column(Integer, ForeignKey("articles.id"), nullable=True, index=True)
+    evidence_snippet = Column(Text, nullable=True)
+    metadata_json = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    def __repr__(self):
+        return (
+            f"<KnowledgeGraphEdge(id={self.id}, relation='{self.relation_type}', "
+            f"source_node_id={self.source_node_id}, target_node_id={self.target_node_id})>"
+        )
+
+
+class KnowledgeGraphArticleState(Base):
+    """知识图谱文章同步状态表"""
+    __tablename__ = "knowledge_graph_article_states"
+
+    __table_args__ = (
+        Index("idx_kg_article_state_status", "status", "last_synced_at"),
+    )
+
+    article_id = Column(Integer, ForeignKey("articles.id"), primary_key=True)
+    content_hash = Column(String(128), nullable=True, index=True)
+    status = Column(String(20), nullable=False, default="pending", index=True)
+    sync_mode = Column(String(20), nullable=False, default="deterministic")
+    last_synced_at = Column(DateTime, nullable=True, index=True)
+    last_error = Column(Text, nullable=True)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    def __repr__(self):
+        return (
+            f"<KnowledgeGraphArticleState(article_id={self.article_id}, "
+            f"status='{self.status}', sync_mode='{self.sync_mode}')>"
+        )
+
+
+class KnowledgeGraphBuild(Base):
+    """知识图谱构建任务记录表"""
+    __tablename__ = "knowledge_graph_builds"
+
+    __table_args__ = (
+        Index("idx_kg_build_status_started", "status", "started_at"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    build_id = Column(String(64), nullable=False, unique=True, index=True)
+    status = Column(String(20), nullable=False, default="pending", index=True)
+    trigger_source = Column(String(50), nullable=False, default="manual")
+    sync_mode = Column(String(20), nullable=False, default="deterministic")
+    total_articles = Column(Integer, nullable=False, default=0)
+    processed_articles = Column(Integer, nullable=False, default=0)
+    nodes_upserted = Column(Integer, nullable=False, default=0)
+    edges_upserted = Column(Integer, nullable=False, default=0)
+    error_message = Column(Text, nullable=True)
+    extra_data = Column(JSON, nullable=True)
+    started_at = Column(DateTime, default=datetime.now, nullable=False, index=True)
+    completed_at = Column(DateTime, nullable=True)
+
+    def __repr__(self):
+        return f"<KnowledgeGraphBuild(build_id='{self.build_id}', status='{self.status}')>"
