@@ -164,6 +164,7 @@ export default function KnowledgeGraphExplorer() {
     originX: 0,
     originY: 0,
   });
+  const canvasContainerRef = useRef<HTMLDivElement | null>(null);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [nodeTypeFilter, setNodeTypeFilter] = useState<string>();
@@ -330,13 +331,30 @@ export default function KnowledgeGraphExplorer() {
     openModal(buildNodeQuestion(nodeDetail.node, mode));
   }, [nodeDetail?.node, openModal, setSelectedEngine]);
 
-  const handleWheel = useCallback((event: React.WheelEvent<SVGSVGElement>) => {
-    event.preventDefault();
+  const handleWheelZoom = useCallback((deltaY: number) => {
     setViewport((previous) => ({
       ...previous,
-      scale: clamp(previous.scale + (event.deltaY < 0 ? 0.14 : -0.14), MIN_SCALE, MAX_SCALE),
+      scale: clamp(previous.scale + (deltaY < 0 ? 0.14 : -0.14), MIN_SCALE, MAX_SCALE),
     }));
   }, []);
+
+  useEffect(() => {
+    const container = canvasContainerRef.current;
+    if (!container || isLoading || positionedNodes.length === 0) {
+      return;
+    }
+
+    const handleNativeWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      handleWheelZoom(event.deltaY);
+    };
+
+    container.addEventListener('wheel', handleNativeWheel, { passive: false });
+    return () => {
+      container.removeEventListener('wheel', handleNativeWheel);
+    };
+  }, [handleWheelZoom, isLoading, positionedNodes.length]);
 
   const handleMouseDown = useCallback((event: React.MouseEvent<SVGSVGElement>) => {
     if (event.button !== 0) {
@@ -455,10 +473,12 @@ export default function KnowledgeGraphExplorer() {
         <Row gutter={[16, 16]}>
           <Col xs={24} xl={16}>
             <div
+              ref={canvasContainerRef}
               style={{
                 border: `1px solid ${getThemeColor(theme, 'border')}`,
                 borderRadius: 16,
                 overflow: 'hidden',
+                overscrollBehavior: 'contain',
                 background:
                   theme === 'dark'
                     ? 'radial-gradient(circle at top, rgba(37,99,235,0.18), transparent 45%), #121212'
@@ -477,7 +497,6 @@ export default function KnowledgeGraphExplorer() {
                 <svg
                   viewBox={`0 0 ${SVG_WIDTH} ${SVG_HEIGHT}`}
                   style={{ width: '100%', height: '100%', display: 'block', touchAction: 'none', cursor: dragStateRef.current.active ? 'grabbing' : 'grab' }}
-                  onWheel={handleWheel}
                   onMouseDown={handleMouseDown}
                   onMouseMove={handleMouseMove}
                   onMouseUp={stopDragging}
