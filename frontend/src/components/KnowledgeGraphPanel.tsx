@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import {
   Alert,
@@ -171,6 +171,7 @@ export default function KnowledgeGraphPanel() {
   const { isAuthenticated } = useAuth();
   const { createErrorHandler, showSuccess, showWarning } = useErrorHandler();
   const { graphCommand, focusArticle, focusCommunity, focusNode, focusPath } = useKnowledgeGraphView();
+  const graphSectionRef = useRef<HTMLDivElement | null>(null);
 
   const [activeWorkbenchTab, setActiveWorkbenchTab] = useState<WorkbenchTabKey>('qa');
   const [question, setQuestion] = useState('');
@@ -251,6 +252,22 @@ export default function KnowledgeGraphPanel() {
     }
     setActiveWorkbenchTab(graphCommand.reason === 'path' ? 'path' : 'navigate');
   }, [graphCommand?.id, graphCommand?.reason]);
+
+  useEffect(() => {
+    if (!graphCommand?.id) {
+      return;
+    }
+    const target = graphSectionRef.current;
+    if (!target || typeof target.scrollIntoView !== 'function') {
+      return;
+    }
+    requestAnimationFrame(() => {
+      target.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      });
+    });
+  }, [graphCommand?.id]);
 
   const refreshGraphQueries = () => {
     queryClient.invalidateQueries({ queryKey: ['knowledge-graph-settings'] });
@@ -635,101 +652,109 @@ export default function KnowledgeGraphPanel() {
           <Paragraph type="secondary" style={{ marginBottom: 0 }}>
             适合从列表快速进入图谱。先选实体或社区，再到下方知识图谱里继续看邻域、社区和文章。
           </Paragraph>
-          <div>
-            <Text strong>实体入口</Text>
-            <Search
-              style={{ marginTop: 12, marginBottom: 12 }}
-              placeholder="搜索节点名称或 node key"
-              allowClear
-              value={navigationSearch}
-              onChange={(event) => setNavigationSearch(event.target.value)}
-            />
-            <List
-              size="small"
-              loading={navigationNodesLoading}
-              dataSource={navigationNodes}
-              locale={{ emptyText: '暂无节点' }}
-              renderItem={(node) => (
-                <List.Item
-                  style={{ cursor: 'pointer' }}
-                  onClick={() => focusNode(node.node_key)}
-                  actions={[
-                    <Button
-                      key="focus-node"
-                      type="link"
-                      size="small"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        focusNode(node.node_key);
-                      }}
-                    >
-                      图谱定位
-                    </Button>,
-                  ]}
-                >
-                  <Space direction="vertical" size={0} style={{ width: '100%' }}>
-                    <Text strong>{node.label}</Text>
-                    <Text type="secondary">
-                      {node.node_key} · {node.node_type} · 度数 {node.degree}
-                    </Text>
-                  </Space>
-                </List.Item>
-              )}
-            />
-          </div>
-          <div>
-            <Text strong>社区入口</Text>
-            <List
-              size="small"
-              style={{ marginTop: 12 }}
-              loading={communitiesLoading}
-              dataSource={communityItems}
-              locale={{ emptyText: '暂无社区数据' }}
-              renderItem={(community) => (
-                <List.Item
-                  style={{ cursor: 'pointer' }}
-                  onClick={() => openCommunityDrawer(community)}
-                  actions={[
-                    <Button
-                      key="open-community"
-                      type="link"
-                      size="small"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        openCommunityDrawer(community);
-                      }}
-                    >
-                      打开社区
-                    </Button>,
-                  ]}
-                >
-                  <Space direction="vertical" size={4} style={{ width: '100%' }}>
-                    <Text strong>{community.label}</Text>
-                    <Text type="secondary">
-                      节点 {community.node_count} · 边 {community.edge_count} · 文章 {community.article_count}
-                    </Text>
-                    {community.top_nodes.length > 0 && (
-                      <Space wrap size={[8, 8]}>
-                        {community.top_nodes.slice(0, 3).map((node) => (
-                          <Tag
-                            key={node.node_key}
-                            color="purple"
-                            style={{ cursor: 'pointer' }}
+          <Search
+            placeholder="搜索实体节点名称或 node key"
+            allowClear
+            value={navigationSearch}
+            onChange={(event) => setNavigationSearch(event.target.value)}
+          />
+          <Tabs
+            items={[
+              {
+                key: 'nodes',
+                label: '实体入口',
+                children: (
+                  <List
+                    size="small"
+                    loading={navigationNodesLoading}
+                    dataSource={navigationNodes}
+                    locale={{ emptyText: '暂无节点' }}
+                    renderItem={(node) => (
+                      <List.Item
+                        style={{ cursor: 'pointer' }}
+                        onClick={() => focusNode(node.node_key)}
+                        actions={[
+                          <Button
+                            key="focus-node"
+                            type="link"
+                            size="small"
                             onClick={(event) => {
                               event.stopPropagation();
-                              focusNode(node.node_key, { communityId: community.community_id });
+                              focusNode(node.node_key);
                             }}
                           >
-                            {node.label}
-                          </Tag>
-                        ))}
-                      </Space>
+                            图谱定位
+                          </Button>,
+                        ]}
+                      >
+                        <Space direction="vertical" size={0} style={{ width: '100%' }}>
+                          <Text strong>{node.label}</Text>
+                          <Text type="secondary">
+                            {node.node_key} · {node.node_type} · 度数 {node.degree}
+                          </Text>
+                        </Space>
+                      </List.Item>
                     )}
-                  </Space>
-                </List.Item>
-              )}
-            />
-          </div>
+                  />
+                ),
+              },
+              {
+                key: 'communities',
+                label: '社区入口',
+                children: (
+                  <List
+                    size="small"
+                    loading={communitiesLoading}
+                    dataSource={communityItems}
+                    locale={{ emptyText: '暂无社区数据' }}
+                    renderItem={(community) => (
+                      <List.Item
+                        style={{ cursor: 'pointer' }}
+                        onClick={() => openCommunityDrawer(community)}
+                        actions={[
+                          <Button
+                            key="open-community"
+                            type="link"
+                            size="small"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              openCommunityDrawer(community);
+                            }}
+                          >
+                            打开社区
+                          </Button>,
+                        ]}
+                      >
+                        <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                          <Text strong>{community.label}</Text>
+                          <Text type="secondary">
+                            节点 {community.node_count} · 边 {community.edge_count} · 文章 {community.article_count}
+                          </Text>
+                          {community.top_nodes.length > 0 && (
+                            <Space wrap size={[8, 8]}>
+                              {community.top_nodes.slice(0, 3).map((node) => (
+                                <Tag
+                                  key={node.node_key}
+                                  color="purple"
+                                  style={{ cursor: 'pointer' }}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    focusNode(node.node_key, { communityId: community.community_id });
+                                  }}
+                                >
+                                  {node.label}
+                                </Tag>
+                              ))}
+                            </Space>
+                          )}
+                        </Space>
+                      </List.Item>
+                    )}
+                  />
+                ),
+              },
+            ]}
+          />
         </Space>
       ),
     },
@@ -780,7 +805,40 @@ export default function KnowledgeGraphPanel() {
                 </Card>
               </Col>
             </Row>
+          </Space>
+        </Card>
 
+        {!stats?.enabled && (
+          <Alert
+            type="warning"
+            showIcon
+            message="知识图谱当前已关闭"
+            description="请先在系统设置中启用知识图谱，再执行同步、问答、路径查询和图谱探索。"
+          />
+        )}
+
+        <Card
+          style={pageCardStyle}
+          title="工具工作台"
+          extra={<Text type="secondary">围绕当前图谱做问答、路径追踪和实体导航</Text>}
+        >
+          <Tabs
+            activeKey={activeWorkbenchTab}
+            onChange={(key) => setActiveWorkbenchTab(key as WorkbenchTabKey)}
+            items={workbenchItems}
+          />
+        </Card>
+
+        <div ref={graphSectionRef}>
+          <Space direction="vertical" size="small" style={{ width: '100%' }}>
+            <div>
+              <Title level={4} style={{ margin: 0, color: getThemeColor(theme, 'text') }}>
+                知识图谱
+              </Title>
+              <Paragraph style={{ marginTop: 8, marginBottom: 0, color: getThemeColor(theme, 'textSecondary') }}>
+                在这里做可视化交互，配合上方工作台形成问答或查路径，再回图谱定位的闭环。
+              </Paragraph>
+            </div>
             <Row gutter={[16, 16]}>
               <Col xs={24} xl={14}>
                 <div style={{ ...surfaceStyle, padding: 20 }}>
@@ -790,7 +848,7 @@ export default function KnowledgeGraphPanel() {
                         运行状态
                       </Title>
                       <Paragraph style={{ marginTop: 8, marginBottom: 0, color: getThemeColor(theme, 'textSecondary') }}>
-                        这里聚合图谱可用性、同步配置、查询深度和最近快照时间，用户进入页面先判断图谱是否可用、数据是否新鲜。
+                        这里聚合图谱可用性、同步配置、查询深度和最近快照时间，进入可视化前先确认图谱是否可用、数据是否新鲜。
                       </Paragraph>
                     </div>
                     <Space wrap size={[8, 8]}>
@@ -866,40 +924,6 @@ export default function KnowledgeGraphPanel() {
                 </div>
               </Col>
             </Row>
-          </Space>
-        </Card>
-
-        {!stats?.enabled && (
-          <Alert
-            type="warning"
-            showIcon
-            message="知识图谱当前已关闭"
-            description="请先在系统设置中启用知识图谱，再执行同步、问答、路径查询和图谱探索。"
-          />
-        )}
-
-        <Card
-          style={pageCardStyle}
-          title="工具工作台"
-          extra={<Text type="secondary">围绕当前图谱做问答、路径追踪和实体导航</Text>}
-        >
-          <Tabs
-            activeKey={activeWorkbenchTab}
-            onChange={(key) => setActiveWorkbenchTab(key as WorkbenchTabKey)}
-            items={workbenchItems}
-          />
-        </Card>
-
-        <div>
-          <Space direction="vertical" size="small" style={{ width: '100%' }}>
-            <div>
-              <Title level={4} style={{ margin: 0, color: getThemeColor(theme, 'text') }}>
-                知识图谱
-              </Title>
-              <Paragraph style={{ marginTop: 8, marginBottom: 0, color: getThemeColor(theme, 'textSecondary') }}>
-                在这里做可视化交互，配合上方工作台形成问答或查路径，再回图谱定位的闭环。
-              </Paragraph>
-            </div>
             {stats?.enabled ? (
               <KnowledgeGraphExplorer />
             ) : (

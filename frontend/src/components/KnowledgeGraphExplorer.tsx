@@ -56,10 +56,19 @@ type ViewportState = {
   y: number;
 };
 
+type HoverPreviewState = {
+  node: PositionedNode;
+  x: number;
+  y: number;
+};
+
 const SVG_WIDTH = 980;
 const SVG_HEIGHT = 620;
 const MIN_SCALE = 0.6;
 const MAX_SCALE = 2.4;
+const HOVER_CARD_WIDTH = 280;
+const MAX_DEFAULT_LABELS = 12;
+const MAX_ACTIVE_LABELS = 10;
 
 const PALETTE = ['#0f766e', '#2563eb', '#dc2626', '#ca8a04', '#7c3aed', '#ea580c', '#0891b2', '#4f46e5'];
 
@@ -147,6 +156,102 @@ function getDefaultViewport(): ViewportState {
   return { scale: 1, x: 0, y: 0 };
 }
 
+function formatCentrality(value: number) {
+  return Number.isFinite(value) ? value.toFixed(2) : '-';
+}
+
+function selectVisibleLabelKeys(
+  nodes: PositionedNode[],
+  {
+    selectedNodeKey,
+    focusNodeKeys,
+    highlightedNodeKeys,
+    selectedNeighborKeys,
+  }: {
+    selectedNodeKey?: string;
+    focusNodeKeys: string[];
+    highlightedNodeKeys: string[];
+    selectedNeighborKeys: Set<string>;
+  }
+) {
+  if (nodes.length === 0) {
+    return new Set<string>();
+  }
+
+  const highlightedSet = new Set(highlightedNodeKeys);
+  const focusSet = new Set(focusNodeKeys);
+  const pinnedKeys = new Set<string>();
+
+  if (selectedNodeKey) {
+    pinnedKeys.add(selectedNodeKey);
+  }
+  if (focusNodeKeys.length > 0) {
+    pinnedKeys.add(focusNodeKeys[0]);
+    pinnedKeys.add(focusNodeKeys[focusNodeKeys.length - 1]);
+  }
+
+  const scoreNode = (node: PositionedNode) => {
+    let score = node.centrality * 100 + node.degree * 6 + node.article_count * 4;
+    if (node.node_key === selectedNodeKey) score += 2000;
+    if (highlightedSet.has(node.node_key)) score += 1200;
+    if (focusSet.has(node.node_key)) score += 900;
+    if (selectedNeighborKeys.has(node.node_key)) score += 280;
+    if (pinnedKeys.has(node.node_key)) score += 1600;
+    return score;
+  };
+
+  const compareNodes = (left: PositionedNode, right: PositionedNode) =>
+    scoreNode(right) - scoreNode(left)
+      || right.degree - left.degree
+      || right.centrality - left.centrality
+      || left.label.localeCompare(right.label);
+
+  const activeNodeKeys = new Set<string>([
+    ...focusNodeKeys,
+    ...highlightedNodeKeys,
+    ...Array.from(selectedNeighborKeys),
+    ...(selectedNodeKey ? [selectedNodeKey] : []),
+  ]);
+
+  if (activeNodeKeys.size > 0) {
+    const activeNodes = nodes.filter((node) => activeNodeKeys.has(node.node_key));
+    const labelBudget = activeNodes.length <= 6
+      ? activeNodes.length
+      : Math.min(MAX_ACTIVE_LABELS, Math.max(5, Math.ceil(Math.sqrt(activeNodes.length) * 2)));
+    const labelKeys = new Set<string>(pinnedKeys);
+
+    activeNodes
+      .sort(compareNodes)
+      .slice(0, labelBudget)
+      .forEach((node) => labelKeys.add(node.node_key));
+
+    return labelKeys;
+  }
+
+  return new Set(
+    [...nodes]
+      .sort(compareNodes)
+      .slice(0, MAX_DEFAULT_LABELS)
+      .map((node) => node.node_key)
+  );
+}
+
+function getNodeMetadataPreview(node: PositionedNode) {
+  const metadataEntries = Object.entries(node.metadata || {})
+    .filter(([, value]) => ['string', 'number', 'boolean'].includes(typeof value))
+    .filter(([, value]) => String(value).trim().length > 0);
+
+  const preferredKeys = ['title', 'summary', 'description', 'source', 'published_at', 'author'];
+  const preferredEntries = preferredKeys
+    .map((key) => metadataEntries.find(([entryKey]) => entryKey === key))
+    .filter((entry): entry is [string, string | number | boolean] => Boolean(entry));
+  const remainingEntries = metadataEntries.filter(
+    ([key]) => !preferredKeys.includes(key)
+  );
+
+  return [...preferredEntries, ...remainingEntries].slice(0, 3);
+}
+
 export default function KnowledgeGraphExplorer() {
   const { theme } = useTheme();
   const { openModal, setSelectedEngine } = useAIConversation();
@@ -176,6 +281,7 @@ export default function KnowledgeGraphExplorer() {
   const [highlightedNodeKeys, setHighlightedNodeKeys] = useState<string[]>([]);
   const [highlightedEdgeKeys, setHighlightedEdgeKeys] = useState<string[]>([]);
   const [viewport, setViewport] = useState<ViewportState>(getDefaultViewport);
+  const [hoverPreview, setHoverPreview] = useState<HoverPreviewState | null>(null);
 
   const resetViewport = useCallback(() => {
     setViewport(getDefaultViewport());
@@ -193,6 +299,7 @@ export default function KnowledgeGraphExplorer() {
     setExpandDepth(graphCommand.expandDepth);
     setHighlightedNodeKeys(graphCommand.highlightedNodeKeys);
     setHighlightedEdgeKeys(graphCommand.highlightedEdgeKeys);
+    setHoverPreview(null);
     resetViewport();
   }, [graphCommand?.id, resetViewport]);
 
@@ -270,13 +377,16 @@ export default function KnowledgeGraphExplorer() {
     return neighborKeys;
   }, [links, selectedNodeKey]);
 
-  const labelKeys = useMemo(() => {
-    const topNodes = [...positionedNodes]
-      .sort((left, right) => right.degree - left.degree)
-      .slice(0, 12)
-      .map((node) => node.node_key);
-    return new Set(topNodes);
-  }, [positionedNodes]);
+  const labelKeys = useMemo(
+    () =>
+      selectVisibleLabelKeys(positionedNodes, {
+        selectedNodeKey,
+        focusNodeKeys,
+        highlightedNodeKeys,
+        selectedNeighborKeys,
+      }),
+    [focusNodeKeys, highlightedNodeKeys, positionedNodes, selectedNeighborKeys, selectedNodeKey]
+  );
 
   const communityOptions = useMemo(
     () =>
@@ -301,6 +411,7 @@ export default function KnowledgeGraphExplorer() {
     setExpandDepth(0);
     setHighlightedNodeKeys([]);
     setHighlightedEdgeKeys([]);
+    setHoverPreview(null);
     resetViewport();
   }, [resetViewport]);
 
@@ -360,6 +471,7 @@ export default function KnowledgeGraphExplorer() {
     if (event.button !== 0) {
       return;
     }
+    setHoverPreview(null);
     dragStateRef.current = {
       active: true,
       startX: event.clientX,
@@ -385,6 +497,31 @@ export default function KnowledgeGraphExplorer() {
   const stopDragging = useCallback(() => {
     dragStateRef.current.active = false;
   }, []);
+
+  const updateHoverPreview = useCallback((
+    event: React.MouseEvent<SVGGElement>,
+    node: PositionedNode
+  ) => {
+    const container = canvasContainerRef.current;
+    if (!container || dragStateRef.current.active) {
+      return;
+    }
+    const rect = container.getBoundingClientRect();
+    const x = clamp(event.clientX - rect.left + 18, 12, Math.max(12, rect.width - HOVER_CARD_WIDTH - 12));
+    const y = clamp(event.clientY - rect.top + 18, 12, Math.max(12, rect.height - 168));
+
+    setHoverPreview({
+      node,
+      x,
+      y,
+    });
+  }, []);
+
+  const clearHoverPreview = useCallback(() => {
+    setHoverPreview(null);
+  }, []);
+
+  const hoverMetadataPreview = hoverPreview ? getNodeMetadataPreview(hoverPreview.node) : [];
 
   return (
     <Card
@@ -475,6 +612,7 @@ export default function KnowledgeGraphExplorer() {
             <div
               ref={canvasContainerRef}
               style={{
+                position: 'relative',
                 border: `1px solid ${getThemeColor(theme, 'border')}`,
                 borderRadius: 16,
                 overflow: 'hidden',
@@ -500,7 +638,10 @@ export default function KnowledgeGraphExplorer() {
                   onMouseDown={handleMouseDown}
                   onMouseMove={handleMouseMove}
                   onMouseUp={stopDragging}
-                  onMouseLeave={stopDragging}
+                  onMouseLeave={() => {
+                    stopDragging();
+                    clearHoverPreview();
+                  }}
                 >
                   <defs>
                     <pattern id="kg-grid" width="36" height="36" patternUnits="userSpaceOnUse">
@@ -575,9 +716,13 @@ export default function KnowledgeGraphExplorer() {
                       return (
                         <g
                           key={node.node_key}
+                          data-node-key={node.node_key}
                           transform={`translate(${node.x}, ${node.y})`}
                           style={{ cursor: 'pointer', opacity }}
                           onClick={() => handleNodeClick(node.node_key)}
+                          onMouseEnter={(event) => updateHoverPreview(event, node)}
+                          onMouseMove={(event) => updateHoverPreview(event, node)}
+                          onMouseLeave={clearHoverPreview}
                         >
                           <circle
                             r={node.radius + (isSelected ? 7 : isPathNode ? 5 : 0)}
@@ -614,6 +759,73 @@ export default function KnowledgeGraphExplorer() {
                     })}
                   </g>
                 </svg>
+              )}
+
+              {hoverPreview && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    left: hoverPreview.x,
+                    top: hoverPreview.y,
+                    width: HOVER_CARD_WIDTH,
+                    padding: 14,
+                    borderRadius: 14,
+                    border: `1px solid ${getThemeColor(theme, 'border')}`,
+                    background: theme === 'dark' ? 'rgba(2, 6, 23, 0.96)' : 'rgba(255, 255, 255, 0.96)',
+                    boxShadow: theme === 'dark'
+                      ? '0 18px 40px rgba(0, 0, 0, 0.36)'
+                      : '0 18px 40px rgba(15, 23, 42, 0.16)',
+                    pointerEvents: 'none',
+                    zIndex: 2,
+                  }}
+                >
+                  <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                    <div>
+                      <Text strong style={{ color: getThemeColor(theme, 'text') }}>
+                        节点预览
+                      </Text>
+                      <Title level={5} style={{ margin: '6px 0 0', color: getThemeColor(theme, 'text') }}>
+                        {hoverPreview.node.label}
+                      </Title>
+                    </div>
+
+                    <Space wrap size={[8, 8]}>
+                      <Tag color="blue">{hoverPreview.node.node_type}</Tag>
+                      <Tag>度数 {hoverPreview.node.degree}</Tag>
+                      <Tag>文章 {hoverPreview.node.article_count}</Tag>
+                      {hoverPreview.node.community_id !== null && hoverPreview.node.community_id !== undefined && (
+                        <Tag>社区 {hoverPreview.node.community_id}</Tag>
+                      )}
+                    </Space>
+
+                    <Text type="secondary">{hoverPreview.node.node_key}</Text>
+                    <Text type="secondary">中心性 {formatCentrality(hoverPreview.node.centrality)}</Text>
+
+                    {hoverPreview.node.aliases.length > 0 && (
+                      <div>
+                        <Text strong>别名</Text>
+                        <div style={{ marginTop: 6 }}>
+                          {hoverPreview.node.aliases.slice(0, 4).map((alias) => (
+                            <Tag key={alias}>{alias}</Tag>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {hoverMetadataPreview.length > 0 && (
+                      <div>
+                        <Text strong>内容摘要</Text>
+                        <Space direction="vertical" size={4} style={{ width: '100%', marginTop: 6 }}>
+                          {hoverMetadataPreview.map(([key, value]) => (
+                            <Text key={key} type="secondary">
+                              {key}: {String(value)}
+                            </Text>
+                          ))}
+                        </Space>
+                      </div>
+                    )}
+                  </Space>
+                </div>
               )}
             </div>
           </Col>

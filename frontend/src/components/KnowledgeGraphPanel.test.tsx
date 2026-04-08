@@ -196,9 +196,9 @@ describe('KnowledgeGraphPanel', () => {
 
     await screen.findByText('工具工作台');
 
-    const questionInput = screen
-      .getAllByPlaceholderText(/最近推理模型相关实体之间最关键的关系变化/)
-      .find((element) => element.getAttribute('aria-hidden') !== 'true');
+    const questionInput = Array.from(document.querySelectorAll('textarea.ant-input')).find(
+      (element) => element.getAttribute('aria-hidden') !== 'true'
+    );
 
     expect(questionInput).toBeTruthy();
     await userEvent.type(questionInput as HTMLElement, '最近有哪些变化？');
@@ -220,6 +220,7 @@ describe('KnowledgeGraphPanel', () => {
     await userEvent.click(screen.getByText('实体导航'));
     expect(await screen.findByText('实体入口')).toBeInTheDocument();
     expect(await screen.findByText('社区入口')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('tab', { name: '社区入口' }));
     expect(await screen.findByRole('button', { name: '打开社区' })).toBeInTheDocument();
   });
 });

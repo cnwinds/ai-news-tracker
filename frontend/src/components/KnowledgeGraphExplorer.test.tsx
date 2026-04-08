@@ -190,4 +190,20 @@ describe('KnowledgeGraphExplorer', () => {
       );
     });
   });
+
+  it('shows a hover preview for every graph node', async () => {
+    const { container } = renderWithProviders(<KnowledgeGraphExplorer />);
+
+    await waitFor(() => {
+      expect(container.querySelector('[data-node-key="source:OpenAI"]')).toBeTruthy();
+    });
+
+    const graphNode = container.querySelector('[data-node-key="source:OpenAI"]');
+    expect(graphNode).toBeTruthy();
+    await userEvent.hover(graphNode as Element);
+
+    expect(await screen.findByText('节点预览')).toBeInTheDocument();
+    expect(screen.getByText('中心性 0.70')).toBeInTheDocument();
+    expect(screen.getByText('source:OpenAI')).toBeInTheDocument();
+  });
 });
