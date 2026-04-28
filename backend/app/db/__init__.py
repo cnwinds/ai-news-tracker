@@ -146,6 +146,12 @@ class DatabaseManager:
 
             # 升级：探索模型唯一标识（从 model_name 迁移到 source_platform+source_uid）
             self._upgrade_exploration_model_identity()
+
+            # 迁移：补齐 discovered_models 活动字段（兼容旧库）
+            self._migrate_add_model_activity_fields()
+
+            # 迁移：补齐 access_logs 新增字段（兼容旧库）
+            self._migrate_add_access_log_fields()
              
             logger.info("✅ 数据库基础表初始化成功")
         except Exception as e:
@@ -318,6 +324,83 @@ class DatabaseManager:
                 logger.info("✅ exploration 模型标识升级完成")
         except Exception as e:
             logger.warning(f"⚠️  exploration 模型标识升级失败: {e}")
+
+    def _migrate_add_model_activity_fields(self):
+        """迁移：为 discovered_models 表补齐活动字段"""
+        try:
+            from sqlalchemy import inspect, text
+
+            inspector = inspect(self.engine)
+            try:
+                columns = {col['name'] for col in inspector.get_columns('discovered_models')}
+            except Exception:
+                logger.debug("discovered_models 表不存在，跳过活动字段迁移")
+                return
+
+            alter_sql_map = {
+                'last_activity_at': "ALTER TABLE discovered_models ADD COLUMN last_activity_at TIMESTAMP",
+                'activity_type': "ALTER TABLE discovered_models ADD COLUMN activity_type VARCHAR(50)",
+                'activity_confidence': "ALTER TABLE discovered_models ADD COLUMN activity_confidence REAL",
+            }
+
+            with self.engine.connect() as conn:
+                for field, sql in alter_sql_map.items():
+                    if field in columns:
+                        continue
+                    logger.info(f"🔄 检测到 discovered_models 缺少 {field} 字段，正在添加...")
+                    conn.execute(text(sql))
+                conn.commit()
+
+                conn.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS idx_model_last_activity "
+                        "ON discovered_models(last_activity_at)"
+                    )
+                )
+                conn.commit()
+            logger.info("✅ discovered_models 活动字段迁移完成")
+        except Exception as e:
+            logger.warning(f"⚠️  discovered_models 活动字段迁移失败: {e}")
+
+    def _migrate_add_access_log_fields(self):
+        """迁移：为 access_logs 表补齐历史版本缺失字段"""
+        try:
+            from sqlalchemy import inspect, text
+
+            inspector = inspect(self.engine)
+            try:
+                columns = {col['name'] for col in inspector.get_columns('access_logs')}
+            except Exception:
+                logger.debug("access_logs 表不存在，跳过字段迁移")
+                return
+
+            alter_sql_map = {
+                'ip_address': "ALTER TABLE access_logs ADD COLUMN ip_address VARCHAR(50)",
+                'user_agent': "ALTER TABLE access_logs ADD COLUMN user_agent VARCHAR(500)",
+                'extra_data': "ALTER TABLE access_logs ADD COLUMN extra_data JSON",
+                'last_activity_at': "ALTER TABLE access_logs ADD COLUMN last_activity_at TIMESTAMP",
+                'activity_type': "ALTER TABLE access_logs ADD COLUMN activity_type VARCHAR(50)",
+                'activity_confidence': "ALTER TABLE access_logs ADD COLUMN activity_confidence REAL",
+            }
+
+            with self.engine.connect() as conn:
+                for field, sql in alter_sql_map.items():
+                    if field in columns:
+                        continue
+                    logger.info(f"🔄 检测到 access_logs 缺少 {field} 字段，正在添加...")
+                    conn.execute(text(sql))
+                conn.commit()
+
+                conn.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS idx_access_last_activity_at "
+                        "ON access_logs(last_activity_at)"
+                    )
+                )
+                conn.commit()
+            logger.info("✅ access_logs 字段迁移完成")
+        except Exception as e:
+            logger.warning(f"⚠️  access_logs 字段迁移失败: {e}")
 
     def _migrate_add_detailed_summary(self):
         """迁移：为 articles 表添加 detailed_summary 字段，并将现有 summary 数据迁移到 detailed_summary"""
