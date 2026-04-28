@@ -78,8 +78,8 @@ frontend/
 复制 `.env.example` 为 `.env` 并配置：
 
 ```env
-VITE_API_BASE_URL=http://localhost:8000/api/v1
-VITE_WS_BASE_URL=ws://localhost:8000/api/v1/ws
+VITE_API_BASE_URL=/api/v1
+VITE_WS_BASE_URL=/api/v1/ws
 ```
 
 ## 功能特性
@@ -123,9 +123,9 @@ useEffect(() => {
 
 ## 注意事项
 
-- 确保后端API服务已启动（默认端口8000）
+- 确保后端API服务已启动（开发模式默认端口8000）
 - WebSocket连接需要后端支持
-- 生产环境需要配置正确的API和WebSocket地址
+- 生产环境建议通过反向代理将同源 `/api` 路径转发到后端，减少对外暴露端口
 
 
 

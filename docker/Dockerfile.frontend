@@ -16,10 +16,9 @@ COPY frontend/ ./
 
 # 设置构建时的环境变量
 # API使用相对路径，nginx会代理到后端
-# WebSocket使用当前协议和主机（在浏览器中会自动使用当前页面的协议和主机）
+# WebSocket支持相对路径，前端运行时会自动拼接当前协议和主机
 ENV VITE_API_BASE_URL=/api/v1
-# WebSocket URL会在运行时根据window.location自动生成，这里设置一个默认值
-ENV VITE_WS_BASE_URL=ws://localhost:5173/api/v1/ws
+ENV VITE_WS_BASE_URL=/api/v1/ws
 
 # 构建前端应用
 RUN npm run build

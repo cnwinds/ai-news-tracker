@@ -77,8 +77,8 @@ environment:
 前端WebSocket连接通过nginx代理到后端。如果遇到WebSocket连接问题：
 
 1. 确保nginx配置正确（`docker/nginx.conf`）
-2. 检查前端环境变量 `VITE_WS_BASE_URL`（在 `Dockerfile.frontend` 中设置）
-3. WebSocket URL应该使用当前页面的协议和主机，例如：`ws://localhost:5173/api/v1/ws`
+2. 检查前端环境变量 `VITE_WS_BASE_URL`（在 `Dockerfile.frontend` 中设置，推荐 `/api/v1/ws`）
+3. 前端会在运行时自动使用当前页面协议和主机拼接 WebSocket 地址
 
 ### 端口配置
 

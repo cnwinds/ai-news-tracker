@@ -1,0 +1,20 @@
+{
+  "generated_at": "2026-04-28T10:47:29.385966",
+  "build": null,
+  "stats": {
+    "total_nodes": 0,
+    "total_edges": 0,
+    "total_article_nodes": 0,
+    "node_type_counts": {},
+    "relation_type_counts": {},
+    "coverage": 0.0
+  },
+  "nodes": [],
+  "links": [],
+  "communities": [],
+  "god_nodes": [],
+  "article_coverage": {
+    "total_articles": 1609,
+    "synced_articles": 0
+  }
+}

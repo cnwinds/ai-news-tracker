@@ -1101,7 +1101,7 @@ export default function ModelExplorer() {
             type="primary"
             onClick={() => {
               if (!selectedReport) return;
-              const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1';
+              const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api/v1';
               window.open(`${baseUrl}/exploration/reports/${selectedReport.report_id}/export`, '_blank');
             }}
           >

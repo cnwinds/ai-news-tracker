@@ -7,8 +7,8 @@ services:
       context: ..
       dockerfile: docker/Dockerfile.backend
     container_name: ai-news-tracker-backend
-    ports:
-      - "8000:8000"
+    expose:
+      - "8000"
     volumes:
       # 映射数据库目录到 docker 目录的 data 目录
       - ./data:/app/backend/app/data

@@ -1,6 +1,22 @@
 import type { WebSocketMessage } from '@/types';
 
-const WS_BASE_URL = import.meta.env.VITE_WS_BASE_URL || 'ws://localhost:8000/api/v1/ws';
+function resolveWebSocketUrl(): string {
+  const configured = import.meta.env.VITE_WS_BASE_URL;
+  if (configured) {
+    if (configured.startsWith('ws://') || configured.startsWith('wss://')) {
+      return configured;
+    }
+    if (configured.startsWith('/')) {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      return `${protocol}//${window.location.host}${configured}`;
+    }
+  }
+
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${protocol}//${window.location.host}/api/v1/ws`;
+}
+
+const WS_BASE_URL = resolveWebSocketUrl();
 const HEARTBEAT_INTERVAL = 30000;
 const RECONNECT_DELAY = 3000;
 const MAX_RECONNECT_ATTEMPTS = 5;
