@@ -10,6 +10,7 @@ import math
 import re
 import time
 import unicodedata
+import threading
 import uuid
 from collections import Counter, defaultdict, deque
 from datetime import datetime
@@ -2205,18 +2206,54 @@ class KnowledgeGraphService:
             logger.info("[community] no edges — assigning each node its own community")
             raw_communities = [{node_key} for node_key in graph.nodes()]
         else:
-            logger.info(
-                "[community] full greedy_modularity_communities on %d nodes / %d edges — this may take tens of seconds",
-                graph.number_of_nodes(), graph.number_of_edges(),
-            )
+            # For large graphs greedy_modularity_communities is O(n log^2 n) and can
+            # take minutes at 50k+ nodes.  label_propagation is O(n+e) and finishes
+            # in seconds; we use it automatically above the threshold.
+            COMMUNITY_LARGE_GRAPH_THRESHOLD = 15_000
+            use_fast = graph.number_of_nodes() > COMMUNITY_LARGE_GRAPH_THRESHOLD
+
+            if use_fast:
+                algo_name = "label_propagation_communities"
+                logger.info(
+                    "[community] large graph (%d nodes > %d threshold) — using %s (fast O(n+e))",
+                    graph.number_of_nodes(), COMMUNITY_LARGE_GRAPH_THRESHOLD, algo_name,
+                )
+            else:
+                algo_name = "greedy_modularity_communities"
+                logger.info(
+                    "[community] small graph (%d nodes) — using %s",
+                    graph.number_of_nodes(), algo_name,
+                )
+
             t0 = time.perf_counter()
-            raw_communities = [
-                set(community)
-                for community in nx.algorithms.community.greedy_modularity_communities(graph)
-            ]
+            done_event = threading.Event()
+
+            def _heartbeat() -> None:
+                while not done_event.wait(10.0):
+                    logger.info(
+                        "[community] %s still running... %.0fs elapsed",
+                        algo_name, time.perf_counter() - t0,
+                    )
+
+            hb = threading.Thread(target=_heartbeat, daemon=True, name="community-heartbeat")
+            hb.start()
+            try:
+                if use_fast:
+                    raw_communities = [
+                        set(community)
+                        for community in nx.algorithms.community.label_propagation_communities(graph)
+                    ]
+                else:
+                    raw_communities = [
+                        set(community)
+                        for community in nx.algorithms.community.greedy_modularity_communities(graph)
+                    ]
+            finally:
+                done_event.set()
+
             logger.info(
-                "[community] greedy_modularity_communities done: %d communities (%.2fs)",
-                len(raw_communities), time.perf_counter() - t0,
+                "[community] %s done: %d communities (%.2fs)",
+                algo_name, len(raw_communities), time.perf_counter() - t0,
             )
 
         community_map = {}
