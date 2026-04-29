@@ -86,27 +86,6 @@ function getNodeTypeColor(nodeType: string) {
   return PALETTE[index];
 }
 
-function buildCommunityCenters(communities: Array<number | 'unclustered'>) {
-  const radius = Math.min(250, 110 + communities.length * 18);
-  const centerX = SVG_WIDTH / 2;
-  const centerY = SVG_HEIGHT / 2;
-
-  return new Map(
-    communities.map((community, index) => {
-      if (communities.length === 1) {
-        return [community, { x: centerX, y: centerY }] as const;
-      }
-      const angle = (Math.PI * 2 * index) / communities.length - Math.PI / 2;
-      return [
-        community,
-        {
-          x: centerX + Math.cos(angle) * radius,
-          y: centerY + Math.sin(angle) * Math.max(120, radius * 0.68),
-        },
-      ] as const;
-    })
-  );
-}
 
 function hasLayoutCoordinates(
   node: KnowledgeGraphNodeSummary
@@ -123,75 +102,96 @@ function computeLayout(nodes: KnowledgeGraphNodeSummary[]): PositionedNode[] {
     return [];
   }
 
-  if (nodes.every(hasLayoutCoordinates)) {
-    if (nodes.length === 1) {
-      return nodes.map((node) => ({
-        ...node,
-        x: SVG_WIDTH / 2,
-        y: SVG_HEIGHT / 2,
-        radius: getNodeRadius(node),
-      }));
-    }
+  const layoutNodes = nodes.filter(hasLayoutCoordinates);
+  const fallbackNodes = nodes.filter((node) => !hasLayoutCoordinates(node));
 
-    const xValues = nodes.map((node) => node.layout_x);
-    const yValues = nodes.map((node) => node.layout_y);
-    const minX = Math.min(...xValues);
-    const maxX = Math.max(...xValues);
-    const minY = Math.min(...yValues);
-    const maxY = Math.max(...yValues);
-    const spanX = Math.max(maxX - minX, 0.001);
-    const spanY = Math.max(maxY - minY, 0.001);
-    const scale = Math.min(
-      (SVG_WIDTH - LAYOUT_PADDING_X * 2) / spanX,
-      (SVG_HEIGHT - LAYOUT_PADDING_Y * 2) / spanY
-    );
-    const centerX = (minX + maxX) / 2;
-    const centerY = (minY + maxY) / 2;
+  // 将已有坐标的节点按比例映射到画布，填满左侧约 70% 宽度
+  const LAYOUT_AREA_RIGHT = fallbackNodes.length > 0 ? SVG_WIDTH * 0.68 : SVG_WIDTH;
 
-    return nodes.map((node) => ({
-      ...node,
-      x: SVG_WIDTH / 2 + (node.layout_x - centerX) * scale,
-      y: SVG_HEIGHT / 2 + (node.layout_y - centerY) * scale,
-      radius: getNodeRadius(node),
-    }));
-  }
-
-  const groups = new Map<number | 'unclustered', KnowledgeGraphNodeSummary[]>();
-  for (const node of nodes) {
-    const key = node.community_id ?? 'unclustered';
-    const existing = groups.get(key) || [];
-    existing.push(node);
-    groups.set(key, existing);
-  }
-
-  const centers = buildCommunityCenters(Array.from(groups.keys()));
   const positioned: PositionedNode[] = [];
 
-  for (const [groupKey, groupNodes] of groups.entries()) {
-    const center = centers.get(groupKey)!;
-    const ordered = [...groupNodes].sort((left, right) => right.degree - left.degree || left.label.localeCompare(right.label));
-    if (ordered.length === 1) {
-      const node = ordered[0];
+  if (layoutNodes.length > 0) {
+    if (layoutNodes.length === 1) {
       positioned.push({
-        ...node,
-        x: center.x,
-        y: center.y,
-        radius: getNodeRadius(node),
+        ...layoutNodes[0],
+        x: LAYOUT_AREA_RIGHT / 2,
+        y: SVG_HEIGHT / 2,
+        radius: getNodeRadius(layoutNodes[0]),
       });
-      continue;
+    } else {
+      const xValues = layoutNodes.map((node) => node.layout_x);
+      const yValues = layoutNodes.map((node) => node.layout_y);
+      const minX = Math.min(...xValues);
+      const maxX = Math.max(...xValues);
+      const minY = Math.min(...yValues);
+      const maxY = Math.max(...yValues);
+      const spanX = Math.max(maxX - minX, 0.001);
+      const spanY = Math.max(maxY - minY, 0.001);
+      const scale = Math.min(
+        (LAYOUT_AREA_RIGHT - LAYOUT_PADDING_X * 2) / spanX,
+        (SVG_HEIGHT - LAYOUT_PADDING_Y * 2) / spanY
+      );
+      const centerX = (minX + maxX) / 2;
+      const centerY = (minY + maxY) / 2;
+
+      for (const node of layoutNodes) {
+        positioned.push({
+          ...node,
+          x: LAYOUT_AREA_RIGHT / 2 + (node.layout_x - centerX) * scale,
+          y: SVG_HEIGHT / 2 + (node.layout_y - centerY) * scale,
+          radius: getNodeRadius(node),
+        });
+      }
+    }
+  }
+
+  // 没有后端坐标的节点用社区轨道布局，紧凑排在右侧余量区
+  if (fallbackNodes.length > 0) {
+    const groups = new Map<number | 'unclustered', KnowledgeGraphNodeSummary[]>();
+    for (const node of fallbackNodes) {
+      const key = node.community_id ?? 'unclustered';
+      const existing = groups.get(key) || [];
+      existing.push(node);
+      groups.set(key, existing);
     }
 
-    ordered.forEach((node, index) => {
-      const angle = (Math.PI * 2 * index) / ordered.length - Math.PI / 2;
-      const orbital = 42 + Math.sqrt(index + 1) * 22;
-      const communityScale = 1 + ordered.length / 18;
-      positioned.push({
-        ...node,
-        x: center.x + Math.cos(angle) * orbital * communityScale,
-        y: center.y + Math.sin(angle) * orbital * Math.max(0.85, communityScale * 0.78),
-        radius: getNodeRadius(node),
+    const fallbackAreaWidth = SVG_WIDTH - LAYOUT_AREA_RIGHT;
+    const fallbackCenterX = LAYOUT_AREA_RIGHT + fallbackAreaWidth / 2;
+    const communities = Array.from(groups.keys());
+    const radius = Math.min(fallbackAreaWidth * 0.42, 80 + communities.length * 12);
+
+    const communityCenters = new Map(
+      communities.map((community, index) => {
+        if (communities.length === 1) {
+          return [community, { x: fallbackCenterX, y: SVG_HEIGHT / 2 }] as const;
+        }
+        const angle = (Math.PI * 2 * index) / communities.length - Math.PI / 2;
+        return [community, {
+          x: fallbackCenterX + Math.cos(angle) * radius * 0.6,
+          y: SVG_HEIGHT / 2 + Math.sin(angle) * radius * 0.5,
+        }] as const;
+      })
+    );
+
+    for (const [groupKey, groupNodes] of groups.entries()) {
+      const center = communityCenters.get(groupKey)!;
+      const ordered = [...groupNodes].sort((l, r) => r.degree - l.degree || l.label.localeCompare(r.label));
+      if (ordered.length === 1) {
+        positioned.push({ ...ordered[0], x: center.x, y: center.y, radius: getNodeRadius(ordered[0]) });
+        continue;
+      }
+      ordered.forEach((node, index) => {
+        const angle = (Math.PI * 2 * index) / ordered.length - Math.PI / 2;
+        const orbital = 18 + Math.sqrt(index + 1) * 10;
+        const communityScale = 1 + ordered.length / 20;
+        positioned.push({
+          ...node,
+          x: center.x + Math.cos(angle) * orbital * communityScale,
+          y: center.y + Math.sin(angle) * orbital * Math.max(0.8, communityScale * 0.75),
+          radius: getNodeRadius(node),
+        });
       });
-    });
+    }
   }
 
   return positioned;

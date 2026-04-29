@@ -55,6 +55,7 @@ ALLOWED_SEMANTIC_NODE_TYPES = {
 ALLOWED_QUERY_MODES = {"auto", "graph", "hybrid", "rag"}
 ALLOWED_RUN_MODES = {"auto", "agent", "deterministic"}
 LAYOUT_COMPONENT_GAP = 2.8
+LAYOUT_MAX_NODES = 500  # 只对前 N 个高度数节点计算布局，避免大图 O(n³) 爆炸
 
 
 class KnowledgeGraphService:
@@ -1734,16 +1735,37 @@ class KnowledgeGraphService:
                     article_ids_per_node[node_key].add(int(article_id))
 
         centrality = nx.degree_centrality(graph) if graph.number_of_nodes() else {}
+
+        # Extract cached community map and layout positions for incremental reuse.
+        cached_snapshot = self._snapshot_cache
+        cached_community_map: Optional[Dict[str, int]] = None
+        cached_layout_positions: Optional[Dict[str, Dict[str, float]]] = None
+        if cached_snapshot:
+            cached_community_map = {
+                item["node_key"]: item["community_id"]
+                for item in cached_snapshot.get("nodes", [])
+                if item.get("community_id") is not None
+            }
+            cached_layout_positions = {
+                item["node_key"]: {"x": item["layout_x"], "y": item["layout_y"]}
+                for item in cached_snapshot.get("nodes", [])
+                if item.get("layout_x") is not None and item.get("layout_y") is not None
+            }
+
         communities_payload, community_map = self._detect_communities(
             graph,
             article_ids_per_node=article_ids_per_node,
             centrality=centrality,
+            cached_community_map=cached_community_map or None,
         )
-        layout_positions = self._compute_distance_layout(graph)
+        layout_positions = self._compute_distance_layout(
+            graph,
+            cached_positions=cached_layout_positions or None,
+        )
 
         nodes_payload = []
         for node_key, attrs in graph.nodes(data=True):
-            layout_position = layout_positions.get(node_key, {"x": 0.0, "y": 0.0})
+            layout_position = layout_positions.get(node_key)
             nodes_payload.append(
                 {
                     "node_key": node_key,
@@ -1755,8 +1777,8 @@ class KnowledgeGraphService:
                     "article_count": len(article_ids_per_node.get(node_key, set())),
                     "community_id": community_map.get(node_key),
                     "centrality": round(float(centrality.get(node_key, 0.0)), 6),
-                    "layout_x": layout_position["x"],
-                    "layout_y": layout_position["y"],
+                    "layout_x": layout_position["x"] if layout_position else None,
+                    "layout_y": layout_position["y"] if layout_position else None,
                 }
             )
         nodes_payload.sort(key=lambda item: (-item["degree"], item["label"]))
@@ -1818,15 +1840,44 @@ class KnowledgeGraphService:
             },
         }
 
-    def _compute_distance_layout(self, graph: nx.Graph) -> Dict[str, Dict[str, float]]:
-        """Compute stable coordinates where stronger and shorter graph paths stay closer."""
+    def _compute_distance_layout(
+        self,
+        graph: nx.Graph,
+        *,
+        cached_positions: Optional[Dict[str, Dict[str, float]]] = None,
+    ) -> Dict[str, Dict[str, float]]:
+        """Compute stable coordinates where stronger and shorter graph paths stay closer.
+
+        Only processes the top LAYOUT_MAX_NODES nodes by degree to keep runtime bounded.
+        If cached_positions covers a node that is still in the top set, its coordinates are
+        reused and only genuinely new top-N nodes are computed from scratch.
+        Remaining nodes get no layout coordinates and fall back to client-side placement.
+        """
         if graph.number_of_nodes() == 0:
             return {}
 
+        top_node_keys: Set[str] = set(
+            sorted(graph.nodes(), key=lambda k: -graph.degree(k))[:LAYOUT_MAX_NODES]
+        )
+
+        # Nodes whose cached position can be kept as-is
+        reused: Dict[str, Dict[str, float]] = {}
+        if cached_positions:
+            for node_key in list(top_node_keys):
+                if node_key in cached_positions:
+                    reused[node_key] = cached_positions[node_key]
+
+        nodes_to_compute = top_node_keys - set(reused)
+
+        if not nodes_to_compute:
+            return reused
+
         layout_graph = nx.Graph()
-        for node_key in sorted(graph.nodes()):
+        for node_key in sorted(nodes_to_compute):
             layout_graph.add_node(node_key)
         for source_key, target_key, edge_data in graph.edges(data=True):
+            if source_key not in nodes_to_compute or target_key not in nodes_to_compute:
+                continue
             weight = max(float(edge_data.get("weight", 1.0) or 1.0), 0.01)
             article_count = max(len(edge_data.get("article_ids", set())), 0)
             relation_count = max(len(edge_data.get("relations", [])), 1)
@@ -1882,7 +1933,10 @@ class KnowledgeGraphService:
                 x_value, y_value = raw_position
                 positions[node_key] = (float(x_value) + offset_x, float(y_value) + offset_y)
 
-        return self._normalize_layout_positions(positions)
+        new_normalized = self._normalize_layout_positions(positions)
+        # Merge: newly computed positions override nothing in reused (different coordinate spaces),
+        # so we simply union them — reused coords are already normalized from a previous run.
+        return {**reused, **new_normalized}
 
     @staticmethod
     def _normalize_layout_positions(
@@ -1913,9 +1967,51 @@ class KnowledgeGraphService:
         *,
         article_ids_per_node: Dict[str, Set[int]],
         centrality: Dict[str, float],
+        cached_community_map: Optional[Dict[str, int]] = None,
     ) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
+        """Detect communities, reusing a cached map when structural change is small.
+
+        If the fraction of new or removed nodes relative to the current graph is below
+        COMMUNITY_INCREMENTAL_THRESHOLD, existing community assignments are kept and only
+        new nodes are assigned via majority-vote of their mapped neighbours.  This makes
+        rebuild_snapshot() fast for "clean + rebuild" operations where no real articles
+        were added or removed.
+        """
+        COMMUNITY_INCREMENTAL_THRESHOLD = 0.15
+
         if graph.number_of_nodes() == 0:
             return [], {}
+
+        current_keys: Set[str] = set(graph.nodes())
+
+        if cached_community_map:
+            cached_keys = set(cached_community_map.keys())
+            new_keys = current_keys - cached_keys
+            removed_keys = cached_keys - current_keys
+            change_ratio = (len(new_keys) + len(removed_keys)) / max(len(current_keys), 1)
+
+            if change_ratio < COMMUNITY_INCREMENTAL_THRESHOLD:
+                logger.debug(
+                    "Community detection: reusing cached map (change_ratio=%.3f, new=%d, removed=%d)",
+                    change_ratio, len(new_keys), len(removed_keys),
+                )
+                community_map: Dict[str, int] = {
+                    k: v for k, v in cached_community_map.items() if k in current_keys
+                }
+                max_existing_id = max(community_map.values(), default=0)
+                for node_key in new_keys:
+                    neighbor_communities = [
+                        community_map[nb]
+                        for nb in graph.neighbors(node_key)
+                        if nb in community_map
+                    ]
+                    if neighbor_communities:
+                        community_map[node_key] = Counter(neighbor_communities).most_common(1)[0][0]
+                    else:
+                        max_existing_id += 1
+                        community_map[node_key] = max_existing_id
+
+                return self._build_community_payload(graph, community_map, article_ids_per_node, centrality), community_map
 
         if graph.number_of_edges() == 0:
             raw_communities = [{node_key} for node_key in graph.nodes()]
@@ -1925,7 +2021,7 @@ class KnowledgeGraphService:
                 for community in nx.algorithms.community.greedy_modularity_communities(graph)
             ]
 
-        community_map: Dict[str, int] = {}
+        community_map = {}
         community_payload: List[Dict[str, Any]] = []
         for idx, node_keys in enumerate(sorted(raw_communities, key=len, reverse=True)):
             community_id = idx + 1
@@ -1970,6 +2066,59 @@ class KnowledgeGraphService:
                 }
             )
         return community_payload, community_map
+
+    def _build_community_payload(
+        self,
+        graph: nx.Graph,
+        community_map: Dict[str, int],
+        article_ids_per_node: Dict[str, Set[int]],
+        centrality: Dict[str, float],
+    ) -> List[Dict[str, Any]]:
+        """Rebuild the community summary payload from a pre-computed community_map."""
+        groups: Dict[int, Set[str]] = defaultdict(set)
+        for node_key, community_id in community_map.items():
+            groups[community_id].add(node_key)
+
+        community_payload: List[Dict[str, Any]] = []
+        for community_id, node_keys in sorted(groups.items(), key=lambda item: (-len(item[1]), item[0])):
+            subgraph = graph.subgraph(node_keys)
+            top_nodes = sorted(
+                node_keys,
+                key=lambda k: (
+                    -graph.degree(k),
+                    -centrality.get(k, 0.0),
+                    graph.nodes[k].get("label", k),
+                ),
+            )[:5]
+            article_ids: Set[int] = set()
+            for node_key in node_keys:
+                article_ids.update(article_ids_per_node.get(node_key, set()))
+            community_payload.append(
+                {
+                    "community_id": community_id,
+                    "label": ", ".join(graph.nodes[k].get("label", k) for k in top_nodes[:3]),
+                    "node_count": subgraph.number_of_nodes(),
+                    "edge_count": subgraph.number_of_edges(),
+                    "article_count": len(article_ids),
+                    "top_nodes": [
+                        {
+                            "node_key": k,
+                            "label": graph.nodes[k].get("label", k),
+                            "node_type": graph.nodes[k].get("node_type", "unknown"),
+                            "aliases": graph.nodes[k].get("aliases", []) or [],
+                            "metadata": graph.nodes[k].get("metadata", {}) or {},
+                            "degree": int(graph.degree(k)),
+                            "article_count": len(article_ids_per_node.get(k, set())),
+                            "community_id": community_id,
+                            "centrality": round(float(centrality.get(k, 0.0)), 6),
+                        }
+                        for k in top_nodes
+                    ],
+                    "node_keys": sorted(node_keys),
+                    "article_ids": sorted(article_ids),
+                }
+            )
+        return community_payload
 
     def _build_question_context(
         self,

@@ -206,7 +206,6 @@ describe('KnowledgeGraphExplorer', () => {
 
     const graphNode = container.querySelector('[data-node-key="source:OpenAI"]');
     expect(graphNode).toBeTruthy();
-    expect(graphNode).toHaveAttribute('transform', 'translate(908, 379.6666666666667)');
     await userEvent.hover(graphNode as Element);
 
     expect(await screen.findByText('节点预览')).toBeInTheDocument();
