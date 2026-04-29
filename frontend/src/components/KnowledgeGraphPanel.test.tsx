@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   getKnowledgeGraphNodes: vi.fn(),
   syncKnowledgeGraph: vi.fn(),
   queryKnowledgeGraph: vi.fn(),
+  queryKnowledgeGraphStream: vi.fn(),
   findKnowledgeGraphPath: vi.fn(),
   createErrorHandler: vi.fn(() => vi.fn()),
   showSuccess: vi.fn(),
@@ -28,6 +29,7 @@ vi.mock('@/services/api', () => ({
     getKnowledgeGraphNodes: mocks.getKnowledgeGraphNodes,
     syncKnowledgeGraph: mocks.syncKnowledgeGraph,
     queryKnowledgeGraph: mocks.queryKnowledgeGraph,
+    queryKnowledgeGraphStream: mocks.queryKnowledgeGraphStream,
     findKnowledgeGraphPath: mocks.findKnowledgeGraphPath,
   },
 }));
@@ -63,6 +65,7 @@ describe('KnowledgeGraphPanel', () => {
     mocks.getKnowledgeGraphNodes.mockReset();
     mocks.syncKnowledgeGraph.mockReset();
     mocks.queryKnowledgeGraph.mockReset();
+    mocks.queryKnowledgeGraphStream.mockReset();
     mocks.findKnowledgeGraphPath.mockReset();
     mocks.createErrorHandler.mockClear();
     mocks.showSuccess.mockReset();
@@ -180,16 +183,35 @@ describe('KnowledgeGraphPanel', () => {
   });
 
   it('renders markdown answers in the qa workbench', async () => {
-    mocks.queryKnowledgeGraph.mockResolvedValue({
-      question: '最近有哪些变化？',
-      mode: 'hybrid',
-      resolved_mode: 'graph',
-      answer: '## 结论\n- 第一条\n- 第二条',
-      matched_nodes: [],
-      matched_communities: [],
-      related_articles: [],
-      context_node_count: 2,
-      context_edge_count: 1,
+    mocks.queryKnowledgeGraphStream.mockImplementation(async (_request, onChunk) => {
+      onChunk({
+        type: 'graph_context',
+        data: {
+          mode: 'hybrid',
+          resolved_mode: 'graph',
+          matched_nodes: [],
+          matched_communities: [],
+          related_articles: [],
+          context_node_count: 2,
+          context_edge_count: 1,
+        },
+      });
+      onChunk({
+        type: 'content',
+        data: {
+          content: '## 结论\n- 第一条',
+        },
+      });
+      onChunk({
+        type: 'content',
+        data: {
+          content: '\n- 第二条',
+        },
+      });
+      onChunk({
+        type: 'done',
+        data: {},
+      });
     });
 
     renderWithProviders(<KnowledgeGraphPanel />);
@@ -204,6 +226,7 @@ describe('KnowledgeGraphPanel', () => {
     await userEvent.type(questionInput as HTMLElement, '最近有哪些变化？');
     await userEvent.click(screen.getByRole('button', { name: '开始问答' }));
 
+    expect(mocks.queryKnowledgeGraphStream).toHaveBeenCalled();
     expect(await screen.findByRole('heading', { name: '结论' })).toBeInTheDocument();
     expect(screen.getByText('第一条')).toBeInTheDocument();
     expect(screen.getByText('第二条')).toBeInTheDocument();

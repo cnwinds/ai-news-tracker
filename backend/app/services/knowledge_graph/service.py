@@ -946,7 +946,9 @@ class KnowledgeGraphService:
                 temperature=0.1,
                 max_tokens=1600,
             )
-            payload = self._parse_json_block(response.choices[0].message.content or "{}")
+            payload = self._parse_json_block(
+                self._extract_chat_message_content(response, operation="semantic extraction") or "{}"
+            )
         except Exception as exc:
             logger.warning("Knowledge graph semantic extraction failed for article %s: %s", article.id, exc)
             return [], []
@@ -1718,7 +1720,25 @@ class KnowledgeGraphService:
             temperature=0.2,
             max_tokens=1800,
         )
-        return (response.choices[0].message.content or "").strip()
+        try:
+            answer = self._extract_chat_message_content(response, operation="question answering")
+        except Exception as exc:
+            logger.warning("Knowledge graph LLM answer failed, using fallback answer: %s", exc)
+            return self._build_fallback_answer(
+                question=question,
+                resolved_mode=resolved_mode,
+                graph_context=graph_context,
+                related_articles=related_articles,
+            )
+        if answer:
+            return answer
+        logger.warning("Knowledge graph LLM answer was empty, using fallback answer")
+        return self._build_fallback_answer(
+            question=question,
+            resolved_mode=resolved_mode,
+            graph_context=graph_context,
+            related_articles=related_articles,
+        )
 
     def _build_query_messages(
         self,
@@ -1805,6 +1825,15 @@ class KnowledgeGraphService:
             f"相关社区包括：{community_labels}。"
             f"可继续参考的文章有：{article_titles}。"
         )
+
+    def _extract_chat_message_content(self, response: Any, *, operation: str) -> str:
+        choices = getattr(response, "choices", None)
+        if not choices:
+            raise ValueError(f"LLM response for {operation} did not include choices")
+        message = getattr(choices[0], "message", None)
+        if message is None:
+            raise ValueError(f"LLM response for {operation} did not include a message")
+        return str(getattr(message, "content", "") or "").strip()
 
     def _render_report(self, snapshot: Dict[str, Any]) -> str:
         stats = snapshot.get("stats", {})
@@ -1954,7 +1983,9 @@ Use only 3-8 high-value entities and up to 8 relations.
                 temperature=0,
                 max_tokens=200,
             )
-            payload = self._parse_json_block(response.choices[0].message.content or "{}")
+            payload = self._parse_json_block(
+                self._extract_chat_message_content(response, operation="query term extraction") or "{}"
+            )
             return self._coerce_string_list(payload.get("terms"))
         except Exception:
             return []

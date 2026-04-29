@@ -3,6 +3,7 @@ import unittest
 import uuid
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from sqlalchemy import create_engine, event
@@ -94,6 +95,25 @@ class KnowledgeGraphServiceTests(unittest.TestCase):
         article_context = self.service.get_article_context(self.article_id)
         self.assertEqual(article_context["article_id"], self.article_id)
         self.assertGreater(len(article_context["nodes"]), 0)
+
+    def test_answer_question_falls_back_when_llm_response_has_no_choices(self):
+        self.service.sync_articles(sync_mode="deterministic", trigger_source="test")
+        self.service.ai_analyzer = SimpleNamespace(
+            model="test-model",
+            client=SimpleNamespace(
+                chat=SimpleNamespace(
+                    completions=SimpleNamespace(
+                        create=lambda **_: SimpleNamespace(choices=None)
+                    )
+                )
+            ),
+        )
+
+        response = self.service.answer_question("OpenAI 和 reasoning 有什么关系？", mode="graph", top_k=5)
+
+        self.assertEqual(response["resolved_mode"], "graph")
+        self.assertIn("图谱模式(graph)", response["answer"])
+        self.assertTrue(any(item["id"] == self.article_id for item in response["related_articles"]))
 
     def test_find_path_between_article_and_source_node(self):
         self.service.sync_articles(sync_mode="deterministic", trigger_source="test")

@@ -16,6 +16,7 @@ import {
   Statistic,
   Tabs,
   Tag,
+  Tooltip,
   Typography,
 } from 'antd';
 import {
@@ -127,6 +128,19 @@ function buildWorkbenchTabLabel(icon: ReactNode, label: string) {
   );
 }
 
+function truncateMiddle(text: string, head = 140, tail = 80) {
+  if (!text) {
+    return text;
+  }
+
+  const minLengthToTruncate = head + tail + 3;
+  if (text.length <= minLengthToTruncate) {
+    return text;
+  }
+
+  return `${text.slice(0, head)}...${text.slice(-tail)}`;
+}
+
 function BuildHistoryList({
   builds,
   loading,
@@ -156,7 +170,11 @@ function BuildHistoryList({
               <Text type="secondary">
                 跳过 {build.skipped_articles} · 失败 {build.failed_articles} · 节点 {build.nodes_upserted} · 边 {build.edges_upserted}
               </Text>
-              {build.error_message && <Text type="danger">{build.error_message}</Text>}
+              {build.error_message && (
+                <Tooltip title={build.error_message}>
+                  <Text type="danger">{truncateMiddle(build.error_message)}</Text>
+                </Tooltip>
+              )}
             </Space>
           </List.Item>
         );
@@ -309,13 +327,66 @@ export default function KnowledgeGraphPanel() {
   });
 
   const queryMutation = useMutation({
-    mutationFn: () =>
-      apiService.queryKnowledgeGraph({
-        question: question.trim(),
+    mutationFn: async () => {
+      const currentQuestion = question.trim();
+      let accumulatedAnswer = '';
+      let streamError: Error | null = null;
+      let latestResult: KnowledgeGraphQueryResponse = {
+        question: currentQuestion,
+        mode: queryMode,
+        resolved_mode: queryMode,
+        answer: '',
+        matched_nodes: [],
+        matched_communities: [],
+        related_articles: [],
+        context_node_count: 0,
+        context_edge_count: 0,
+      };
+
+      setQueryResult(latestResult);
+
+      await apiService.queryKnowledgeGraphStream({
+        question: currentQuestion,
         mode: queryMode,
         top_k: 6,
         query_depth: settings?.query_depth,
-      }),
+      }, (chunk) => {
+        if (chunk.type === 'graph_context') {
+          latestResult = {
+            ...latestResult,
+            mode: chunk.data.mode || queryMode,
+            resolved_mode: chunk.data.resolved_mode || queryMode,
+            matched_nodes: chunk.data.matched_nodes || [],
+            matched_communities: chunk.data.matched_communities || [],
+            related_articles: chunk.data.related_articles || [],
+            context_node_count: chunk.data.context_node_count || 0,
+            context_edge_count: chunk.data.context_edge_count || 0,
+          };
+          setQueryResult(latestResult);
+          return;
+        }
+
+        if (chunk.type === 'content') {
+          accumulatedAnswer += chunk.data.content || '';
+          latestResult = {
+            ...latestResult,
+            answer: accumulatedAnswer,
+          };
+          setQueryResult(latestResult);
+          return;
+        }
+
+        if (chunk.type === 'error') {
+          streamError = new Error(chunk.data.message || '图谱问答流式响应失败');
+        }
+      });
+
+      if (streamError) {
+        throw streamError;
+      }
+
+      return latestResult;
+    },
     onSuccess: (response) => {
       setQueryResult(response);
     },
