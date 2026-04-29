@@ -20,7 +20,10 @@ import {
   type SimulationNodeDatum,
 } from 'd3-force';
 
-import { buildKnowledgeGraphEdgeKey } from '@/utils/knowledgeGraph';
+import {
+  buildKnowledgeGraphEdgeKey,
+  selectRenderableKnowledgeGraphLabelKeys,
+} from '@/utils/knowledgeGraph';
 import { getThemeColor } from '@/utils/theme';
 import type {
   KnowledgeGraphCommunitySummary,
@@ -448,15 +451,27 @@ export default function KnowledgeGraphCanvas({
     }
     context.globalAlpha = 1;
 
+    const renderLabelKeys = selectRenderableKnowledgeGraphLabelKeys(sortedNodes, {
+      selectedNodeKey: visualState.selectedNodeKey,
+      focusNodeKeys: visualState.focusNodeKeySet,
+      highlightedNodeKeys: visualState.highlightedNodeKeySet,
+      selectedNeighborKeys: visualState.selectedNeighborKeys,
+      baseLabelKeys: visualState.labelKeys,
+      hoveredNodeKey: hoveredKey,
+      viewport: {
+        scale: currentViewport.scale,
+        x: currentViewport.x,
+        y: currentViewport.y,
+        width: dimensions.width,
+        height: dimensions.height,
+      },
+    });
+
     for (const node of sortedNodes) {
       const isSelected = node.node_key === visualState.selectedNodeKey;
       const isHovered = node.node_key === hoveredKey;
       const isPathNode = visualState.highlightedNodeKeySet.has(node.node_key);
-      const showLabel = isSelected
-        || isHovered
-        || isPathNode
-        || visualState.labelKeys.has(node.node_key)
-        || (currentViewport.scale >= 1.55 && visualState.focusNodeKeySet.has(node.node_key));
+      const showLabel = renderLabelKeys.has(node.node_key);
       if (!showLabel) {
         continue;
       }

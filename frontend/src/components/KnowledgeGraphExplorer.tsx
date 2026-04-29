@@ -33,12 +33,14 @@ import { useAIConversation } from '@/contexts/AIConversationContext';
 import { useKnowledgeGraphView } from '@/contexts/KnowledgeGraphViewContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getThemeColor } from '@/utils/theme';
-import { buildNodeQuestion } from '@/utils/knowledgeGraph';
+import {
+  buildNodeQuestion,
+  selectVisibleKnowledgeGraphLabelKeys,
+} from '@/utils/knowledgeGraph';
 import type {
   AIQueryEngine,
   KnowledgeGraphCommunitySummary,
   KnowledgeGraphNodeDetail,
-  KnowledgeGraphNodeSummary,
 } from '@/types';
 
 const { Search } = Input;
@@ -46,8 +48,6 @@ const { Paragraph, Text, Title } = Typography;
 
 const MIN_SCALE = 0.45;
 const MAX_SCALE = 3.2;
-const MAX_DEFAULT_LABELS = 12;
-const MAX_ACTIVE_LABELS = 10;
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
@@ -55,82 +55,6 @@ function clamp(value: number, min: number, max: number) {
 
 function getDefaultViewport(): KnowledgeGraphViewportState {
   return { scale: 1, x: 0, y: 0 };
-}
-
-function selectVisibleLabelKeys(
-  nodes: KnowledgeGraphNodeSummary[],
-  {
-    selectedNodeKey,
-    focusNodeKeys,
-    highlightedNodeKeys,
-    selectedNeighborKeys,
-  }: {
-    selectedNodeKey?: string;
-    focusNodeKeys: string[];
-    highlightedNodeKeys: string[];
-    selectedNeighborKeys: Set<string>;
-  }
-) {
-  if (nodes.length === 0) {
-    return new Set<string>();
-  }
-
-  const highlightedSet = new Set(highlightedNodeKeys);
-  const focusSet = new Set(focusNodeKeys);
-  const pinnedKeys = new Set<string>();
-
-  if (selectedNodeKey) {
-    pinnedKeys.add(selectedNodeKey);
-  }
-  if (focusNodeKeys.length > 0) {
-    pinnedKeys.add(focusNodeKeys[0]);
-    pinnedKeys.add(focusNodeKeys[focusNodeKeys.length - 1]);
-  }
-
-  const scoreNode = (node: KnowledgeGraphNodeSummary) => {
-    let score = node.centrality * 100 + node.degree * 6 + node.article_count * 4;
-    if (node.node_key === selectedNodeKey) score += 2000;
-    if (highlightedSet.has(node.node_key)) score += 1200;
-    if (focusSet.has(node.node_key)) score += 900;
-    if (selectedNeighborKeys.has(node.node_key)) score += 280;
-    if (pinnedKeys.has(node.node_key)) score += 1600;
-    return score;
-  };
-
-  const compareNodes = (left: KnowledgeGraphNodeSummary, right: KnowledgeGraphNodeSummary) =>
-    scoreNode(right) - scoreNode(left)
-      || right.degree - left.degree
-      || right.centrality - left.centrality
-      || left.label.localeCompare(right.label);
-
-  const activeNodeKeys = new Set<string>([
-    ...focusNodeKeys,
-    ...highlightedNodeKeys,
-    ...Array.from(selectedNeighborKeys),
-    ...(selectedNodeKey ? [selectedNodeKey] : []),
-  ]);
-
-  if (activeNodeKeys.size > 0) {
-    const activeNodes = nodes.filter((node) => activeNodeKeys.has(node.node_key));
-    const labelBudget = activeNodes.length <= 6
-      ? activeNodes.length
-      : Math.min(MAX_ACTIVE_LABELS, Math.max(5, Math.ceil(Math.sqrt(activeNodes.length) * 2)));
-    const labelKeys = new Set<string>(pinnedKeys);
-
-    activeNodes
-      .sort(compareNodes)
-      .slice(0, labelBudget)
-      .forEach((node) => labelKeys.add(node.node_key));
-
-    return labelKeys;
-  }
-
-  return new Set(
-    [...nodes]
-      .sort(compareNodes)
-      .slice(0, MAX_DEFAULT_LABELS)
-      .map((node) => node.node_key)
-  );
 }
 
 export default function KnowledgeGraphExplorer() {
@@ -232,13 +156,14 @@ export default function KnowledgeGraphExplorer() {
 
   const labelKeys = useMemo(
     () =>
-      selectVisibleLabelKeys(nodes, {
+      selectVisibleKnowledgeGraphLabelKeys(nodes, {
         selectedNodeKey,
         focusNodeKeys,
         highlightedNodeKeys,
         selectedNeighborKeys,
+        viewportScale: viewport.scale,
       }),
-    [focusNodeKeys, highlightedNodeKeys, nodes, selectedNeighborKeys, selectedNodeKey]
+    [focusNodeKeys, highlightedNodeKeys, nodes, selectedNeighborKeys, selectedNodeKey, viewport.scale]
   );
 
   const communityOptions = useMemo(
