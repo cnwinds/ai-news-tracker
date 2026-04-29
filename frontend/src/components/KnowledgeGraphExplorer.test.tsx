@@ -43,7 +43,7 @@ function ExplorerHarness() {
       >
         聚焦路径
       </button>
-      <KnowledgeGraphExplorer />
+      <KnowledgeGraphExplorer searchTerm="" limitNodes={160} />
     </>
   );
 }
@@ -198,7 +198,7 @@ describe('KnowledgeGraphExplorer', () => {
   });
 
   it('shows a hover preview for every graph node', async () => {
-    const { container } = renderWithProviders(<KnowledgeGraphExplorer />);
+    const { container } = renderWithProviders(<KnowledgeGraphExplorer searchTerm="" limitNodes={160} />);
 
     await waitFor(() => {
       expect(container.querySelector('[data-node-key="source:OpenAI"]')).toBeTruthy();

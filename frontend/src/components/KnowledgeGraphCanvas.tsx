@@ -95,7 +95,7 @@ const DEFAULT_CANVAS_HEIGHT = 680;
 const MIN_SCALE = 0.45;
 const MAX_SCALE = 3.2;
 const HOVER_CARD_WIDTH = 300;
-const COMMUNITY_PALETTE = [
+export const COMMUNITY_PALETTE = [
   '#2dd4bf',
   '#60a5fa',
   '#f59e0b',
@@ -109,6 +109,16 @@ const COMMUNITY_PALETTE = [
   '#f472b6',
   '#38bdf8',
 ];
+
+export function getCommunityColorByIndex(communityId: number | null | undefined, nodeType?: string): string {
+  if (communityId !== null && communityId !== undefined) {
+    return COMMUNITY_PALETTE[Math.abs(communityId) % COMMUNITY_PALETTE.length];
+  }
+  if (nodeType) {
+    return COMMUNITY_PALETTE[hashString(nodeType) % COMMUNITY_PALETTE.length];
+  }
+  return COMMUNITY_PALETTE[0];
+}
 
 const graphCanvasMarkerLayerStyle: CSSProperties = {
   position: 'absolute',

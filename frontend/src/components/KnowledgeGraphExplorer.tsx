@@ -1,31 +1,28 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Button,
-  Card,
-  Col,
   Empty,
-  Input,
   List,
-  Row,
-  Select,
   Space,
   Spin,
   Tag,
+  Tooltip,
   Typography,
 } from 'antd';
 import {
   AimOutlined,
-  ApartmentOutlined,
   BgColorsOutlined,
+  CloseOutlined,
   CommentOutlined,
+  FullscreenExitOutlined,
   MinusOutlined,
-  NodeIndexOutlined,
   PlusOutlined,
   ReloadOutlined,
 } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 
 import KnowledgeGraphCanvas, {
+  COMMUNITY_PALETTE,
   type KnowledgeGraphViewportState,
 } from '@/components/KnowledgeGraphCanvas';
 import { apiService } from '@/services/api';
@@ -41,10 +38,10 @@ import type {
   AIQueryEngine,
   KnowledgeGraphCommunitySummary,
   KnowledgeGraphNodeDetail,
+  KnowledgeGraphSnapshotResponse,
 } from '@/types';
 
-const { Search } = Input;
-const { Paragraph, Text, Title } = Typography;
+const { Text, Title } = Typography;
 
 const MIN_SCALE = 0.45;
 const MAX_SCALE = 3.2;
@@ -57,33 +54,38 @@ function getDefaultViewport(): KnowledgeGraphViewportState {
   return { scale: 1, x: 0, y: 0 };
 }
 
-export default function KnowledgeGraphExplorer() {
+export interface KnowledgeGraphExplorerProps {
+  searchTerm: string;
+  nodeTypeFilter?: string;
+  communityFilter?: number;
+  limitNodes: number;
+  onSnapshotChange?: (snapshot: KnowledgeGraphSnapshotResponse | undefined) => void;
+}
+
+export default function KnowledgeGraphExplorer({
+  searchTerm,
+  nodeTypeFilter,
+  communityFilter,
+  limitNodes,
+  onSnapshotChange,
+}: KnowledgeGraphExplorerProps) {
   const { theme } = useTheme();
   const { openModal, setSelectedEngine } = useAIConversation();
   const { graphCommand, focusArticle, focusCommunity } = useKnowledgeGraphView();
 
-  const [searchTerm, setSearchTerm] = useState('');
-  const [nodeTypeFilter, setNodeTypeFilter] = useState<string>();
-  const [communityFilter, setCommunityFilter] = useState<number>();
-  const [limitNodes, setLimitNodes] = useState(160);
   const [selectedNodeKey, setSelectedNodeKey] = useState<string>();
   const [focusNodeKeys, setFocusNodeKeys] = useState<string[]>([]);
   const [expandDepth, setExpandDepth] = useState(0);
   const [highlightedNodeKeys, setHighlightedNodeKeys] = useState<string[]>([]);
   const [highlightedEdgeKeys, setHighlightedEdgeKeys] = useState<string[]>([]);
   const [viewport, setViewport] = useState<KnowledgeGraphViewportState>(getDefaultViewport);
+  const [showLegend, setShowLegend] = useState(false);
 
-  const resetViewport = useCallback(() => {
-    setViewport(getDefaultViewport());
-  }, []);
+  const resetViewport = useCallback(() => setViewport(getDefaultViewport()), []);
 
+  // Apply graph navigation commands (canvas-related state only)
   useEffect(() => {
-    if (!graphCommand?.id) {
-      return;
-    }
-    setSearchTerm(graphCommand.searchTerm ?? '');
-    setNodeTypeFilter(graphCommand.nodeType);
-    setCommunityFilter(graphCommand.communityId);
+    if (!graphCommand?.id) return;
     setSelectedNodeKey(graphCommand.selectedNodeKey);
     setFocusNodeKeys(graphCommand.focusNodeKeys);
     setExpandDepth(graphCommand.expandDepth);
@@ -92,7 +94,7 @@ export default function KnowledgeGraphExplorer() {
     resetViewport();
   }, [graphCommand?.id, resetViewport]);
 
-  const { data: snapshot, isLoading, refetch, isFetching } = useQuery({
+  const { data: snapshot, isLoading, isFetching } = useQuery({
     queryKey: [
       'knowledge-graph-snapshot',
       searchTerm,
@@ -113,6 +115,10 @@ export default function KnowledgeGraphExplorer() {
       }),
   });
 
+  useEffect(() => {
+    onSnapshotChange?.(snapshot);
+  }, [onSnapshotChange, snapshot]);
+
   const { data: nodeDetail, isLoading: nodeDetailLoading } = useQuery({
     queryKey: ['knowledge-graph-node-detail', selectedNodeKey],
     queryFn: () => apiService.getKnowledgeGraphNode(selectedNodeKey!),
@@ -123,35 +129,23 @@ export default function KnowledgeGraphExplorer() {
   const links = snapshot?.links || [];
   const communities = snapshot?.communities || [];
 
+  // Clear selection when node disappears from snapshot
   useEffect(() => {
-    if (!selectedNodeKey || !snapshot) {
-      return;
-    }
-    const existsInSnapshot = nodes.some((node) => node.node_key === selectedNodeKey);
-    if (!existsInSnapshot) {
-      setSelectedNodeKey(undefined);
-    }
+    if (!selectedNodeKey || !snapshot) return;
+    const exists = nodes.some((node) => node.node_key === selectedNodeKey);
+    if (!exists) setSelectedNodeKey(undefined);
   }, [nodes, selectedNodeKey, snapshot]);
 
-  const highlightedEdgeKeySet = useMemo(
-    () => new Set(highlightedEdgeKeys),
-    [highlightedEdgeKeys]
-  );
+  const highlightedEdgeKeySet = useMemo(() => new Set(highlightedEdgeKeys), [highlightedEdgeKeys]);
 
   const selectedNeighborKeys = useMemo(() => {
-    if (!selectedNodeKey) {
-      return new Set<string>();
-    }
-    const neighborKeys = new Set<string>([selectedNodeKey]);
+    if (!selectedNodeKey) return new Set<string>();
+    const keys = new Set<string>([selectedNodeKey]);
     for (const link of links) {
-      if (link.source === selectedNodeKey) {
-        neighborKeys.add(link.target);
-      }
-      if (link.target === selectedNodeKey) {
-        neighborKeys.add(link.source);
-      }
+      if (link.source === selectedNodeKey) keys.add(link.target);
+      if (link.target === selectedNodeKey) keys.add(link.source);
     }
-    return neighborKeys;
+    return keys;
   }, [links, selectedNodeKey]);
 
   const labelKeys = useMemo(
@@ -166,24 +160,12 @@ export default function KnowledgeGraphExplorer() {
     [focusNodeKeys, highlightedNodeKeys, nodes, selectedNeighborKeys, selectedNodeKey, viewport.scale]
   );
 
-  const communityOptions = useMemo(
-    () =>
-      communities.map((community) => ({
-        label: `${community.label} (${community.node_count})`,
-        value: community.community_id,
-      })),
-    [communities]
-  );
-
   const selectedCommunity = useMemo(
     () => communities.find((community) => community.community_id === communityFilter),
     [communities, communityFilter]
   );
 
   const clearExplorerState = useCallback(() => {
-    setSearchTerm('');
-    setNodeTypeFilter(undefined);
-    setCommunityFilter(undefined);
     setSelectedNodeKey(undefined);
     setFocusNodeKeys([]);
     setExpandDepth(0);
@@ -192,223 +174,362 @@ export default function KnowledgeGraphExplorer() {
     resetViewport();
   }, [resetViewport]);
 
-  const handleNodeClick = useCallback((nodeKey: string) => {
-    setSelectedNodeKey(nodeKey);
-    setHighlightedNodeKeys([]);
-    setHighlightedEdgeKeys([]);
-    if (expandDepth > 0) {
-      setFocusNodeKeys([nodeKey]);
-    }
-  }, [expandDepth]);
+  const handleNodeClick = useCallback(
+    (nodeKey: string) => {
+      setSelectedNodeKey(nodeKey);
+      setHighlightedNodeKeys([]);
+      setHighlightedEdgeKeys([]);
+      if (expandDepth > 0) setFocusNodeKeys([nodeKey]);
+    },
+    [expandDepth]
+  );
 
-  const handleNeighborhoodChange = useCallback((value: number) => {
-    setExpandDepth(value);
-    if (value > 0) {
-      const anchorNodeKey = selectedNodeKey || focusNodeKeys[0];
-      if (anchorNodeKey) {
-        setFocusNodeKeys([anchorNodeKey]);
-      }
-    }
-  }, [focusNodeKeys, selectedNodeKey]);
+  const handleAskAboutNode = useCallback(
+    (mode: AIQueryEngine) => {
+      if (!nodeDetail?.node) return;
+      setSelectedEngine(mode);
+      openModal(buildNodeQuestion(nodeDetail.node, mode));
+    },
+    [nodeDetail?.node, openModal, setSelectedEngine]
+  );
 
-  const handleAskAboutNode = useCallback((mode: AIQueryEngine) => {
-    if (!nodeDetail?.node) {
-      return;
+  const cycleExpandDepth = useCallback(() => {
+    const next = (expandDepth + 1) % 3;
+    setExpandDepth(next);
+    if (next > 0) {
+      const anchor = selectedNodeKey || focusNodeKeys[0];
+      if (anchor) setFocusNodeKeys([anchor]);
     }
-    setSelectedEngine(mode);
-    openModal(buildNodeQuestion(nodeDetail.node, mode));
-  }, [nodeDetail?.node, openModal, setSelectedEngine]);
+  }, [expandDepth, focusNodeKeys, selectedNodeKey]);
+
+  // View state label for status bar
+  const viewStateLabel = useMemo(() => {
+    if (highlightedEdgeKeys.length > 0) return '路径高亮中';
+    if (focusNodeKeys.length > 0) {
+      if (expandDepth === 1) return `1跳邻域`;
+      if (expandDepth === 2) return `2跳邻域`;
+      return '节点聚焦';
+    }
+    if (communityFilter !== undefined) return `社区视图`;
+    return '全局视图';
+  }, [communityFilter, expandDepth, focusNodeKeys.length, highlightedEdgeKeys.length]);
+
+  const expandDepthLabel = expandDepth === 0 ? '聚焦' : `${expandDepth}跳邻域`;
+
+  const borderColor = getThemeColor(theme, 'border');
+  const textColor = getThemeColor(theme, 'text');
+  const textSecondary = getThemeColor(theme, 'textSecondary');
+  const bgColor = theme === 'dark' ? 'rgba(9, 11, 15, 0.85)' : 'rgba(255, 255, 255, 0.85)';
+  const panelBg = theme === 'dark' ? '#0f1117' : '#ffffff';
+
+  const detailPanelOpen = Boolean(selectedNodeKey);
 
   return (
-    <Card
-      title="图谱画布"
-      extra={
-        <Space size={8}>
-          <Button icon={<ReloadOutlined />} onClick={() => refetch()} loading={isFetching}>
-            刷新画布
-          </Button>
-          <Button onClick={resetViewport}>重置视图</Button>
-        </Space>
-      }
-    >
-      <Space direction="vertical" size="large" style={{ width: '100%' }}>
-        <Space wrap>
-          <Search
-            allowClear
-            placeholder="搜索实体名称或 node key"
-            value={searchTerm}
-            onChange={(event) => setSearchTerm(event.target.value)}
-            style={{ width: 260 }}
+    <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
+      {/* Canvas area */}
+      <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+        {isLoading ? (
+          <div
+            style={{
+              height: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: theme === 'dark' ? '#090b0f' : '#f6f8fb',
+            }}
+          >
+            <Spin size="large" tip="加载图谱..." />
+          </div>
+        ) : nodes.length === 0 ? (
+          <div
+            style={{
+              height: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: theme === 'dark' ? '#090b0f' : '#f6f8fb',
+            }}
+          >
+            <div style={{ textAlign: 'center' }}>
+              <Empty description="当前筛选条件下没有可展示的节点" />
+              <Button style={{ marginTop: 12 }} onClick={clearExplorerState}>
+                恢复全图
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <KnowledgeGraphCanvas
+            nodes={nodes}
+            links={links}
+            theme={theme}
+            selectedNodeKey={selectedNodeKey}
+            selectedCommunity={selectedCommunity}
+            focusNodeKeys={focusNodeKeys}
+            highlightedNodeKeys={highlightedNodeKeys}
+            highlightedEdgeKeys={highlightedEdgeKeySet}
+            selectedNeighborKeys={selectedNeighborKeys}
+            labelKeys={labelKeys}
+            viewport={viewport}
+            onViewportChange={setViewport}
+            onNodeClick={handleNodeClick}
           />
-          <Select
-            allowClear
-            placeholder="筛选节点类型"
-            value={nodeTypeFilter}
-            onChange={setNodeTypeFilter}
-            style={{ width: 180 }}
-            options={(snapshot?.available_node_types || []).map((nodeType) => ({
-              label: nodeType,
-              value: nodeType,
-            }))}
-          />
-          <Select
-            allowClear
-            placeholder="筛选社区"
-            value={communityFilter}
-            onChange={setCommunityFilter}
-            style={{ width: 220 }}
-            options={communityOptions}
-          />
-          <Select<number>
-            value={limitNodes}
-            onChange={setLimitNodes}
-            style={{ width: 140 }}
-            options={[80, 160, 300, 500].map((value) => ({
-              label: `${value} 节点`,
-              value,
-            }))}
-          />
-          <Select<number>
-            value={expandDepth}
-            onChange={handleNeighborhoodChange}
-            style={{ width: 150 }}
-            options={[
-              { label: '聚焦子图', value: 0 },
-              { label: '1 跳邻域', value: 1 },
-              { label: '2 跳邻域', value: 2 },
-            ]}
-          />
-          <Space size={4}>
-            <Button
-              icon={<MinusOutlined />}
-              onClick={() => setViewport((previous) => ({ ...previous, scale: clamp(previous.scale - 0.12, MIN_SCALE, MAX_SCALE) }))}
-            />
-            <Button
-              icon={<PlusOutlined />}
-              onClick={() => setViewport((previous) => ({ ...previous, scale: clamp(previous.scale + 0.12, MIN_SCALE, MAX_SCALE) }))}
-            />
-          </Space>
-          <Button onClick={clearExplorerState}>恢复全图</Button>
-          {selectedCommunity && (
-            <Button
-              icon={<ApartmentOutlined />}
-              onClick={() =>
-                focusCommunity(selectedCommunity.community_id, {
-                  selectedNodeKey: selectedCommunity.top_nodes[0]?.node_key,
-                })
-              }
-            >
-              打开社区
-            </Button>
-          )}
-        </Space>
+        )}
 
-        <Row gutter={[16, 16]}>
-          <Col xs={24} xl={16}>
-            {isLoading ? (
-              <div
-                style={{
-                  height: 560,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  border: `1px solid ${getThemeColor(theme, 'border')}`,
-                  borderRadius: 10,
-                }}
+        {/* Floating toolbar */}
+        <div
+          style={{
+            position: 'absolute',
+            top: 12,
+            right: 12,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 4,
+            padding: '8px 4px',
+            borderRadius: 20,
+            border: `1px solid ${borderColor}`,
+            background: bgColor,
+            backdropFilter: 'blur(12px)',
+            boxShadow: theme === 'dark'
+              ? '0 4px 20px rgba(0,0,0,0.4)'
+              : '0 4px 16px rgba(15,23,42,0.12)',
+            zIndex: 10,
+          }}
+        >
+          <Tooltip title="放大" placement="left">
+            <Button
+              type="text"
+              size="small"
+              icon={<PlusOutlined />}
+              onClick={() =>
+                setViewport((prev) => ({ ...prev, scale: clamp(prev.scale + 0.12, MIN_SCALE, MAX_SCALE) }))
+              }
+            />
+          </Tooltip>
+          <Tooltip title="缩小" placement="left">
+            <Button
+              type="text"
+              size="small"
+              icon={<MinusOutlined />}
+              onClick={() =>
+                setViewport((prev) => ({ ...prev, scale: clamp(prev.scale - 0.12, MIN_SCALE, MAX_SCALE) }))
+              }
+            />
+          </Tooltip>
+          <Tooltip title="重置视图" placement="left">
+            <Button
+              type="text"
+              size="small"
+              icon={<FullscreenExitOutlined />}
+              onClick={resetViewport}
+            />
+          </Tooltip>
+          <Tooltip title="恢复全图" placement="left">
+            <Button
+              type="text"
+              size="small"
+              icon={<ReloadOutlined />}
+              onClick={clearExplorerState}
+            />
+          </Tooltip>
+          <div style={{ width: 24, height: 1, background: borderColor, margin: '2px auto' }} />
+          <Tooltip title={showLegend ? '关闭图例' : '显示社区图例'} placement="left">
+            <Button
+              type={showLegend ? 'primary' : 'text'}
+              size="small"
+              icon={<BgColorsOutlined />}
+              onClick={() => setShowLegend((prev) => !prev)}
+            />
+          </Tooltip>
+          <Tooltip title={`邻域深度：${expandDepthLabel}`} placement="left">
+            <Button
+              type={expandDepth > 0 ? 'primary' : 'text'}
+              size="small"
+              style={{ fontSize: 11, padding: '0 4px' }}
+              onClick={cycleExpandDepth}
+            >
+              {expandDepth === 0 ? '全' : expandDepth === 1 ? '1跳' : '2跳'}
+            </Button>
+          </Tooltip>
+          {isFetching && (
+            <div style={{ display: 'flex', justifyContent: 'center', padding: '2px 0' }}>
+              <Spin size="small" />
+            </div>
+          )}
+        </div>
+
+        {/* Color legend overlay */}
+        {showLegend && communities.length > 0 && (
+          <div
+            style={{
+              position: 'absolute',
+              bottom: 36,
+              left: 12,
+              maxWidth: 220,
+              padding: '10px 12px',
+              borderRadius: 10,
+              border: `1px solid ${borderColor}`,
+              background: bgColor,
+              backdropFilter: 'blur(12px)',
+              boxShadow: theme === 'dark'
+                ? '0 4px 20px rgba(0,0,0,0.4)'
+                : '0 4px 16px rgba(15,23,42,0.12)',
+              zIndex: 10,
+            }}
+          >
+            <Text style={{ fontSize: 11, color: textSecondary, display: 'block', marginBottom: 8, fontWeight: 600 }}>
+              社区图例
+            </Text>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+              {communities.slice(0, 12).map((community) => {
+                const color = COMMUNITY_PALETTE[Math.abs(community.community_id) % COMMUNITY_PALETTE.length];
+                return (
+                  <div key={community.community_id} style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                    <div
+                      style={{
+                        width: 10,
+                        height: 10,
+                        borderRadius: '50%',
+                        background: color,
+                        flexShrink: 0,
+                      }}
+                    />
+                    <Text style={{ fontSize: 11, color: textColor, lineHeight: '14px' }}>
+                      {community.label}
+                    </Text>
+                    <Text style={{ fontSize: 10, color: textSecondary, marginLeft: 'auto', flexShrink: 0 }}>
+                      {community.node_count}
+                    </Text>
+                  </div>
+                );
+              })}
+              {communities.length > 12 && (
+                <Text style={{ fontSize: 10, color: textSecondary }}>
+                  +{communities.length - 12} 个社区...
+                </Text>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Canvas status bar */}
+        <div
+          style={{
+            position: 'absolute',
+            bottom: 0,
+            left: 0,
+            right: 0,
+            height: 28,
+            display: 'flex',
+            alignItems: 'center',
+            padding: '0 12px',
+            gap: 8,
+            background: theme === 'dark' ? 'rgba(9,11,15,0.75)' : 'rgba(246,248,251,0.82)',
+            backdropFilter: 'blur(8px)',
+            borderTop: `1px solid ${borderColor}`,
+            zIndex: 10,
+          }}
+        >
+          <Text style={{ fontSize: 11, color: textSecondary }}>
+            缩放 {Math.round(viewport.scale * 100)}%
+          </Text>
+          <Text style={{ fontSize: 11, color: textSecondary }}>·</Text>
+          <Text style={{ fontSize: 11, color: textSecondary }}>
+            节点 {nodes.length}{snapshot?.total_nodes && snapshot.total_nodes > nodes.length ? `/${snapshot.total_nodes}` : ''}
+          </Text>
+          <Text style={{ fontSize: 11, color: textSecondary }}>·</Text>
+          <Text style={{ fontSize: 11, color: textSecondary }}>边 {links.length}</Text>
+          {focusNodeKeys.length > 0 && (
+            <>
+              <Text style={{ fontSize: 11, color: textSecondary }}>·</Text>
+              <Tag
+                color={highlightedEdgeKeys.length > 0 ? 'orange' : 'geekblue'}
+                style={{ fontSize: 10, lineHeight: '16px', height: 18, padding: '0 6px' }}
               >
-                <Spin size="large" />
-              </div>
-            ) : nodes.length === 0 ? (
-              <div
-                style={{
-                  height: 560,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  border: `1px solid ${getThemeColor(theme, 'border')}`,
-                  borderRadius: 10,
-                }}
-              >
-                <Empty description="当前筛选条件下没有可展示的节点" />
+                {viewStateLabel}
+              </Tag>
+            </>
+          )}
+          {!focusNodeKeys.length && communityFilter !== undefined && (
+            <>
+              <Text style={{ fontSize: 11, color: textSecondary }}>·</Text>
+              <Tag color="purple" style={{ fontSize: 10, lineHeight: '16px', height: 18, padding: '0 6px' }}>
+                {viewStateLabel}
+              </Tag>
+            </>
+          )}
+          {!focusNodeKeys.length && communityFilter === undefined && (
+            <>
+              <Text style={{ fontSize: 11, color: textSecondary }}>·</Text>
+              <Text style={{ fontSize: 11, color: textSecondary }}>全局视图</Text>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Right detail panel - slides in/out */}
+      <div
+        style={{
+          width: detailPanelOpen ? 300 : 0,
+          flexShrink: 0,
+          overflow: 'hidden',
+          transition: 'width 240ms ease-out',
+          borderLeft: detailPanelOpen ? `1px solid ${borderColor}` : 'none',
+          background: panelBg,
+        }}
+      >
+        <div style={{ width: 300, height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          {/* Panel header */}
+          <div
+            style={{
+              height: 44,
+              flexShrink: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '0 12px 0 16px',
+              borderBottom: `1px solid ${borderColor}`,
+            }}
+          >
+            <Text strong style={{ color: textColor, fontSize: 13 }}>节点详情</Text>
+            <Button
+              type="text"
+              size="small"
+              icon={<CloseOutlined />}
+              onClick={() => setSelectedNodeKey(undefined)}
+            />
+          </div>
+
+          {/* Panel content */}
+          <div style={{ flex: 1, overflowY: 'auto', padding: '12px 16px' }}>
+            {nodeDetailLoading ? (
+              <div style={{ padding: '48px 0', textAlign: 'center' }}>
+                <Spin />
               </div>
             ) : (
-              <KnowledgeGraphCanvas
-                nodes={nodes}
-                links={links}
+              <NodeDetailContent
+                detail={nodeDetail}
                 theme={theme}
-                selectedNodeKey={selectedNodeKey}
-                selectedCommunity={selectedCommunity}
-                focusNodeKeys={focusNodeKeys}
-                highlightedNodeKeys={highlightedNodeKeys}
-                highlightedEdgeKeys={highlightedEdgeKeySet}
-                selectedNeighborKeys={selectedNeighborKeys}
-                labelKeys={labelKeys}
-                viewport={viewport}
-                onViewportChange={setViewport}
-                onNodeClick={handleNodeClick}
+                onAsk={handleAskAboutNode}
+                onCommunityClick={(communityId) => focusCommunity(communityId)}
+                onFocusNeighborhood={(depth) => {
+                  if (!selectedNodeKey) return;
+                  setFocusNodeKeys([selectedNodeKey]);
+                  setExpandDepth(depth);
+                  setHighlightedNodeKeys([]);
+                  setHighlightedEdgeKeys([]);
+                }}
+                onNeighborClick={handleNodeClick}
+                onArticleFocus={(articleId) => focusArticle(articleId)}
               />
             )}
-          </Col>
-
-          <Col xs={24} xl={8}>
-            <Card
-              size="small"
-              title={
-                <Space>
-                  <NodeIndexOutlined />
-                  <span>节点详情</span>
-                </Space>
-              }
-              styles={{ body: { maxHeight: 640, overflowY: 'auto' } }}
-            >
-              {!selectedNodeKey ? (
-                <Empty
-                  image={Empty.PRESENTED_IMAGE_SIMPLE}
-                  description="点击图谱中的节点，这里会展示详细关系和相关文章"
-                />
-              ) : nodeDetailLoading ? (
-                <div style={{ padding: '48px 0', textAlign: 'center' }}>
-                  <Spin />
-                </div>
-              ) : (
-                <NodeDetailCard
-                  detail={nodeDetail}
-                  theme={theme}
-                  onAsk={handleAskAboutNode}
-                  onCommunityClick={(communityId) => focusCommunity(communityId)}
-                  onFocusNeighborhood={(depth) => {
-                    if (!selectedNodeKey) {
-                      return;
-                    }
-                    setFocusNodeKeys([selectedNodeKey]);
-                    setExpandDepth(depth);
-                    setHighlightedNodeKeys([]);
-                    setHighlightedEdgeKeys([]);
-                  }}
-                  onNeighborClick={handleNodeClick}
-                  onArticleFocus={(articleId) => focusArticle(articleId)}
-                />
-              )}
-            </Card>
-          </Col>
-        </Row>
-
-        <Space wrap size={[8, 8]}>
-          <Tag icon={<BgColorsOutlined />}>节点 {snapshot?.total_nodes || 0}</Tag>
-          <Tag>边 {snapshot?.total_links || 0}</Tag>
-          <Tag>缩放 {Math.round(viewport.scale * 100)}%</Tag>
-          {focusNodeKeys.length > 0 && <Tag icon={<AimOutlined />}>聚焦节点 {focusNodeKeys.length}</Tag>}
-          {highlightedEdgeKeys.length > 0 && <Tag color="orange">路径高亮</Tag>}
-          {snapshot?.layout_mode && <Tag color="geekblue">力导画布</Tag>}
-          <Tag>生成时间 {snapshot?.generated_at ? new Date(snapshot.generated_at).toLocaleString() : '-'}</Tag>
-          {snapshot?.build?.sync_mode && <Tag>构建模式 {snapshot.build.sync_mode}</Tag>}
-        </Space>
-      </Space>
-    </Card>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
-function NodeDetailCard({
+function NodeDetailContent({
   detail,
   theme,
   onAsk,
@@ -425,53 +546,50 @@ function NodeDetailCard({
   onNeighborClick: (nodeKey: string) => void;
   onArticleFocus: (articleId: number) => void;
 }) {
+  const textColor = getThemeColor(theme, 'text');
+
   if (!detail) {
-    return (
-      <Empty
-        image={Empty.PRESENTED_IMAGE_SIMPLE}
-        description="当前节点详情不可用"
-      />
-    );
+    return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="节点详情不可用" />;
   }
 
   return (
     <Space direction="vertical" size="middle" style={{ width: '100%' }}>
       <div>
-        <Title level={4} style={{ margin: 0, color: getThemeColor(theme, 'text') }}>
+        <Title level={5} style={{ margin: 0, color: textColor, wordBreak: 'break-word' }}>
           {detail.node.label}
         </Title>
-        <Text type="secondary">{detail.node.node_key}</Text>
+        <Text type="secondary" style={{ fontSize: 11 }}>{detail.node.node_key}</Text>
       </div>
 
-      <Space wrap size={[8, 8]}>
+      <Space wrap size={[6, 6]}>
         <Tag color="blue">{detail.node.node_type}</Tag>
-        <Tag>度数 {detail.node.degree}</Tag>
+        <Tag>度 {detail.node.degree}</Tag>
         <Tag>文章 {detail.node.article_count}</Tag>
-        {detail.node.community_id !== null && detail.node.community_id !== undefined && (
+        {detail.node.community_id != null && (
           <Tag>社区 {detail.node.community_id}</Tag>
         )}
       </Space>
 
-      <Space wrap>
-        <Button type="primary" icon={<CommentOutlined />} onClick={() => onAsk('graph')}>
-          Graph 问答
+      <Space wrap size={[6, 6]}>
+        <Button size="small" type="primary" icon={<CommentOutlined />} onClick={() => onAsk('graph')}>
+          Graph
         </Button>
-        <Button onClick={() => onAsk('hybrid')}>Hybrid 问答</Button>
-        <Button icon={<AimOutlined />} onClick={() => onFocusNeighborhood(1)}>
-          1 跳邻域
+        <Button size="small" onClick={() => onAsk('hybrid')}>Hybrid</Button>
+        <Button size="small" icon={<AimOutlined />} onClick={() => onFocusNeighborhood(1)}>
+          1跳
         </Button>
-        <Button onClick={() => onFocusNeighborhood(2)}>2 跳邻域</Button>
+        <Button size="small" onClick={() => onFocusNeighborhood(2)}>2跳</Button>
       </Space>
 
       {detail.matched_communities.length > 0 && (
         <div>
-          <Text strong>所在社区</Text>
-          <div style={{ marginTop: 8 }}>
+          <Text strong style={{ fontSize: 12, color: textColor }}>所在社区</Text>
+          <div style={{ marginTop: 6 }}>
             {detail.matched_communities.map((community: KnowledgeGraphCommunitySummary) => (
               <Tag
                 key={community.community_id}
                 color="purple"
-                style={{ cursor: 'pointer' }}
+                style={{ cursor: 'pointer', marginBottom: 4 }}
                 onClick={() => onCommunityClick(community.community_id)}
               >
                 {community.label}
@@ -482,18 +600,21 @@ function NodeDetailCard({
       )}
 
       <div>
-        <Text strong>邻居节点</Text>
+        <Text strong style={{ fontSize: 12, color: textColor }}>邻居节点</Text>
         <List
           size="small"
-          dataSource={detail.neighbors}
+          style={{ marginTop: 4 }}
+          dataSource={detail.neighbors.slice(0, 12)}
           locale={{ emptyText: '暂无邻居节点' }}
           renderItem={(neighbor) => (
             <List.Item
+              style={{ padding: '4px 0' }}
               actions={[
                 <Button
-                  key="focus-neighbor"
+                  key="focus"
                   type="link"
                   size="small"
+                  style={{ padding: 0 }}
                   onClick={() => onNeighborClick(neighbor.node_key)}
                 >
                   聚焦
@@ -501,8 +622,8 @@ function NodeDetailCard({
               ]}
             >
               <Space direction="vertical" size={0} style={{ width: '100%' }}>
-                <Text>{neighbor.label}</Text>
-                <Text type="secondary">{neighbor.node_type}</Text>
+                <Text style={{ fontSize: 12, color: textColor }}>{neighbor.label}</Text>
+                <Text type="secondary" style={{ fontSize: 11 }}>{neighbor.node_type}</Text>
               </Space>
             </List.Item>
           )}
@@ -510,46 +631,57 @@ function NodeDetailCard({
       </div>
 
       <div>
-        <Text strong>关系</Text>
+        <Text strong style={{ fontSize: 12, color: textColor }}>关系</Text>
         <List
           size="small"
-          dataSource={detail.edges}
+          style={{ marginTop: 4 }}
+          dataSource={detail.edges.slice(0, 10)}
           locale={{ emptyText: '暂无边关系' }}
           renderItem={(edge) => (
-            <List.Item>
-              <Paragraph style={{ marginBottom: 0 }}>
-                {edge.source_node_key} --{edge.relation_type}--&gt; {edge.target_node_key}
-              </Paragraph>
+            <List.Item style={{ padding: '3px 0' }}>
+              <Text type="secondary" style={{ fontSize: 11, wordBreak: 'break-all' }}>
+                {edge.source_node_key}{' '}
+                <Tag style={{ fontSize: 10, padding: '0 4px' }}>{edge.relation_type}</Tag>{' '}
+                {edge.target_node_key}
+              </Text>
             </List.Item>
           )}
         />
       </div>
 
       <div>
-        <Text strong>相关文章</Text>
+        <Text strong style={{ fontSize: 12, color: textColor }}>相关文章</Text>
         <List
           size="small"
-          dataSource={detail.related_articles}
+          style={{ marginTop: 4 }}
+          dataSource={detail.related_articles.slice(0, 8)}
           locale={{ emptyText: '暂无相关文章' }}
           renderItem={(article) => (
             <List.Item
+              style={{ padding: '4px 0' }}
               actions={[
                 <Button
-                  key="focus-article"
+                  key="focus"
                   type="link"
                   size="small"
+                  style={{ padding: 0 }}
                   onClick={() => onArticleFocus(article.id)}
                 >
-                  图谱定位
+                  定位
                 </Button>,
               ]}
             >
               <Space direction="vertical" size={0} style={{ width: '100%' }}>
-                <a href={article.url} target="_blank" rel="noreferrer">
+                <a
+                  href={article.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{ fontSize: 12, color: textColor, display: 'block', lineHeight: '1.4' }}
+                >
                   {article.title_zh || article.title}
                 </a>
-                <Text type="secondary">
-                  {article.source} · 关系数 {article.relation_count}
+                <Text type="secondary" style={{ fontSize: 11 }}>
+                  {article.source} · 关系 {article.relation_count}
                 </Text>
               </Space>
             </List.Item>
