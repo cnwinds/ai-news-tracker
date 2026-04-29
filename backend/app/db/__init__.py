@@ -82,6 +82,7 @@ class DatabaseManager:
         connect_args = {}
         if "sqlite" in database_url:
             connect_args["check_same_thread"] = False
+            connect_args["timeout"] = 30
         
         self.engine = create_engine(
             database_url,
@@ -93,15 +94,17 @@ class DatabaseManager:
         if database_url.startswith("sqlite:///"):
             @event.listens_for(self.engine, "connect")
             def set_sqlite_pragma(dbapi_conn, connection_record):
-                """设置 SQLite 连接参数，确保数据持久化"""
+                """设置 SQLite 连接参数，提升 Web 服务读写并发稳定性"""
                 cursor = dbapi_conn.cursor()
                 # 启用外键约束
                 cursor.execute("PRAGMA foreign_keys=ON")
-                # 使用 DELETE 日志模式（默认，确保数据持久化）
-                cursor.execute("PRAGMA journal_mode=DELETE")
-                # 确保同步写入（牺牲一些性能，但确保数据不丢失）
-                cursor.execute("PRAGMA synchronous=FULL")
+                # 等待短暂写锁释放，避免并发采集期间读请求直接 500
+                cursor.execute("PRAGMA busy_timeout=30000")
+                # WAL 模式下 NORMAL 在持久性和并发性能之间更适合 Web 服务
+                cursor.execute("PRAGMA synchronous=NORMAL")
                 cursor.close()
+
+            self._enable_sqlite_wal()
         
         # 为 SQLite 连接注册事件监听器，在每次连接时加载 sqlite-vec 扩展
         if database_url.startswith("sqlite:///"):
@@ -112,6 +115,16 @@ class DatabaseManager:
 
         # 初始化数据库
         self.init_db()
+
+    def _enable_sqlite_wal(self):
+        """启用 WAL，允许读请求与后台写入任务并发执行。"""
+        try:
+            with self.engine.connect() as conn:
+                conn.execute(text("PRAGMA journal_mode=WAL"))
+                conn.execute(text("PRAGMA wal_autocheckpoint=1000"))
+                conn.commit()
+        except Exception as e:
+            logger.warning(f"⚠️  启用 SQLite WAL 模式失败，将继续使用当前日志模式: {e}")
 
     def init_db(self):
         """初始化数据库表（第一阶段：只创建基础表结构）"""

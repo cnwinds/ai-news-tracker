@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from backend.app.api.v1.endpoints.settings import require_auth
 from backend.app.core.dependencies import get_database
+from backend.app.db import get_db
 from backend.app.schemas.knowledge_graph import (
     KnowledgeGraphArticleContextResponse,
     KnowledgeGraphBuildSummary,
@@ -37,6 +38,20 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def run_knowledge_graph_sync(request: KnowledgeGraphSyncRequest) -> dict:
+    """在线程内部创建数据库会话，避免跨线程复用 FastAPI 请求 Session。"""
+    db_manager = get_db()
+    with db_manager.get_session() as db:
+        service = KnowledgeGraphService(db=db, ai_analyzer=create_knowledge_graph_ai_analyzer())
+        return service.sync_articles(
+            article_ids=request.article_ids,
+            force_rebuild=request.force_rebuild,
+            sync_mode=request.sync_mode,
+            max_articles=request.max_articles,
+            trigger_source=request.trigger_source,
+        )
+
+
 def get_knowledge_graph_service(
     db: Session = Depends(get_database),
 ) -> KnowledgeGraphService:
@@ -54,18 +69,10 @@ async def get_knowledge_graph_stats(
 async def sync_knowledge_graph(
     request: KnowledgeGraphSyncRequest,
     current_user: str = Depends(require_auth),
-    service: KnowledgeGraphService = Depends(get_knowledge_graph_service),
 ):
     del current_user
     try:
-        result = await asyncio.to_thread(
-            service.sync_articles,
-            article_ids=request.article_ids,
-            force_rebuild=request.force_rebuild,
-            sync_mode=request.sync_mode,
-            max_articles=request.max_articles,
-            trigger_source=request.trigger_source,
-        )
+        result = await asyncio.to_thread(run_knowledge_graph_sync, request)
         return KnowledgeGraphSyncResponse(**result)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

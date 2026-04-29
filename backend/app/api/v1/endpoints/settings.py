@@ -865,7 +865,7 @@ async def restore_database(
         from sqlalchemy import create_engine
         from sqlalchemy.orm import sessionmaker
         
-        connect_args = {"check_same_thread": False}
+        connect_args = {"check_same_thread": False, "timeout": 30}
         new_engine = create_engine(
             f"sqlite:///{db_path.absolute()}",
             connect_args=connect_args,
@@ -875,6 +875,9 @@ async def restore_database(
         # 重新设置数据库管理器的引擎和会话工厂
         db.engine = new_engine
         db.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=new_engine)
+
+        if hasattr(db, '_enable_sqlite_wal'):
+            db._enable_sqlite_wal()
         
         # 重新初始化sqlite-vec扩展（需要重新设置事件监听器）
         if hasattr(db, '_setup_sqlite_vec_loader'):
