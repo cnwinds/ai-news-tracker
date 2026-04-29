@@ -26,6 +26,7 @@ type LabelSelectionOptions = {
   focusNodeKeys: LabelKeyCollection;
   highlightedNodeKeys: LabelKeyCollection;
   selectedNeighborKeys: ReadonlySet<string>;
+  neighborHopMap?: ReadonlyMap<string, number>;
 };
 
 type BaseLabelSelectionOptions = LabelSelectionOptions & {
@@ -36,6 +37,7 @@ type RenderableLabelSelectionOptions = LabelSelectionOptions & {
   baseLabelKeys: ReadonlySet<string>;
   hoveredNodeKey?: string;
   viewport: KnowledgeGraphLabelViewport;
+  neighborHopMap?: ReadonlyMap<string, number>;
 };
 
 type LabelScoreContext = {
@@ -46,6 +48,7 @@ type LabelScoreContext = {
   selectedNeighborKeys: ReadonlySet<string>;
   pinnedKeys: ReadonlySet<string>;
   baseLabelKeys?: ReadonlySet<string>;
+  neighborHopMap?: ReadonlyMap<string, number>;
 };
 
 type LabelRect = {
@@ -95,13 +98,20 @@ function createActiveLabelKeys({
   focusNodeKeys,
   highlightedNodeKeys,
   selectedNeighborKeys,
+  neighborHopMap,
 }: LabelSelectionOptions) {
-  return new Set<string>([
+  const keys = new Set<string>([
     ...Array.from(focusNodeKeys),
     ...Array.from(highlightedNodeKeys),
     ...Array.from(selectedNeighborKeys),
     ...(selectedNodeKey ? [selectedNodeKey] : []),
   ]);
+  if (neighborHopMap) {
+    for (const [nodeKey] of neighborHopMap) {
+      keys.add(nodeKey);
+    }
+  }
+  return keys;
 }
 
 function getScaleAwareLimit(scale: number | undefined, min: number, base: number, max: number) {
@@ -151,6 +161,16 @@ export function getKnowledgeGraphLabelBudget({
   return Math.min(nodeCount, scaledDefaultLimit);
 }
 
+// Hop-distance score: 1-hop → +750, 2-hop → +400, 3-hop → +180, 4-hop → +80
+const HOP_SCORES = [0, 750, 400, 180, 80];
+
+function getHopScore(neighborHopMap: ReadonlyMap<string, number> | undefined, nodeKey: string): number {
+  if (!neighborHopMap) return 0;
+  const hop = neighborHopMap.get(nodeKey);
+  if (hop === undefined || hop === 0) return 0;
+  return HOP_SCORES[hop] ?? 40;
+}
+
 function scoreLabelNode(node: LabelScoredNode, context: LabelScoreContext) {
   let score = node.centrality * 100 + node.degree * 6 + node.article_count * 4;
   if (node.node_key === context.selectedNodeKey) score += 2000;
@@ -159,7 +179,11 @@ function scoreLabelNode(node: LabelScoredNode, context: LabelScoreContext) {
   if (context.highlightedSet.has(node.node_key)) score += 1200;
   if (context.focusSet.has(node.node_key)) score += 900;
   if (context.baseLabelKeys?.has(node.node_key)) score += 520;
-  if (context.selectedNeighborKeys.has(node.node_key)) score += 280;
+  if (context.neighborHopMap) {
+    score += getHopScore(context.neighborHopMap, node.node_key);
+  } else if (context.selectedNeighborKeys.has(node.node_key)) {
+    score += 280;
+  }
   return score;
 }
 
@@ -181,6 +205,7 @@ export function selectVisibleKnowledgeGraphLabelKeys(
     focusNodeKeys,
     highlightedNodeKeys,
     selectedNeighborKeys,
+    neighborHopMap,
     viewportScale,
   }: BaseLabelSelectionOptions
 ) {
@@ -197,12 +222,14 @@ export function selectVisibleKnowledgeGraphLabelKeys(
     focusSet,
     selectedNeighborKeys,
     pinnedKeys,
+    neighborHopMap,
   };
   const activeNodeKeys = createActiveLabelKeys({
     selectedNodeKey,
     focusNodeKeys,
     highlightedNodeKeys,
     selectedNeighborKeys,
+    neighborHopMap,
   });
 
   if (activeNodeKeys.size > 0) {
@@ -310,6 +337,7 @@ export function selectRenderableKnowledgeGraphLabelKeys(
     focusNodeKeys,
     highlightedNodeKeys,
     selectedNeighborKeys,
+    neighborHopMap,
     baseLabelKeys,
     hoveredNodeKey,
     viewport,
@@ -327,6 +355,7 @@ export function selectRenderableKnowledgeGraphLabelKeys(
     focusNodeKeys,
     highlightedNodeKeys,
     selectedNeighborKeys,
+    neighborHopMap,
   });
   const visibleNodes = nodes.filter((node) => isNodeNearViewport(node, viewport));
   const activeVisibleCount = visibleNodes.filter((node) => activeNodeKeys.has(node.node_key)).length;
@@ -350,6 +379,7 @@ export function selectRenderableKnowledgeGraphLabelKeys(
     selectedNeighborKeys,
     pinnedKeys,
     baseLabelKeys,
+    neighborHopMap,
   };
   const sortedNodes = [...visibleNodes].sort(
     (left, right) => compareLabelNodes(left, right, scoreContext)

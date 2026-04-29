@@ -237,6 +237,7 @@ interface KnowledgeGraphCanvasProps {
   highlightedNodeKeys: string[];
   highlightedEdgeKeys: Set<string>;
   selectedNeighborKeys: Set<string>;
+  neighborHopMap?: Map<string, number>;
   labelKeys: Set<string>;
   viewport: KnowledgeGraphViewportState;
   onViewportChange: (updater: (previous: KnowledgeGraphViewportState) => KnowledgeGraphViewportState) => void;
@@ -253,6 +254,7 @@ export default function KnowledgeGraphCanvas({
   highlightedNodeKeys,
   highlightedEdgeKeys,
   selectedNeighborKeys,
+  neighborHopMap,
   labelKeys,
   viewport,
   onViewportChange,
@@ -291,6 +293,7 @@ export default function KnowledgeGraphCanvas({
     highlightedNodeKeySet,
     highlightedEdgeKeys,
     selectedNeighborKeys,
+    neighborHopMap,
     labelKeys,
     focusNodeKeySet,
     hoveredNodeKey,
@@ -462,6 +465,7 @@ export default function KnowledgeGraphCanvas({
       focusNodeKeys: visualState.focusNodeKeySet,
       highlightedNodeKeys: visualState.highlightedNodeKeySet,
       selectedNeighborKeys: visualState.selectedNeighborKeys,
+      neighborHopMap: visualState.neighborHopMap,
       baseLabelKeys: visualState.labelKeys,
       hoveredNodeKey: hoveredKey,
       viewport: {
@@ -512,6 +516,7 @@ export default function KnowledgeGraphCanvas({
       highlightedNodeKeySet,
       highlightedEdgeKeys,
       selectedNeighborKeys,
+      neighborHopMap,
       labelKeys,
       focusNodeKeySet,
       hoveredNodeKey,
@@ -524,6 +529,7 @@ export default function KnowledgeGraphCanvas({
     highlightedNodeKeySet,
     hoveredNodeKey,
     labelKeys,
+    neighborHopMap,
     selectedNeighborKeys,
     selectedNodeKey,
     theme,

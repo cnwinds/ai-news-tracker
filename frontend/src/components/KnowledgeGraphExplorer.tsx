@@ -138,15 +138,37 @@ export default function KnowledgeGraphExplorer({
 
   const highlightedEdgeKeySet = useMemo(() => new Set(highlightedEdgeKeys), [highlightedEdgeKeys]);
 
+  const selectedHopMap = useMemo(() => {
+    if (!selectedNodeKey) return new Map<string, number>();
+    const MAX_HOPS = 3;
+    const hopMap = new Map<string, number>();
+    hopMap.set(selectedNodeKey, 0);
+    let frontier = [selectedNodeKey];
+    for (let hop = 1; hop <= MAX_HOPS && frontier.length > 0; hop++) {
+      const next: string[] = [];
+      for (const nodeKey of frontier) {
+        for (const link of links) {
+          let neighbor: string | null = null;
+          if (link.source === nodeKey) neighbor = link.target;
+          else if (link.target === nodeKey) neighbor = link.source;
+          if (neighbor && !hopMap.has(neighbor)) {
+            hopMap.set(neighbor, hop);
+            next.push(neighbor);
+          }
+        }
+      }
+      frontier = next;
+    }
+    return hopMap;
+  }, [links, selectedNodeKey]);
+
   const selectedNeighborKeys = useMemo(() => {
-    if (!selectedNodeKey) return new Set<string>();
-    const keys = new Set<string>([selectedNodeKey]);
-    for (const link of links) {
-      if (link.source === selectedNodeKey) keys.add(link.target);
-      if (link.target === selectedNodeKey) keys.add(link.source);
+    const keys = new Set<string>();
+    for (const [nodeKey, hop] of selectedHopMap) {
+      if (hop <= 1) keys.add(nodeKey);
     }
     return keys;
-  }, [links, selectedNodeKey]);
+  }, [selectedHopMap]);
 
   const labelKeys = useMemo(
     () =>
@@ -155,9 +177,10 @@ export default function KnowledgeGraphExplorer({
         focusNodeKeys,
         highlightedNodeKeys,
         selectedNeighborKeys,
+        neighborHopMap: selectedNodeKey ? selectedHopMap : undefined,
         viewportScale: viewport.scale,
       }),
-    [focusNodeKeys, highlightedNodeKeys, nodes, selectedNeighborKeys, selectedNodeKey, viewport.scale]
+    [focusNodeKeys, highlightedNodeKeys, nodes, selectedHopMap, selectedNeighborKeys, selectedNodeKey, viewport.scale]
   );
 
   const selectedCommunity = useMemo(
@@ -268,6 +291,7 @@ export default function KnowledgeGraphExplorer({
             highlightedNodeKeys={highlightedNodeKeys}
             highlightedEdgeKeys={highlightedEdgeKeySet}
             selectedNeighborKeys={selectedNeighborKeys}
+            neighborHopMap={selectedNodeKey ? selectedHopMap : undefined}
             labelKeys={labelKeys}
             viewport={viewport}
             onViewportChange={setViewport}
