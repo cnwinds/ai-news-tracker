@@ -225,4 +225,50 @@ describe('knowledge graph label selection', () => {
     expect(labelKeys.has('node:hop-2-a')).toBe(true);
     expect(labelKeys.has('node:hop-2-b')).toBe(true);
   });
+
+  it('reserves render label capacity for near selected-node hops when zoomed in', () => {
+    const nearHopNodes = [
+      makeRenderNode(1, { node_key: 'node:selected', x: 60, y: 80 }),
+      makeRenderNode(2, { node_key: 'node:hop-1', x: 60, y: 130 }),
+      makeRenderNode(3, { node_key: 'node:hop-2', x: 60, y: 180 }),
+    ];
+    const distantHighScoreNodes = Array.from({ length: 24 }, (_, index) =>
+      makeRenderNode(index + 4, {
+        node_key: `node:far-${index}`,
+        degree: 1000,
+        centrality: 100,
+        x: 180 + (index % 6) * 80,
+        y: 80 + Math.floor(index / 6) * 54,
+      })
+    );
+    const neighborHopMap = new Map<string, number>([
+      ['node:selected', 0],
+      ['node:hop-1', 1],
+      ['node:hop-2', 2],
+      ...distantHighScoreNodes.map((node) => [node.node_key, 3] as const),
+    ]);
+
+    const labelKeys = selectRenderableKnowledgeGraphLabelKeys(
+      [...nearHopNodes, ...distantHighScoreNodes],
+      {
+        selectedNodeKey: 'node:selected',
+        focusNodeKeys: [],
+        highlightedNodeKeys: [],
+        selectedNeighborKeys: new Set(['node:selected', 'node:hop-1']),
+        neighborHopMap,
+        baseLabelKeys: new Set<string>(),
+        viewport: {
+          scale: 1.8,
+          x: 0,
+          y: 0,
+          width: 700,
+          height: 420,
+        },
+      }
+    );
+
+    expect(labelKeys.has('node:selected')).toBe(true);
+    expect(labelKeys.has('node:hop-1')).toBe(true);
+    expect(labelKeys.has('node:hop-2')).toBe(true);
+  });
 });

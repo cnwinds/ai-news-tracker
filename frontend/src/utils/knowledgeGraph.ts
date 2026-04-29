@@ -347,6 +347,16 @@ function getViewportAreaFactor(viewport: KnowledgeGraphLabelViewport) {
   return clamp(Math.sqrt(area / BASE_CANVAS_AREA), 0.72, 1.35);
 }
 
+function getPriorityHopLimit(scale: number) {
+  if (scale >= 1.55) return 2;
+  return 1;
+}
+
+function getPriorityHopBudget(viewport: KnowledgeGraphLabelViewport) {
+  const baseBudget = getScaleAwareLimit(viewport.scale, 6, 12, 28);
+  return Math.max(4, Math.round(baseBudget * getViewportAreaFactor(viewport)));
+}
+
 export function selectRenderableKnowledgeGraphLabelKeys(
   nodes: KnowledgeGraphRenderableLabelNode[],
   {
@@ -388,6 +398,7 @@ export function selectRenderableKnowledgeGraphLabelKeys(
     ...Array.from(highlightedSet),
     ...(viewport.scale >= 1.55 ? Array.from(focusSet) : []),
   ]);
+  const priorityHopLimit = getPriorityHopLimit(viewport.scale);
   const scoreContext: LabelScoreContext = {
     selectedNodeKey,
     hoveredNodeKey,
@@ -403,6 +414,10 @@ export function selectRenderableKnowledgeGraphLabelKeys(
   );
   const labelKeys = new Set<string>();
   const occupiedRects: LabelRect[] = [];
+  const priorityRenderBudget = Math.max(
+    renderBudget,
+    forceLabelKeys.size + getPriorityHopBudget(viewport)
+  );
 
   const tryAddLabel = (node: KnowledgeGraphRenderableLabelNode, force: boolean) => {
     if (labelKeys.has(node.node_key)) {
@@ -427,7 +442,18 @@ export function selectRenderableKnowledgeGraphLabelKeys(
     .forEach((node) => tryAddLabel(node, true));
 
   sortedNodes.some((node) => {
-    if (labelKeys.size >= renderBudget) {
+    if (labelKeys.size >= priorityRenderBudget) {
+      return true;
+    }
+    const hop = neighborHopMap?.get(node.node_key);
+    if (hop !== undefined && hop > 0 && hop <= priorityHopLimit) {
+      tryAddLabel(node, false);
+    }
+    return false;
+  });
+
+  sortedNodes.some((node) => {
+    if (labelKeys.size >= priorityRenderBudget) {
       return true;
     }
     tryAddLabel(node, false);
