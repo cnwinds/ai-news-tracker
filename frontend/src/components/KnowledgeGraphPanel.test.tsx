@@ -15,7 +15,9 @@ const mocks = vi.hoisted(() => ({
   queryKnowledgeGraph: vi.fn(),
   queryKnowledgeGraphStream: vi.fn(),
   findKnowledgeGraphPath: vi.fn(),
+  repairKnowledgeGraphIntegrity: vi.fn(),
   createErrorHandler: vi.fn(() => vi.fn()),
+  showInfo: vi.fn(),
   showSuccess: vi.fn(),
   showWarning: vi.fn(),
 }));
@@ -32,12 +34,14 @@ vi.mock('@/services/api', () => ({
     queryKnowledgeGraph: mocks.queryKnowledgeGraph,
     queryKnowledgeGraphStream: mocks.queryKnowledgeGraphStream,
     findKnowledgeGraphPath: mocks.findKnowledgeGraphPath,
+    repairKnowledgeGraphIntegrity: mocks.repairKnowledgeGraphIntegrity,
   },
 }));
 
 vi.mock('@/hooks/useErrorHandler', () => ({
   useErrorHandler: () => ({
     createErrorHandler: mocks.createErrorHandler,
+    showInfo: mocks.showInfo,
     showSuccess: mocks.showSuccess,
     showWarning: mocks.showWarning,
   }),
@@ -69,7 +73,9 @@ describe('KnowledgeGraphPanel', () => {
     mocks.queryKnowledgeGraph.mockReset();
     mocks.queryKnowledgeGraphStream.mockReset();
     mocks.findKnowledgeGraphPath.mockReset();
+    mocks.repairKnowledgeGraphIntegrity.mockReset();
     mocks.createErrorHandler.mockClear();
+    mocks.showInfo.mockReset();
     mocks.showSuccess.mockReset();
     mocks.showWarning.mockReset();
 
@@ -257,5 +263,46 @@ describe('KnowledgeGraphPanel', () => {
     expect(screen.queryByText('运维与构建')).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: '运维工具' })).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: '构建历史' })).not.toBeInTheDocument();
+  });
+
+  it('shows an inline integrity repair result when no issues remain', async () => {
+    mocks.repairKnowledgeGraphIntegrity.mockResolvedValue({
+      dry_run: false,
+      repaired: true,
+      actions: ['从数据库重建图谱快照'],
+      deleted_dangling_edges: 0,
+      deleted_orphan_nodes: 0,
+      deleted_missing_article_states: 0,
+      resynced_article_ids: [],
+      resync_result: null,
+      before: {
+        healthy: true,
+        checked_at: '2026-04-08T12:00:00Z',
+        db_counts: {},
+        snapshot_counts: {},
+        issues: [],
+        suspect_article_ids: [],
+        keyword_article_ids: [],
+        recommendations: ['未发现需要修复的结构问题。'],
+      },
+      after: {
+        healthy: true,
+        checked_at: '2026-04-08T12:01:00Z',
+        db_counts: {},
+        snapshot_counts: {},
+        issues: [],
+        suspect_article_ids: [],
+        keyword_article_ids: [],
+        recommendations: ['未发现需要修复的结构问题。'],
+      },
+    });
+
+    renderWithProviders(<KnowledgeGraphPanel />);
+
+    await screen.findByText('运维工具');
+    await userEvent.click(screen.getByRole('button', { name: '诊断修复' }));
+
+    expect(await screen.findByText('诊断修复完成，未发现需要继续处理的问题')).toBeInTheDocument();
+    expect(screen.getByText(/执行动作：从数据库重建图谱快照/)).toBeInTheDocument();
   });
 });

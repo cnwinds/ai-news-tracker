@@ -45,10 +45,12 @@ import type {
   AIQueryEngine,
   KnowledgeGraphBuildSummary,
   KnowledgeGraphCommunitySummary,
+  KnowledgeGraphIntegrityRepairResponse,
   KnowledgeGraphIntegrityReport,
   KnowledgeGraphPathResponse,
   KnowledgeGraphQueryResponse,
 } from '@/types';
+import { getFriendlyErrorMessage } from '@/utils/errorHandler';
 import {
   createMarkdownComponents,
   normalizeMarkdownImageContent,
@@ -61,6 +63,11 @@ const { TextArea, Search } = Input;
 
 type SyncRunMode = 'auto' | 'agent' | 'deterministic';
 type WorkbenchTabKey = 'qa' | 'path' | 'navigate';
+type IntegrityStatusFeedback = {
+  type: 'success' | 'info' | 'warning' | 'error';
+  message: string;
+  description: ReactNode;
+};
 
 function formatBuildStatus(status: KnowledgeGraphBuildSummary['status']) {
   if (status === 'completed') return { color: 'success', text: '已完成' };
@@ -142,7 +149,7 @@ function truncateMiddle(text: string, head = 140, tail = 80) {
   return `${text.slice(0, head)}...${text.slice(-tail)}`;
 }
 
-function formatIntegrityStatus(report?: KnowledgeGraphIntegrityReport | null) {
+function formatIntegrityStatus(report?: KnowledgeGraphIntegrityReport | null): IntegrityStatusFeedback {
   if (!report) {
     return {
       type: 'info' as const,
@@ -171,6 +178,41 @@ function formatIntegrityStatus(report?: KnowledgeGraphIntegrityReport | null) {
     type: 'success' as const,
     message: '图谱完整性正常',
     description: report.recommendations.join(' '),
+  };
+}
+
+function formatIntegrityRepairStatus(response: KnowledgeGraphIntegrityRepairResponse): IntegrityStatusFeedback {
+  const latestReport = response.after || response.before;
+  const baseStatus = formatIntegrityStatus(latestReport);
+  const repairDetails = [
+    response.actions.length ? `执行动作：${response.actions.join('、')}。` : '',
+    response.deleted_dangling_edges ? `清理悬空边 ${response.deleted_dangling_edges} 条。` : '',
+    response.deleted_orphan_nodes ? `清理孤立节点 ${response.deleted_orphan_nodes} 个。` : '',
+    response.deleted_missing_article_states ? `清理无原文状态 ${response.deleted_missing_article_states} 条。` : '',
+    response.resynced_article_ids.length ? `已重同步 ${response.resynced_article_ids.length} 篇可疑文章。` : '',
+  ].filter(Boolean);
+  const description = [baseStatus.description, ...repairDetails].filter(Boolean).join(' ');
+
+  if (!latestReport.issues.length && !latestReport.suspect_article_ids.length) {
+    return {
+      type: 'success',
+      message: '诊断修复完成，未发现需要继续处理的问题',
+      description: description || '图谱完整性检查通过，快照已更新。',
+    };
+  }
+
+  if (latestReport.suspect_article_ids.length) {
+    return {
+      type: 'warning',
+      message: `诊断修复完成，仍有 ${latestReport.suspect_article_ids.length} 篇文章建议重同步`,
+      description,
+    };
+  }
+
+  return {
+    ...baseStatus,
+    message: `诊断修复完成：${baseStatus.message}`,
+    description,
   };
 }
 
@@ -236,6 +278,7 @@ export default function KnowledgeGraphPanel() {
   const [syncMode, setSyncMode] = useState<SyncRunMode>('auto');
   const [maxArticles, setMaxArticles] = useState<number>(100);
   const [integrityReport, setIntegrityReport] = useState<KnowledgeGraphIntegrityReport | null>(null);
+  const [integrityFeedback, setIntegrityFeedback] = useState<IntegrityStatusFeedback | null>(null);
   const [communityDrawerOpen, setCommunityDrawerOpen] = useState(false);
   const [activeCommunityId, setActiveCommunityId] = useState<number>();
 
@@ -370,9 +413,22 @@ export default function KnowledgeGraphPanel() {
         limit: maxArticles,
         sync_mode: syncMode,
       }),
+    onMutate: ({ resyncSuspects }) => {
+      if (!resyncSuspects) {
+        setIntegrityReport(null);
+      }
+      setIntegrityFeedback({
+        type: 'info',
+        message: resyncSuspects ? '正在重同步可疑文章' : '正在执行图谱诊断修复',
+        description: resyncSuspects
+          ? '正在对诊断发现的可疑文章做精准重同步，请稍候。'
+          : '正在清理结构问题并重建图谱快照，请稍候。',
+      });
+    },
     onSuccess: (response) => {
       const latestReport = response.after || response.before;
       setIntegrityReport(latestReport);
+      setIntegrityFeedback(formatIntegrityRepairStatus(response));
       if (response.resynced_article_ids.length) {
         showSuccess(`诊断修复完成，已重同步 ${response.resynced_article_ids.length} 篇可疑文章`);
       } else if (latestReport.suspect_article_ids.length) {
@@ -382,12 +438,19 @@ export default function KnowledgeGraphPanel() {
       }
       refreshGraphQueries();
     },
-    onError: createErrorHandler({
-      operationName: '执行图谱诊断修复',
-      customMessages: {
-        auth: '需要登录后才能执行图谱诊断修复',
-      },
-    }),
+    onError: (error) => {
+      setIntegrityFeedback({
+        type: 'error',
+        message: '诊断修复失败',
+        description: `${getFriendlyErrorMessage(error, '请检查后端服务是否正常')}。请确认 ai-news-tracker 后端正在运行，并且前端代理指向了正确的后端服务。`,
+      });
+      createErrorHandler({
+        operationName: '执行图谱诊断修复',
+        customMessages: {
+          auth: '需要登录后才能执行图谱诊断修复',
+        },
+      })(error);
+    },
   });
 
   const queryMutation = useMutation({
@@ -902,7 +965,7 @@ export default function KnowledgeGraphPanel() {
       ),
     },
   ];
-  const integrityStatus = formatIntegrityStatus(integrityReport);
+  const integrityStatus = integrityFeedback ?? formatIntegrityStatus(integrityReport);
   const canResyncSuspects = Boolean(integrityReport?.suspect_article_ids.length);
   const isRepairingWithResync = integrityRepairMutation.isPending
     && Boolean(integrityRepairMutation.variables?.resyncSuspects);
