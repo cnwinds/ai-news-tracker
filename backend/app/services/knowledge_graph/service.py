@@ -15,7 +15,7 @@ from typing import Any, Deque, Dict, Iterable, List, Optional, Sequence, Set, Tu
 
 import networkx as nx
 from fastapi.encoders import jsonable_encoder
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from backend.app.core.settings import settings
@@ -407,35 +407,97 @@ class KnowledgeGraphService:
         return snapshot
 
     def get_node_detail(self, node_key: str) -> Dict[str, Any]:
-        graph = self._get_graph()
         snapshot = self._load_snapshot()
         node_map = {item["node_key"]: item for item in snapshot.get("nodes", [])}
         if node_key not in node_map:
             raise ValueError("Node not found")
 
-        neighbor_keys = list(graph.neighbors(node_key)) if graph.has_node(node_key) else []
+        db_node = (
+            self.db.query(KnowledgeGraphNode)
+            .filter(KnowledgeGraphNode.node_key == node_key)
+            .first()
+        )
+        if not db_node:
+            raise ValueError("Node not found")
+
+        db_edges = (
+            self.db.query(KnowledgeGraphEdge)
+            .filter(
+                or_(
+                    KnowledgeGraphEdge.source_node_id == db_node.id,
+                    KnowledgeGraphEdge.target_node_id == db_node.id,
+                )
+            )
+            .all()
+        )
+        neighbor_ids = {
+            edge.target_node_id if edge.source_node_id == db_node.id else edge.source_node_id
+            for edge in db_edges
+        }
+        neighbor_nodes = (
+            self.db.query(KnowledgeGraphNode)
+            .filter(KnowledgeGraphNode.id.in_(neighbor_ids))
+            .all()
+            if neighbor_ids
+            else []
+        )
+        node_key_by_id = {
+            db_node.id: db_node.node_key,
+            **{node.id: node.node_key for node in neighbor_nodes},
+        }
+
+        neighbor_keys = [node.node_key for node in neighbor_nodes]
         neighbors = [node_map[key] for key in neighbor_keys if key in node_map]
         neighbors.sort(key=lambda item: (-int(item.get("degree", 0)), item.get("label", "")))
 
         edges = []
-        for neighbor_key in neighbor_keys:
-            edge_data = graph.get_edge_data(node_key, neighbor_key) or {}
-            for relation in edge_data.get("relations", []):
-                edges.append(
-                    {
-                        "source_node_key": relation["source_node_key"],
-                        "target_node_key": relation["target_node_key"],
-                        "relation_type": relation["relation_type"],
-                        "confidence": relation["confidence"],
-                        "confidence_score": relation["confidence_score"],
-                        "weight": relation["weight"],
-                        "source_article_id": relation.get("source_article_id"),
-                        "evidence_snippet": relation.get("evidence_snippet"),
-                        "metadata": relation.get("metadata"),
-                    }
-                )
+        article_scores: Counter[int] = Counter()
+        if db_node.node_type == "article":
+            article_id = (db_node.metadata_json or {}).get("article_id")
+            if article_id:
+                article_scores[int(article_id)] += 3
 
-        related_articles = self._collect_related_articles({node_key}, top_k=10, graph=graph)
+        seen_article_edges: Set[Tuple[int, int]] = set()
+        for edge in db_edges:
+            source_node_key = node_key_by_id.get(edge.source_node_id)
+            target_node_key = node_key_by_id.get(edge.target_node_id)
+            if not source_node_key or not target_node_key:
+                continue
+            edges.append(
+                {
+                    "source_node_key": source_node_key,
+                    "target_node_key": target_node_key,
+                    "relation_type": edge.relation_type,
+                    "confidence": edge.confidence,
+                    "confidence_score": float(edge.confidence_score or 0.0),
+                    "weight": float(edge.weight or 1.0),
+                    "source_article_id": edge.source_article_id,
+                    "evidence_snippet": edge.evidence_snippet,
+                    "metadata": edge.metadata_json or {},
+                }
+            )
+            if edge.source_article_id:
+                neighbor_id = (
+                    edge.target_node_id
+                    if edge.source_node_id == db_node.id
+                    else edge.source_node_id
+                )
+                article_edge_key = (neighbor_id, int(edge.source_article_id))
+                if article_edge_key not in seen_article_edges:
+                    seen_article_edges.add(article_edge_key)
+                    article_scores[int(edge.source_article_id)] += 1
+
+        related_articles = []
+        for article_id, relation_count in article_scores.most_common(30):
+            serialized = self._serialize_article_reference(
+                article_id,
+                relation_count=relation_count,
+            )
+            if serialized:
+                related_articles.append(serialized)
+            if len(related_articles) >= 10:
+                break
+
         community_ids = {
             node_map[node_key].get("community_id"),
             *[item.get("community_id") for item in neighbors],
@@ -1154,14 +1216,13 @@ class KnowledgeGraphService:
         state.updated_at = datetime.now()
 
     def _cleanup_orphan_nodes(self) -> None:
-        used_source_ids = self.db.query(KnowledgeGraphEdge.source_node_id)
-        used_target_ids = self.db.query(KnowledgeGraphEdge.target_node_id)
-        used_ids = {row[0] for row in used_source_ids.union(used_target_ids).all()}
-        if not used_ids:
-            self.db.query(KnowledgeGraphNode).delete(synchronize_session=False)
-            return
+        used_ids = (
+            self.db.query(KnowledgeGraphEdge.source_node_id.label("node_id"))
+            .union(self.db.query(KnowledgeGraphEdge.target_node_id.label("node_id")))
+            .subquery()
+        )
         self.db.query(KnowledgeGraphNode).filter(
-            ~KnowledgeGraphNode.id.in_(used_ids)
+            ~KnowledgeGraphNode.id.in_(self.db.query(used_ids.c.node_id))
         ).delete(synchronize_session=False)
 
     def _clear_graph_tables(self) -> None:

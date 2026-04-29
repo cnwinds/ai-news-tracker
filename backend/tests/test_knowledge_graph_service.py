@@ -3,12 +3,13 @@ import unittest
 import uuid
 from datetime import datetime
 from pathlib import Path
+from unittest.mock import patch
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 from backend.app.core.settings import settings
-from backend.app.db.models import Article, Base
+from backend.app.db.models import Article, Base, KnowledgeGraphEdge, KnowledgeGraphNode
 from backend.app.services.knowledge_graph import KnowledgeGraphService
 
 
@@ -138,6 +139,65 @@ class KnowledgeGraphServiceTests(unittest.TestCase):
         self.assertIn(communities[0]["label"], detail["summary_text"])
         self.assertIsInstance(detail["relation_types"], list)
         self.assertGreaterEqual(len(detail["nodes"]), 1)
+
+    def test_node_detail_uses_local_queries_without_rebuilding_graph(self):
+        self.service.sync_articles(sync_mode="deterministic", trigger_source="test")
+        source_nodes = self.service.search_nodes(query="OpenAI", node_type="source", limit=5)
+        self.assertTrue(source_nodes)
+
+        service = KnowledgeGraphService(db=self.session, ai_analyzer=None)
+        service.snapshot_dir = self.temp_dir
+        service.snapshot_path = self.temp_dir / "current_snapshot.json"
+        service.report_path = self.temp_dir / "latest_report.md"
+
+        with patch.object(
+            service,
+            "_build_networkx_graph",
+            side_effect=AssertionError("node detail should not rebuild the full graph"),
+        ):
+            detail = service.get_node_detail(source_nodes[0]["node_key"])
+
+        self.assertEqual(detail["node"]["node_key"], source_nodes[0]["node_key"])
+        self.assertGreaterEqual(len(detail["neighbors"]), 1)
+        self.assertGreaterEqual(len(detail["edges"]), 1)
+        self.assertTrue(any(item["id"] == self.article_id for item in detail["related_articles"]))
+
+    def test_cleanup_orphan_nodes_uses_subquery_without_expanding_ids(self):
+        source = KnowledgeGraphNode(node_key="test:source", label="Source", node_type="test")
+        target = KnowledgeGraphNode(node_key="test:target", label="Target", node_type="test")
+        orphan = KnowledgeGraphNode(node_key="test:orphan", label="Orphan", node_type="test")
+        self.session.add_all([source, target, orphan])
+        self.session.flush()
+        self.session.add(
+            KnowledgeGraphEdge(
+                source_node_id=source.id,
+                target_node_id=target.id,
+                relation_type="related_to",
+                confidence="EXTRACTED",
+                confidence_score=1.0,
+            )
+        )
+        self.session.commit()
+
+        delete_statements = []
+
+        def capture_delete(conn, cursor, statement, parameters, context, executemany):
+            if statement.lstrip().upper().startswith("DELETE FROM knowledge_graph_nodes".upper()):
+                delete_statements.append((statement, parameters))
+
+        event.listen(self.engine, "before_cursor_execute", capture_delete)
+        try:
+            self.service._cleanup_orphan_nodes()
+            self.session.commit()
+        finally:
+            event.remove(self.engine, "before_cursor_execute", capture_delete)
+
+        remaining_keys = {node.node_key for node in self.session.query(KnowledgeGraphNode).all()}
+        self.assertEqual(remaining_keys, {"test:source", "test:target"})
+        self.assertEqual(len(delete_statements), 1)
+        delete_sql, parameters = delete_statements[0]
+        self.assertIn("SELECT", delete_sql.upper())
+        self.assertEqual(parameters, ())
 
 
 if __name__ == "__main__":
