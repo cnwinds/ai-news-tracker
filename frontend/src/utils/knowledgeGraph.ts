@@ -171,6 +171,22 @@ function getHopScore(neighborHopMap: ReadonlyMap<string, number> | undefined, no
   return HOP_SCORES[hop] ?? 40;
 }
 
+function getLabelPriorityRank(node: LabelScoredNode, context: LabelScoreContext) {
+  if (node.node_key === context.selectedNodeKey) return 0;
+  if (node.node_key === context.hoveredNodeKey) return 1;
+  if (context.pinnedKeys.has(node.node_key)) return 2;
+  if (context.highlightedSet.has(node.node_key)) return 3;
+  if (context.focusSet.has(node.node_key)) return 4;
+
+  const hop = context.neighborHopMap?.get(node.node_key);
+  if (hop === 1) return 5;
+  if (hop === 2) return 6;
+  if (hop === 3) return 7;
+  if (context.selectedNeighborKeys.has(node.node_key)) return 8;
+  if (context.baseLabelKeys?.has(node.node_key)) return 9;
+  return 10;
+}
+
 function scoreLabelNode(node: LabelScoredNode, context: LabelScoreContext) {
   let score = node.centrality * 100 + node.degree * 6 + node.article_count * 4;
   if (node.node_key === context.selectedNodeKey) score += 2000;
@@ -192,7 +208,8 @@ function compareLabelNodes(
   right: LabelScoredNode,
   context: LabelScoreContext
 ) {
-  return scoreLabelNode(right, context) - scoreLabelNode(left, context)
+  return getLabelPriorityRank(left, context) - getLabelPriorityRank(right, context)
+    || scoreLabelNode(right, context) - scoreLabelNode(left, context)
     || right.degree - left.degree
     || right.centrality - left.centrality
     || left.label.localeCompare(right.label);

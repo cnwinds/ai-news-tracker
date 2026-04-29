@@ -211,6 +211,28 @@ function truncateLabel(label: string, limit: number) {
   return `${label.slice(0, limit)}...`;
 }
 
+function drawRoundedRect(
+  context: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  radius: number
+) {
+  const safeRadius = Math.min(radius, width / 2, height / 2);
+  context.beginPath();
+  context.moveTo(x + safeRadius, y);
+  context.lineTo(x + width - safeRadius, y);
+  context.quadraticCurveTo(x + width, y, x + width, y + safeRadius);
+  context.lineTo(x + width, y + height - safeRadius);
+  context.quadraticCurveTo(x + width, y + height, x + width - safeRadius, y + height);
+  context.lineTo(x + safeRadius, y + height);
+  context.quadraticCurveTo(x, y + height, x, y + height - safeRadius);
+  context.lineTo(x, y + safeRadius);
+  context.quadraticCurveTo(x, y, x + safeRadius, y);
+  context.closePath();
+}
+
 function getNodeMetadataPreview(node: KnowledgeGraphNodeSummary) {
   const metadataEntries = Object.entries(node.metadata || {})
     .filter(([, value]) => ['string', 'number', 'boolean'].includes(typeof value))
@@ -486,17 +508,41 @@ export default function KnowledgeGraphCanvas({
         continue;
       }
 
-      const fontSize = (isSelected || isHovered || isPathNode ? 13 : 11.5) / screenScale;
-      const labelX = (node.x || 0) + node.radius + 7 / screenScale;
+      const isEmphasizedLabel = isSelected || isHovered || isPathNode;
+      const fontSize = (isEmphasizedLabel ? 13 : 11.5) / screenScale;
+      const labelX = (node.x || 0) + node.radius + (isSelected ? 10 : 7) / screenScale;
       const labelY = (node.y || 0) + 4 / screenScale;
       const label = truncateLabel(node.label, isSelected || isHovered ? 36 : 24);
 
-      context.font = `${isSelected || isHovered || isPathNode ? 700 : 600} ${fontSize}px "Segoe UI", sans-serif`;
+      context.font = `${isEmphasizedLabel ? 700 : 600} ${fontSize}px "Segoe UI", sans-serif`;
       context.lineJoin = 'round';
-      context.lineWidth = 4 / screenScale;
-      context.strokeStyle = isDark ? 'rgba(5, 7, 11, 0.88)' : 'rgba(255, 255, 255, 0.9)';
-      context.strokeText(label, labelX, labelY);
-      context.fillStyle = isDark ? '#f8fafc' : '#0f172a';
+      if (isEmphasizedLabel) {
+        const metrics = context.measureText(label);
+        const paddingX = 7 / screenScale;
+        const paddingY = 4 / screenScale;
+        const pillX = labelX - paddingX;
+        const pillY = labelY - fontSize - paddingY;
+        const pillWidth = metrics.width + paddingX * 2;
+        const pillHeight = fontSize + paddingY * 2 + 2 / screenScale;
+        drawRoundedRect(context, pillX, pillY, pillWidth, pillHeight, 7 / screenScale);
+        context.fillStyle = isSelected
+          ? 'rgba(15, 23, 42, 0.92)'
+          : isPathNode
+            ? 'rgba(124, 45, 18, 0.86)'
+            : 'rgba(30, 41, 59, 0.86)';
+        context.fill();
+        context.lineWidth = 1 / screenScale;
+        context.strokeStyle = isSelected
+          ? (isDark ? 'rgba(248, 250, 252, 0.72)' : 'rgba(15, 23, 42, 0.42)')
+          : 'rgba(255, 255, 255, 0.26)';
+        context.stroke();
+        context.fillStyle = '#f8fafc';
+      } else {
+        context.lineWidth = 4 / screenScale;
+        context.strokeStyle = isDark ? 'rgba(5, 7, 11, 0.88)' : 'rgba(255, 255, 255, 0.9)';
+        context.strokeText(label, labelX, labelY);
+        context.fillStyle = isDark ? '#f8fafc' : '#0f172a';
+      }
       context.fillText(label, labelX, labelY);
     }
 

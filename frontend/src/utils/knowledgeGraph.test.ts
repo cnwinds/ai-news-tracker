@@ -146,4 +146,83 @@ describe('knowledge graph label selection', () => {
     expect(labelKeys.has('node:visible')).toBe(true);
     expect(labelKeys.has('node:offscreen')).toBe(false);
   });
+
+  it('forces the selected render label even when labels collide', () => {
+    const selectedNode = makeRenderNode(1, {
+      node_key: 'node:selected',
+      label: 'Selected node',
+      degree: 1,
+      centrality: 0.01,
+      x: 80,
+      y: 80,
+    });
+    const dominantNode = makeRenderNode(2, {
+      node_key: 'node:dominant',
+      label: 'Dominant node',
+      degree: 100,
+      centrality: 10,
+      x: 82,
+      y: 80,
+    });
+
+    const labelKeys = selectRenderableKnowledgeGraphLabelKeys(
+      [dominantNode, selectedNode],
+      {
+        selectedNodeKey: 'node:selected',
+        focusNodeKeys: [],
+        highlightedNodeKeys: [],
+        selectedNeighborKeys: new Set<string>(),
+        baseLabelKeys: new Set<string>(),
+        viewport: {
+          scale: 1,
+          x: 0,
+          y: 0,
+          width: 320,
+          height: 220,
+        },
+      }
+    );
+
+    expect(labelKeys.has('node:selected')).toBe(true);
+  });
+
+  it('prioritizes nearer selected-node hops over distant high-score nodes', () => {
+    const nodes = [
+      makeNode(1, { node_key: 'node:selected', degree: 1, centrality: 0.01 }),
+      makeNode(2, { node_key: 'node:hop-1-a', degree: 1, centrality: 0.01 }),
+      makeNode(3, { node_key: 'node:hop-1-b', degree: 1, centrality: 0.01 }),
+      makeNode(4, { node_key: 'node:hop-2-a', degree: 1, centrality: 0.01 }),
+      makeNode(5, { node_key: 'node:hop-2-b', degree: 1, centrality: 0.01 }),
+      ...Array.from({ length: 8 }, (_, index) =>
+        makeNode(index + 6, {
+          node_key: `node:hop-3-${index}`,
+          degree: 1000,
+          centrality: 100,
+        })
+      ),
+    ];
+    const neighborHopMap = new Map<string, number>([
+      ['node:selected', 0],
+      ['node:hop-1-a', 1],
+      ['node:hop-1-b', 1],
+      ['node:hop-2-a', 2],
+      ['node:hop-2-b', 2],
+      ...Array.from({ length: 8 }, (_, index) => [`node:hop-3-${index}`, 3] as const),
+    ]);
+
+    const labelKeys = selectVisibleKnowledgeGraphLabelKeys(nodes, {
+      selectedNodeKey: 'node:selected',
+      focusNodeKeys: [],
+      highlightedNodeKeys: [],
+      selectedNeighborKeys: new Set(['node:selected', 'node:hop-1-a', 'node:hop-1-b']),
+      neighborHopMap,
+      viewportScale: 1,
+    });
+
+    expect(labelKeys.has('node:selected')).toBe(true);
+    expect(labelKeys.has('node:hop-1-a')).toBe(true);
+    expect(labelKeys.has('node:hop-1-b')).toBe(true);
+    expect(labelKeys.has('node:hop-2-a')).toBe(true);
+    expect(labelKeys.has('node:hop-2-b')).toBe(true);
+  });
 });
