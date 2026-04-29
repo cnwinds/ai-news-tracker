@@ -1016,7 +1016,8 @@ export default function KnowledgeGraphPanel() {
           extra={<Text type="secondary">低频运维动作和构建回看集中放在底部</Text>}
         >
           <Row gutter={[16, 16]}>
-            <Col xs={24} xl={10}>
+            {isAuthenticated && (
+              <Col xs={24} xl={10}>
               <div style={{ ...surfaceStyle, padding: 20, height: '100%' }}>
                 <Space direction="vertical" size="middle" style={{ width: '100%' }}>
                   <div>
@@ -1072,9 +1073,10 @@ export default function KnowledgeGraphPanel() {
                   </Space>
                 </Space>
               </div>
-            </Col>
+              </Col>
+            )}
 
-            <Col xs={24} xl={14}>
+            <Col xs={24} xl={isAuthenticated ? 14 : 24}>
               <div style={{ ...surfaceStyle, padding: 20 }}>
                 <Space direction="vertical" size="middle" style={{ width: '100%' }}>
                   <div>

@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   showSuccess: vi.fn(),
   showWarning: vi.fn(),
 }));
+let mockIsAuthenticated = true;
 
 vi.mock('@/services/api', () => ({
   apiService: {
@@ -44,7 +45,7 @@ vi.mock('@/hooks/useErrorHandler', () => ({
 
 vi.mock('@/contexts/AuthContext', () => ({
   useAuth: () => ({
-    isAuthenticated: true,
+    isAuthenticated: mockIsAuthenticated,
   }),
 }));
 
@@ -58,6 +59,7 @@ vi.mock('@/components/KnowledgeGraphCommunityDrawer', () => ({
 
 describe('KnowledgeGraphPanel', () => {
   beforeEach(() => {
+    mockIsAuthenticated = true;
     mocks.getKnowledgeGraphSettings.mockReset();
     mocks.getKnowledgeGraphStats.mockReset();
     mocks.getKnowledgeGraphBuilds.mockReset();
@@ -245,5 +247,14 @@ describe('KnowledgeGraphPanel', () => {
     expect(await screen.findByText('社区入口')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('tab', { name: '社区入口' }));
     expect(await screen.findByRole('button', { name: '打开社区' })).toBeInTheDocument();
+  });
+
+  it('hides operation tools when unauthenticated', async () => {
+    mockIsAuthenticated = false;
+    renderWithProviders(<KnowledgeGraphPanel />);
+
+    await screen.findByText('运维与构建');
+    expect(screen.queryByRole('heading', { name: '运维工具' })).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '构建历史' })).toBeInTheDocument();
   });
 });
