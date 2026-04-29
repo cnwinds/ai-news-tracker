@@ -8,6 +8,7 @@ import json
 import logging
 import math
 import re
+import time
 import unicodedata
 import uuid
 from collections import Counter, defaultdict, deque
@@ -110,10 +111,15 @@ class KnowledgeGraphService:
 
         skipped_articles = 0
         failed_articles = 0
+        t_sync_start = time.perf_counter()
         try:
             if force_rebuild:
+                logger.info("[sync] force_rebuild=True — clearing graph tables")
+                t0 = time.perf_counter()
                 self._clear_graph_tables()
+                logger.info("[sync] graph tables cleared in %.2fs", time.perf_counter() - t0)
 
+            t0 = time.perf_counter()
             articles = self._select_articles_for_sync(
                 article_ids=article_ids,
                 run_mode=resolved_mode,
@@ -122,26 +128,55 @@ class KnowledgeGraphService:
             )
             build.total_articles = len(articles)
             self.db.commit()
+            logger.info(
+                "[sync] article selection: %d articles to process (mode=%s, %.2fs)",
+                len(articles), resolved_mode, time.perf_counter() - t0,
+            )
 
-            for article in articles:
+            t_articles_start = time.perf_counter()
+            for index, article in enumerate(articles):
                 article_hash = self._compute_article_hash(article)
                 try:
                     if not force_rebuild and not self._needs_sync(article, article_hash, resolved_mode):
                         skipped_articles += 1
                         continue
 
+                    t_article = time.perf_counter()
                     sync_result = self._sync_single_article(article, article_hash, resolved_mode)
                     build.processed_articles += 1
                     build.nodes_upserted += sync_result["nodes_upserted"]
                     build.edges_upserted += sync_result["edges_upserted"]
                     self.db.commit()
+
+                    if build.processed_articles % 10 == 0 or build.processed_articles == 1:
+                        elapsed = time.perf_counter() - t_articles_start
+                        rate = build.processed_articles / max(elapsed, 0.001)
+                        remaining = (len(articles) - index - 1) / max(rate, 0.001)
+                        logger.info(
+                            "[sync] progress %d/%d (skipped=%d, failed=%d) | %.1f art/s | ~%.0fs left | article_id=%d nodes=%d edges=%d (%.2fs)",
+                            build.processed_articles, len(articles),
+                            skipped_articles, failed_articles,
+                            rate, remaining,
+                            article.id,
+                            sync_result["nodes_upserted"], sync_result["edges_upserted"],
+                            time.perf_counter() - t_article,
+                        )
                 except Exception as exc:
                     failed_articles += 1
                     logger.error("Knowledge graph sync failed for article %s: %s", article.id, exc, exc_info=True)
                     self._mark_article_state_error(article.id, article_hash, resolved_mode, str(exc))
                     self.db.commit()
 
+            logger.info(
+                "[sync] article loop done: processed=%d skipped=%d failed=%d in %.2fs",
+                build.processed_articles, skipped_articles, failed_articles,
+                time.perf_counter() - t_articles_start,
+            )
+
+            t0 = time.perf_counter()
             self._cleanup_orphan_nodes()
+            logger.info("[sync] orphan cleanup done in %.2fs", time.perf_counter() - t0)
+
             snapshot = self.rebuild_snapshot(build_id=build.build_id)
 
             build.status = "completed"
@@ -542,8 +577,14 @@ class KnowledgeGraphService:
                 "after": None,
             }
 
+        t_repair_start = time.perf_counter()
+        logger.info(
+            "[repair] starting: cleanup_orphans=%s rebuild_snapshot=%s resync_suspects=%s",
+            cleanup_orphans, rebuild_snapshot, resync_suspects,
+        )
         try:
             if cleanup_orphans:
+                t0 = time.perf_counter()
                 source_node = aliased(KnowledgeGraphNode)
                 target_node = aliased(KnowledgeGraphNode)
                 dangling_ids = [
@@ -554,6 +595,7 @@ class KnowledgeGraphService:
                     .filter(or_(source_node.id.is_(None), target_node.id.is_(None)))
                     .all()
                 ]
+                logger.info("[repair] found %d dangling edges (%.2fs)", len(dangling_ids), time.perf_counter() - t0)
                 if dangling_ids:
                     for index in range(0, len(dangling_ids), 500):
                         deleted_dangling_edges += int(
@@ -561,7 +603,9 @@ class KnowledgeGraphService:
                             .filter(KnowledgeGraphEdge.id.in_(dangling_ids[index : index + 500]))
                             .delete(synchronize_session=False)
                         )
+                    logger.info("[repair] deleted %d dangling edges", deleted_dangling_edges)
 
+                t0 = time.perf_counter()
                 missing_article_state_ids = [
                     row[0]
                     for row in self.db.query(KnowledgeGraphArticleState.article_id)
@@ -580,17 +624,21 @@ class KnowledgeGraphService:
                             )
                             .delete(synchronize_session=False)
                         )
+                    logger.info("[repair] deleted %d stale article states (%.2fs)", deleted_missing_article_states, time.perf_counter() - t0)
 
                 before_orphan_count = next(
                     (issue["count"] for issue in before["issues"] if issue["code"] == "orphan_nodes"),
                     0,
                 )
+                t0 = time.perf_counter()
                 self._cleanup_orphan_nodes()
                 deleted_orphan_nodes = int(before_orphan_count)
                 self.db.commit()
+                logger.info("[repair] orphan cleanup done: ~%d nodes removed (%.2fs)", deleted_orphan_nodes, time.perf_counter() - t0)
 
             if resync_suspects and before["suspect_article_ids"]:
                 resynced_article_ids = [int(item) for item in before["suspect_article_ids"][:safe_limit]]
+                logger.info("[repair] starting resync of %d suspect articles", len(resynced_article_ids))
                 resync_result = self.sync_articles(
                     article_ids=resynced_article_ids,
                     force_rebuild=False,
@@ -599,10 +647,14 @@ class KnowledgeGraphService:
                     trigger_source="integrity_repair",
                 )
             elif rebuild_snapshot:
+                logger.info("[repair] rebuilding snapshot (no resync)")
                 self.rebuild_snapshot()
                 self.db.commit()
 
+            t0 = time.perf_counter()
             after = self.diagnose_integrity(keyword=keyword, limit=safe_limit)
+            logger.info("[repair] post-repair diagnosis done (%.2fs)", time.perf_counter() - t0)
+            logger.info("[repair] total elapsed %.2fs", time.perf_counter() - t_repair_start)
             return {
                 "dry_run": False,
                 "repaired": True,
@@ -798,8 +850,21 @@ class KnowledgeGraphService:
         return filtered[: max(1, min(limit, 200))]
 
     def rebuild_snapshot(self, *, build_id: Optional[str] = None) -> Dict[str, Any]:
+        t_total = time.perf_counter()
+        logger.info("[snapshot] rebuild_snapshot started")
+
+        t0 = time.perf_counter()
         graph = self._build_networkx_graph()
+        logger.info(
+            "[snapshot] graph loaded: %d nodes, %d edges (%.2fs)",
+            graph.number_of_nodes(), graph.number_of_edges(), time.perf_counter() - t0,
+        )
+
+        t0 = time.perf_counter()
         snapshot = jsonable_encoder(self._generate_snapshot_payload(graph, build_id=build_id))
+        logger.info("[snapshot] payload generated (%.2fs)", time.perf_counter() - t0)
+
+        t0 = time.perf_counter()
         self.snapshot_dir.mkdir(parents=True, exist_ok=True)
         self.snapshot_path.write_text(
             json.dumps(snapshot, ensure_ascii=False, indent=2),
@@ -809,8 +874,11 @@ class KnowledgeGraphService:
             self._render_report(snapshot),
             encoding="utf-8",
         )
+        logger.info("[snapshot] written to disk (%.2fs)", time.perf_counter() - t0)
+
         self._graph = graph
         self._snapshot_cache = snapshot
+        logger.info("[snapshot] rebuild_snapshot finished — total %.2fs", time.perf_counter() - t_total)
         return snapshot
 
     def get_node_detail(self, node_key: str) -> Dict[str, Any]:
@@ -1643,8 +1711,12 @@ class KnowledgeGraphService:
         self._snapshot_cache = None
 
     def _build_networkx_graph(self) -> nx.Graph:
+        t0 = time.perf_counter()
         graph = nx.Graph()
         nodes = self.db.query(KnowledgeGraphNode).all()
+        logger.info("[graph_build] DB: loaded %d nodes (%.2fs)", len(nodes), time.perf_counter() - t0)
+
+        t0 = time.perf_counter()
         node_lookup = {node.id: node for node in nodes}
         for node in nodes:
             graph.add_node(
@@ -1654,12 +1726,19 @@ class KnowledgeGraphService:
                 aliases=node.aliases or [],
                 metadata=node.metadata_json or {},
             )
+        logger.info("[graph_build] node objects added to graph (%.2fs)", time.perf_counter() - t0)
 
+        t0 = time.perf_counter()
         edges = self.db.query(KnowledgeGraphEdge).all()
+        logger.info("[graph_build] DB: loaded %d edges (%.2fs)", len(edges), time.perf_counter() - t0)
+
+        t0 = time.perf_counter()
+        skipped = 0
         for edge in edges:
             source = node_lookup.get(edge.source_node_id)
             target = node_lookup.get(edge.target_node_id)
             if not source or not target:
+                skipped += 1
                 continue
             relation_payload = {
                 "source_node_key": source.node_key,
@@ -1685,6 +1764,10 @@ class KnowledgeGraphService:
                     weight=relation_payload["weight"],
                     article_ids={edge.source_article_id} if edge.source_article_id else set(),
                 )
+        logger.info(
+            "[graph_build] edge objects added: %d graph-edges from %d DB-edges (skipped=%d, %.2fs)",
+            graph.number_of_edges(), len(edges), skipped, time.perf_counter() - t0,
+        )
 
         self._node_lookup = node_lookup
         return graph
@@ -1715,6 +1798,13 @@ class KnowledgeGraphService:
             return None, str(exc)
 
     def _generate_snapshot_payload(self, graph: nx.Graph, *, build_id: Optional[str]) -> Dict[str, Any]:
+        t_payload_start = time.perf_counter()
+        logger.info(
+            "[payload] _generate_snapshot_payload start: %d nodes, %d edges",
+            graph.number_of_nodes(), graph.number_of_edges(),
+        )
+
+        t0 = time.perf_counter()
         node_type_counts = Counter()
         relation_type_counts = Counter()
         article_ids_per_node: Dict[str, Set[int]] = defaultdict(set)
@@ -1733,10 +1823,14 @@ class KnowledgeGraphService:
                 article_id = attrs.get("metadata", {}).get("article_id")
                 if article_id:
                     article_ids_per_node[node_key].add(int(article_id))
+        logger.info("[payload] edge/node stats pass done (%.2fs)", time.perf_counter() - t0)
 
+        t0 = time.perf_counter()
         centrality = nx.degree_centrality(graph) if graph.number_of_nodes() else {}
+        logger.info("[payload] degree_centrality done (%.2fs)", time.perf_counter() - t0)
 
         # Extract cached community map and layout positions for incremental reuse.
+        t0 = time.perf_counter()
         cached_snapshot = self._snapshot_cache
         cached_community_map: Optional[Dict[str, int]] = None
         cached_layout_positions: Optional[Dict[str, Dict[str, float]]] = None
@@ -1751,18 +1845,29 @@ class KnowledgeGraphService:
                 for item in cached_snapshot.get("nodes", [])
                 if item.get("layout_x") is not None and item.get("layout_y") is not None
             }
+        logger.info(
+            "[payload] cache extracted: community_map=%d, layout_positions=%d (%.2fs)",
+            len(cached_community_map or {}), len(cached_layout_positions or {}),
+            time.perf_counter() - t0,
+        )
 
+        t0 = time.perf_counter()
         communities_payload, community_map = self._detect_communities(
             graph,
             article_ids_per_node=article_ids_per_node,
             centrality=centrality,
             cached_community_map=cached_community_map or None,
         )
+        logger.info("[payload] _detect_communities done (%.2fs)", time.perf_counter() - t0)
+
+        t0 = time.perf_counter()
         layout_positions = self._compute_distance_layout(
             graph,
             cached_positions=cached_layout_positions or None,
         )
+        logger.info("[payload] _compute_distance_layout done (%.2fs)", time.perf_counter() - t0)
 
+        t0 = time.perf_counter()
         nodes_payload = []
         for node_key, attrs in graph.nodes(data=True):
             layout_position = layout_positions.get(node_key)
@@ -1782,7 +1887,9 @@ class KnowledgeGraphService:
                 }
             )
         nodes_payload.sort(key=lambda item: (-item["degree"], item["label"]))
+        logger.info("[payload] nodes_payload built (%d nodes, %.2fs)", len(nodes_payload), time.perf_counter() - t0)
 
+        t0 = time.perf_counter()
         links_payload = []
         for source_key, target_key, edge_data in graph.edges(data=True):
             links_payload.append(
@@ -1796,7 +1903,9 @@ class KnowledgeGraphService:
                     "article_count": len(edge_data.get("article_ids", set())),
                 }
             )
+        logger.info("[payload] links_payload built (%d links, %.2fs)", len(links_payload), time.perf_counter() - t0)
 
+        t0 = time.perf_counter()
         total_articles = self.db.query(func.count(Article.id)).scalar() or 0
         synced_articles = (
             self.db.query(func.count(KnowledgeGraphArticleState.article_id))
@@ -1817,6 +1926,11 @@ class KnowledgeGraphService:
                 .order_by(KnowledgeGraphBuild.started_at.desc())
                 .first()
             )
+        logger.info("[payload] DB stats query done (%.2fs)", time.perf_counter() - t0)
+        logger.info(
+            "[payload] _generate_snapshot_payload finished — total %.2fs",
+            time.perf_counter() - t_payload_start,
+        )
 
         return {
             "generated_at": datetime.now().isoformat(),
@@ -1856,6 +1970,7 @@ class KnowledgeGraphService:
         if graph.number_of_nodes() == 0:
             return {}
 
+        t_layout_start = time.perf_counter()
         top_node_keys: Set[str] = set(
             sorted(graph.nodes(), key=lambda k: -graph.degree(k))[:LAYOUT_MAX_NODES]
         )
@@ -1868,10 +1983,16 @@ class KnowledgeGraphService:
                     reused[node_key] = cached_positions[node_key]
 
         nodes_to_compute = top_node_keys - set(reused)
+        logger.info(
+            "[layout] top-%d nodes selected: reused=%d, to_compute=%d",
+            LAYOUT_MAX_NODES, len(reused), len(nodes_to_compute),
+        )
 
         if not nodes_to_compute:
+            logger.info("[layout] fully cached — skipping layout computation (%.2fs)", time.perf_counter() - t_layout_start)
             return reused
 
+        t0 = time.perf_counter()
         layout_graph = nx.Graph()
         for node_key in sorted(nodes_to_compute):
             layout_graph.add_node(node_key)
@@ -1888,6 +2009,10 @@ class KnowledgeGraphService:
                 layout_distance=1.0 / math.sqrt(max(strength, 0.01)),
                 layout_strength=strength,
             )
+        logger.info(
+            "[layout] sub-graph built: %d nodes, %d edges (%.2fs)",
+            layout_graph.number_of_nodes(), layout_graph.number_of_edges(), time.perf_counter() - t0,
+        )
 
         components = sorted(
             (sorted(component) for component in nx.connected_components(layout_graph)),
@@ -1899,12 +2024,16 @@ class KnowledgeGraphService:
         component_sizes = [math.sqrt(len(component)) for component in components]
         ring_radius = max(0.0, LAYOUT_COMPONENT_GAP * sum(component_sizes) / max(len(components), 1))
         positions: Dict[str, Tuple[float, float]] = {}
+        logger.info("[layout] %d connected components to lay out", len(components))
 
+        t_components = time.perf_counter()
         for index, component in enumerate(components):
             subgraph = layout_graph.subgraph(component).copy()
             component_scale = max(1.0, math.sqrt(len(component)))
+            t_comp = time.perf_counter()
             if len(component) == 1:
                 local_positions = {component[0]: (0.0, 0.0)}
+                algo = "trivial"
             else:
                 try:
                     local_positions = nx.kamada_kawai_layout(
@@ -1912,6 +2041,7 @@ class KnowledgeGraphService:
                         weight="layout_distance",
                         scale=component_scale,
                     )
+                    algo = "kamada_kawai"
                 except Exception as exc:
                     logger.warning("Failed to compute Kamada-Kawai graph layout: %s", exc)
                     local_positions = nx.spring_layout(
@@ -1920,6 +2050,13 @@ class KnowledgeGraphService:
                         seed=42,
                         scale=component_scale,
                     )
+                    algo = "spring_fallback"
+
+            if len(components) > 1 and (index % 5 == 0 or index == len(components) - 1):
+                logger.info(
+                    "[layout] component %d/%d done: %d nodes algo=%s (%.2fs)",
+                    index + 1, len(components), len(component), algo, time.perf_counter() - t_comp,
+                )
 
             if len(components) == 1:
                 offset_x = 0.0
@@ -1933,10 +2070,19 @@ class KnowledgeGraphService:
                 x_value, y_value = raw_position
                 positions[node_key] = (float(x_value) + offset_x, float(y_value) + offset_y)
 
+        logger.info(
+            "[layout] all components done (%.2fs), normalizing %d positions",
+            time.perf_counter() - t_components, len(positions),
+        )
         new_normalized = self._normalize_layout_positions(positions)
         # Merge: newly computed positions override nothing in reused (different coordinate spaces),
         # so we simply union them — reused coords are already normalized from a previous run.
-        return {**reused, **new_normalized}
+        result = {**reused, **new_normalized}
+        logger.info(
+            "[layout] _compute_distance_layout finished: %d positions total (%.2fs)",
+            len(result), time.perf_counter() - t_layout_start,
+        )
+        return result
 
     @staticmethod
     def _normalize_layout_positions(
@@ -1991,10 +2137,11 @@ class KnowledgeGraphService:
             change_ratio = (len(new_keys) + len(removed_keys)) / max(len(current_keys), 1)
 
             if change_ratio < COMMUNITY_INCREMENTAL_THRESHOLD:
-                logger.debug(
-                    "Community detection: reusing cached map (change_ratio=%.3f, new=%d, removed=%d)",
-                    change_ratio, len(new_keys), len(removed_keys),
+                logger.info(
+                    "[community] incremental reuse (change_ratio=%.3f < %.2f): new=%d removed=%d",
+                    change_ratio, COMMUNITY_INCREMENTAL_THRESHOLD, len(new_keys), len(removed_keys),
                 )
+                t0 = time.perf_counter()
                 community_map: Dict[str, int] = {
                     k: v for k, v in cached_community_map.items() if k in current_keys
                 }
@@ -2010,16 +2157,29 @@ class KnowledgeGraphService:
                     else:
                         max_existing_id += 1
                         community_map[node_key] = max_existing_id
-
+                logger.info(
+                    "[community] incremental assignment done: %d communities, %d nodes (%.2fs)",
+                    len(set(community_map.values())), len(community_map), time.perf_counter() - t0,
+                )
                 return self._build_community_payload(graph, community_map, article_ids_per_node, centrality), community_map
 
         if graph.number_of_edges() == 0:
+            logger.info("[community] no edges — assigning each node its own community")
             raw_communities = [{node_key} for node_key in graph.nodes()]
         else:
+            logger.info(
+                "[community] full greedy_modularity_communities on %d nodes / %d edges — this may take tens of seconds",
+                graph.number_of_nodes(), graph.number_of_edges(),
+            )
+            t0 = time.perf_counter()
             raw_communities = [
                 set(community)
                 for community in nx.algorithms.community.greedy_modularity_communities(graph)
             ]
+            logger.info(
+                "[community] greedy_modularity_communities done: %d communities (%.2fs)",
+                len(raw_communities), time.perf_counter() - t0,
+            )
 
         community_map = {}
         community_payload: List[Dict[str, Any]] = []
