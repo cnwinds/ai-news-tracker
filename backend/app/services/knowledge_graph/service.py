@@ -2082,7 +2082,12 @@ class KnowledgeGraphService:
                     )
                     algo = "kamada_kawai"
                 except Exception as exc:
-                    logger.warning("Failed to compute Kamada-Kawai graph layout: %s", exc)
+                    # Most common cause: scipy not installed (kamada_kawai requires it).
+                    # Add scipy to requirements.txt to fix this permanently.
+                    logger.warning(
+                        "[layout] kamada_kawai_layout failed for component %d (%d nodes), falling back to spring_layout: %s",
+                        index, len(component), exc,
+                    )
                     local_positions = nx.spring_layout(
                         subgraph,
                         weight="layout_strength",
