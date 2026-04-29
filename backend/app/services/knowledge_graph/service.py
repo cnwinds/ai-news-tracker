@@ -647,8 +647,35 @@ class KnowledgeGraphService:
                     trigger_source="integrity_repair",
                 )
             elif rebuild_snapshot:
+                # Load snapshot from disk into memory cache so _generate_snapshot_payload
+                # can reuse previous community assignments and layout positions
+                # (incremental detection) instead of doing a full recompute.
+                if self._snapshot_cache is None and self.snapshot_path.exists():
+                    try:
+                        self._snapshot_cache = json.loads(
+                            self.snapshot_path.read_text(encoding="utf-8")
+                        )
+                        cached_nodes = len(self._snapshot_cache.get("nodes", []))
+                        logger.info(
+                            "[repair] loaded snapshot from disk for incremental caching (%d nodes)",
+                            cached_nodes,
+                        )
+                    except Exception as _exc:
+                        logger.warning("[repair] could not load snapshot from disk: %s", _exc)
+
+                # Reuse the graph already built by diagnose_integrity (_get_graph) when possible
+                # to avoid a second full DB round-trip.
+                cached_graph = self._graph
+                if cached_graph is not None:
+                    logger.info(
+                        "[repair] reusing in-memory graph (%d nodes, %d edges) — skipping second DB load",
+                        cached_graph.number_of_nodes(), cached_graph.number_of_edges(),
+                    )
+                else:
+                    logger.info("[repair] no in-memory graph; rebuild_snapshot will load from DB")
+
                 logger.info("[repair] rebuilding snapshot (no resync)")
-                self.rebuild_snapshot()
+                self.rebuild_snapshot(graph=cached_graph)
                 self.db.commit()
 
             t0 = time.perf_counter()
@@ -849,16 +876,27 @@ class KnowledgeGraphService:
         filtered.sort(key=lambda item: (-int(item.get("degree", 0)), item.get("label", "")))
         return filtered[: max(1, min(limit, 200))]
 
-    def rebuild_snapshot(self, *, build_id: Optional[str] = None) -> Dict[str, Any]:
+    def rebuild_snapshot(
+        self,
+        *,
+        build_id: Optional[str] = None,
+        graph: Optional["nx.Graph"] = None,
+    ) -> Dict[str, Any]:
         t_total = time.perf_counter()
         logger.info("[snapshot] rebuild_snapshot started")
 
-        t0 = time.perf_counter()
-        graph = self._build_networkx_graph()
-        logger.info(
-            "[snapshot] graph loaded: %d nodes, %d edges (%.2fs)",
-            graph.number_of_nodes(), graph.number_of_edges(), time.perf_counter() - t0,
-        )
+        if graph is not None:
+            logger.info(
+                "[snapshot] reusing pre-built graph: %d nodes, %d edges",
+                graph.number_of_nodes(), graph.number_of_edges(),
+            )
+        else:
+            t0 = time.perf_counter()
+            graph = self._build_networkx_graph()
+            logger.info(
+                "[snapshot] graph loaded: %d nodes, %d edges (%.2fs)",
+                graph.number_of_nodes(), graph.number_of_edges(), time.perf_counter() - t0,
+            )
 
         t0 = time.perf_counter()
         snapshot = jsonable_encoder(self._generate_snapshot_payload(graph, build_id=build_id))
