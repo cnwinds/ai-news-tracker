@@ -69,6 +69,8 @@ const MAX_SCALE = 2.4;
 const HOVER_CARD_WIDTH = 280;
 const MAX_DEFAULT_LABELS = 12;
 const MAX_ACTIVE_LABELS = 10;
+const LAYOUT_PADDING_X = 72;
+const LAYOUT_PADDING_Y = 64;
 
 const PALETTE = ['#0f766e', '#2563eb', '#dc2626', '#ca8a04', '#7c3aed', '#ea580c', '#0891b2', '#4f46e5'];
 
@@ -106,9 +108,52 @@ function buildCommunityCenters(communities: Array<number | 'unclustered'>) {
   );
 }
 
+function hasLayoutCoordinates(
+  node: KnowledgeGraphNodeSummary
+): node is KnowledgeGraphNodeSummary & { layout_x: number; layout_y: number } {
+  return Number.isFinite(node.layout_x) && Number.isFinite(node.layout_y);
+}
+
+function getNodeRadius(node: KnowledgeGraphNodeSummary) {
+  return 10 + Math.min(Math.sqrt(Math.max(node.degree, 1)) * 3, 12);
+}
+
 function computeLayout(nodes: KnowledgeGraphNodeSummary[]): PositionedNode[] {
   if (nodes.length === 0) {
     return [];
+  }
+
+  if (nodes.every(hasLayoutCoordinates)) {
+    if (nodes.length === 1) {
+      return nodes.map((node) => ({
+        ...node,
+        x: SVG_WIDTH / 2,
+        y: SVG_HEIGHT / 2,
+        radius: getNodeRadius(node),
+      }));
+    }
+
+    const xValues = nodes.map((node) => node.layout_x);
+    const yValues = nodes.map((node) => node.layout_y);
+    const minX = Math.min(...xValues);
+    const maxX = Math.max(...xValues);
+    const minY = Math.min(...yValues);
+    const maxY = Math.max(...yValues);
+    const spanX = Math.max(maxX - minX, 0.001);
+    const spanY = Math.max(maxY - minY, 0.001);
+    const scale = Math.min(
+      (SVG_WIDTH - LAYOUT_PADDING_X * 2) / spanX,
+      (SVG_HEIGHT - LAYOUT_PADDING_Y * 2) / spanY
+    );
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
+
+    return nodes.map((node) => ({
+      ...node,
+      x: SVG_WIDTH / 2 + (node.layout_x - centerX) * scale,
+      y: SVG_HEIGHT / 2 + (node.layout_y - centerY) * scale,
+      radius: getNodeRadius(node),
+    }));
   }
 
   const groups = new Map<number | 'unclustered', KnowledgeGraphNodeSummary[]>();
@@ -131,7 +176,7 @@ function computeLayout(nodes: KnowledgeGraphNodeSummary[]): PositionedNode[] {
         ...node,
         x: center.x,
         y: center.y,
-        radius: 10 + Math.min(Math.sqrt(Math.max(node.degree, 1)) * 3, 12),
+        radius: getNodeRadius(node),
       });
       continue;
     }
@@ -144,7 +189,7 @@ function computeLayout(nodes: KnowledgeGraphNodeSummary[]): PositionedNode[] {
         ...node,
         x: center.x + Math.cos(angle) * orbital * communityScale,
         y: center.y + Math.sin(angle) * orbital * Math.max(0.85, communityScale * 0.78),
-        radius: 10 + Math.min(Math.sqrt(Math.max(node.degree, 1)) * 3, 12),
+        radius: getNodeRadius(node),
       });
     });
   }
@@ -879,6 +924,7 @@ export default function KnowledgeGraphExplorer() {
           <Tag>缩放 {Math.round(viewport.scale * 100)}%</Tag>
           {focusNodeKeys.length > 0 && <Tag icon={<AimOutlined />}>聚焦节点 {focusNodeKeys.length}</Tag>}
           {highlightedEdgeKeys.length > 0 && <Tag color="orange">路径高亮</Tag>}
+          {snapshot?.layout_mode && <Tag color="geekblue">距离布局</Tag>}
           <Tag>生成时间 {snapshot?.generated_at ? new Date(snapshot.generated_at).toLocaleString() : '-'}</Tag>
           {snapshot?.build?.sync_mode && <Tag>构建模式 {snapshot.build.sync_mode}</Tag>}
         </Space>

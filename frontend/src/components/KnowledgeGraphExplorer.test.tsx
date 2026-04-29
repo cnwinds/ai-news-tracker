@@ -82,6 +82,8 @@ describe('KnowledgeGraphExplorer', () => {
           article_count: 1,
           community_id: 1,
           centrality: 0.4,
+          layout_x: 0,
+          layout_y: 0,
         },
         {
           node_key: 'source:OpenAI',
@@ -93,6 +95,8 @@ describe('KnowledgeGraphExplorer', () => {
           article_count: 2,
           community_id: 1,
           centrality: 0.7,
+          layout_x: 0.6,
+          layout_y: 0.1,
         },
       ],
       links: [
@@ -117,6 +121,7 @@ describe('KnowledgeGraphExplorer', () => {
       total_nodes: 2,
       total_links: 1,
       available_node_types: ['article', 'source'],
+      layout_mode: 'distance_weighted_kamada_kawai',
     });
 
     mocks.getKnowledgeGraphNode.mockResolvedValue({
@@ -174,6 +179,7 @@ describe('KnowledgeGraphExplorer', () => {
     });
 
     expect(await screen.findByText('路径高亮')).toBeInTheDocument();
+    expect(screen.getByText('距离布局')).toBeInTheDocument();
     await waitFor(() => {
       expect(mocks.getKnowledgeGraphNode).toHaveBeenCalledWith('article:1');
     });
@@ -200,6 +206,7 @@ describe('KnowledgeGraphExplorer', () => {
 
     const graphNode = container.querySelector('[data-node-key="source:OpenAI"]');
     expect(graphNode).toBeTruthy();
+    expect(graphNode).toHaveAttribute('transform', 'translate(908, 379.6666666666667)');
     await userEvent.hover(graphNode as Element);
 
     expect(await screen.findByText('节点预览')).toBeInTheDocument();

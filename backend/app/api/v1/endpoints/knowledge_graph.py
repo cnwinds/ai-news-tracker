@@ -55,6 +55,22 @@ def run_knowledge_graph_sync(request: KnowledgeGraphSyncRequest) -> dict:
         )
 
 
+def run_knowledge_graph_integrity_repair(request: KnowledgeGraphIntegrityRepairRequest) -> dict:
+    """在线程内部执行耗时修复，避免阻塞 Uvicorn 事件循环。"""
+    db_manager = get_db()
+    with db_manager.get_session() as db:
+        service = KnowledgeGraphService(db=db, ai_analyzer=create_knowledge_graph_ai_analyzer())
+        return service.repair_integrity(
+            dry_run=request.dry_run,
+            cleanup_orphans=request.cleanup_orphans,
+            rebuild_snapshot=request.rebuild_snapshot,
+            resync_suspects=request.resync_suspects,
+            keyword=request.keyword,
+            limit=request.limit,
+            sync_mode=request.sync_mode,
+        )
+
+
 def get_knowledge_graph_service(
     db: Session = Depends(get_database),
 ) -> KnowledgeGraphService:
@@ -105,19 +121,10 @@ async def diagnose_knowledge_graph_integrity(
 async def repair_knowledge_graph_integrity(
     request: KnowledgeGraphIntegrityRepairRequest,
     current_user: str = Depends(require_auth),
-    service: KnowledgeGraphService = Depends(get_knowledge_graph_service),
 ):
     del current_user
     try:
-        result = service.repair_integrity(
-            dry_run=request.dry_run,
-            cleanup_orphans=request.cleanup_orphans,
-            rebuild_snapshot=request.rebuild_snapshot,
-            resync_suspects=request.resync_suspects,
-            keyword=request.keyword,
-            limit=request.limit,
-            sync_mode=request.sync_mode,
-        )
+        result = await asyncio.to_thread(run_knowledge_graph_integrity_repair, request)
         return KnowledgeGraphIntegrityRepairResponse(**result)
     except Exception as exc:
         logger.error("Knowledge graph integrity repair failed: %s", exc, exc_info=True)

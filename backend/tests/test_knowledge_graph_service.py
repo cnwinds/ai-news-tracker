@@ -133,6 +133,8 @@ class KnowledgeGraphServiceTests(unittest.TestCase):
         self.assertGreaterEqual(snapshot["total_nodes"], 1)
         self.assertIn("source", snapshot["available_node_types"])
         self.assertTrue(any(node["node_type"] == "source" for node in snapshot["nodes"]))
+        self.assertEqual(snapshot["layout_mode"], "distance_weighted_kamada_kawai")
+        self.assertTrue(all("layout_x" in node and "layout_y" in node for node in snapshot["nodes"]))
 
     def test_snapshot_view_supports_focus_node_keys_and_expand_depth(self):
         self.service.sync_articles(sync_mode="deterministic", trigger_source="test")

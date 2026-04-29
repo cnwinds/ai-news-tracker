@@ -6,6 +6,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import re
 import unicodedata
 import uuid
@@ -53,6 +54,7 @@ ALLOWED_SEMANTIC_NODE_TYPES = {
 }
 ALLOWED_QUERY_MODES = {"auto", "graph", "hybrid", "rag"}
 ALLOWED_RUN_MODES = {"auto", "agent", "deterministic"}
+LAYOUT_COMPONENT_GAP = 2.8
 
 
 class KnowledgeGraphService:
@@ -764,6 +766,7 @@ class KnowledgeGraphService:
             "total_nodes": len(selected_nodes),
             "total_links": len(selected_links),
             "available_node_types": available_node_types,
+            "layout_mode": snapshot.get("layout_mode"),
         }
 
     def search_nodes(
@@ -1736,9 +1739,11 @@ class KnowledgeGraphService:
             article_ids_per_node=article_ids_per_node,
             centrality=centrality,
         )
+        layout_positions = self._compute_distance_layout(graph)
 
         nodes_payload = []
         for node_key, attrs in graph.nodes(data=True):
+            layout_position = layout_positions.get(node_key, {"x": 0.0, "y": 0.0})
             nodes_payload.append(
                 {
                     "node_key": node_key,
@@ -1750,6 +1755,8 @@ class KnowledgeGraphService:
                     "article_count": len(article_ids_per_node.get(node_key, set())),
                     "community_id": community_map.get(node_key),
                     "centrality": round(float(centrality.get(node_key, 0.0)), 6),
+                    "layout_x": layout_position["x"],
+                    "layout_y": layout_position["y"],
                 }
             )
         nodes_payload.sort(key=lambda item: (-item["degree"], item["label"]))
@@ -1803,11 +1810,101 @@ class KnowledgeGraphService:
             "nodes": nodes_payload,
             "links": links_payload,
             "communities": communities_payload,
+            "layout_mode": "distance_weighted_kamada_kawai",
             "god_nodes": nodes_payload[:10],
             "article_coverage": {
                 "total_articles": total_articles,
                 "synced_articles": synced_articles,
             },
+        }
+
+    def _compute_distance_layout(self, graph: nx.Graph) -> Dict[str, Dict[str, float]]:
+        """Compute stable coordinates where stronger and shorter graph paths stay closer."""
+        if graph.number_of_nodes() == 0:
+            return {}
+
+        layout_graph = nx.Graph()
+        for node_key in sorted(graph.nodes()):
+            layout_graph.add_node(node_key)
+        for source_key, target_key, edge_data in graph.edges(data=True):
+            weight = max(float(edge_data.get("weight", 1.0) or 1.0), 0.01)
+            article_count = max(len(edge_data.get("article_ids", set())), 0)
+            relation_count = max(len(edge_data.get("relations", [])), 1)
+            strength = weight + article_count * 0.5 + math.log1p(relation_count)
+            layout_graph.add_edge(
+                source_key,
+                target_key,
+                layout_distance=1.0 / math.sqrt(max(strength, 0.01)),
+                layout_strength=strength,
+            )
+
+        components = sorted(
+            (sorted(component) for component in nx.connected_components(layout_graph)),
+            key=lambda component: (-len(component), component[0] if component else ""),
+        )
+        if not components:
+            return {}
+
+        component_sizes = [math.sqrt(len(component)) for component in components]
+        ring_radius = max(0.0, LAYOUT_COMPONENT_GAP * sum(component_sizes) / max(len(components), 1))
+        positions: Dict[str, Tuple[float, float]] = {}
+
+        for index, component in enumerate(components):
+            subgraph = layout_graph.subgraph(component).copy()
+            component_scale = max(1.0, math.sqrt(len(component)))
+            if len(component) == 1:
+                local_positions = {component[0]: (0.0, 0.0)}
+            else:
+                try:
+                    local_positions = nx.kamada_kawai_layout(
+                        subgraph,
+                        weight="layout_distance",
+                        scale=component_scale,
+                    )
+                except Exception as exc:
+                    logger.warning("Failed to compute Kamada-Kawai graph layout: %s", exc)
+                    local_positions = nx.spring_layout(
+                        subgraph,
+                        weight="layout_strength",
+                        seed=42,
+                        scale=component_scale,
+                    )
+
+            if len(components) == 1:
+                offset_x = 0.0
+                offset_y = 0.0
+            else:
+                angle = (math.pi * 2 * index) / len(components) - math.pi / 2
+                offset_x = math.cos(angle) * ring_radius
+                offset_y = math.sin(angle) * ring_radius * 0.72
+
+            for node_key, raw_position in local_positions.items():
+                x_value, y_value = raw_position
+                positions[node_key] = (float(x_value) + offset_x, float(y_value) + offset_y)
+
+        return self._normalize_layout_positions(positions)
+
+    @staticmethod
+    def _normalize_layout_positions(
+        positions: Dict[str, Tuple[float, float]]
+    ) -> Dict[str, Dict[str, float]]:
+        if not positions:
+            return {}
+
+        x_values = [position[0] for position in positions.values()]
+        y_values = [position[1] for position in positions.values()]
+        min_x, max_x = min(x_values), max(x_values)
+        min_y, max_y = min(y_values), max(y_values)
+        span = max(max_x - min_x, max_y - min_y, 1.0)
+        center_x = (min_x + max_x) / 2
+        center_y = (min_y + max_y) / 2
+
+        return {
+            node_key: {
+                "x": round((x_value - center_x) / span, 6),
+                "y": round((y_value - center_y) / span, 6),
+            }
+            for node_key, (x_value, y_value) in positions.items()
         }
 
     def _detect_communities(

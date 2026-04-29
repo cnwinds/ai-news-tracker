@@ -400,6 +400,8 @@ export interface KnowledgeGraphNodeSummary {
   article_count: number;
   community_id?: number | null;
   centrality: number;
+  layout_x?: number | null;
+  layout_y?: number | null;
 }
 
 export interface KnowledgeGraphEdgeSummary {
@@ -602,6 +604,7 @@ export interface KnowledgeGraphSnapshotResponse {
   total_nodes: number;
   total_links: number;
   available_node_types: string[];
+  layout_mode?: string | null;
 }
 
 // 社交平台相关类型定义

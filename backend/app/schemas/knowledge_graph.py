@@ -186,6 +186,8 @@ class KnowledgeGraphNodeSummary(BaseModel):
     article_count: int = 0
     community_id: Optional[int] = None
     centrality: float = 0.0
+    layout_x: Optional[float] = None
+    layout_y: Optional[float] = None
 
 
 class KnowledgeGraphNodeListResponse(BaseModel):
@@ -254,6 +256,7 @@ class KnowledgeGraphSnapshotResponse(BaseModel):
     total_nodes: int = 0
     total_links: int = 0
     available_node_types: List[str] = Field(default_factory=list)
+    layout_mode: Optional[str] = None
 
 
 class KnowledgeGraphPathRequest(BaseModel):
