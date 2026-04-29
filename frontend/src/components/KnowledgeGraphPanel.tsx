@@ -1082,18 +1082,18 @@ export default function KnowledgeGraphPanel() {
           </Space>
         </div>
 
-        <Card
-          style={pageCardStyle}
-          title={
-            <Space>
-              <HistoryOutlined />
-              <span>运维与构建</span>
-            </Space>
-          }
-          extra={<Text type="secondary">低频运维动作和构建回看集中放在底部</Text>}
-        >
-          <Row gutter={[16, 16]}>
-            {isAuthenticated && (
+        {isAuthenticated && (
+          <Card
+            style={pageCardStyle}
+            title={
+              <Space>
+                <HistoryOutlined />
+                <span>运维与构建</span>
+              </Space>
+            }
+            extra={<Text type="secondary">低频运维动作和构建回看集中放在底部</Text>}
+          >
+            <Row gutter={[16, 16]}>
               <Col xs={24} xl={10}>
               <div style={{ ...surfaceStyle, padding: 20, height: '100%' }}>
                 <Space direction="vertical" size="middle" style={{ width: '100%' }}>
@@ -1186,9 +1186,8 @@ export default function KnowledgeGraphPanel() {
                 </Space>
               </div>
               </Col>
-            )}
 
-            <Col xs={24} xl={isAuthenticated ? 14 : 24}>
+            <Col xs={24} xl={14}>
               <div style={{ ...surfaceStyle, padding: 20 }}>
                 <Space direction="vertical" size="middle" style={{ width: '100%' }}>
                   <div>
@@ -1203,8 +1202,9 @@ export default function KnowledgeGraphPanel() {
                 </Space>
               </div>
             </Col>
-          </Row>
-        </Card>
+            </Row>
+          </Card>
+        )}
       </Space>
 
       <KnowledgeGraphCommunityDrawer

@@ -249,12 +249,13 @@ describe('KnowledgeGraphPanel', () => {
     expect(await screen.findByRole('button', { name: '打开社区' })).toBeInTheDocument();
   });
 
-  it('hides operation tools when unauthenticated', async () => {
+  it('hides the operations and build panel when unauthenticated', async () => {
     mockIsAuthenticated = false;
     renderWithProviders(<KnowledgeGraphPanel />);
 
-    await screen.findByText('运维与构建');
+    await screen.findByText('工具工作台');
+    expect(screen.queryByText('运维与构建')).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: '运维工具' })).not.toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: '构建历史' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '构建历史' })).not.toBeInTheDocument();
   });
 });
