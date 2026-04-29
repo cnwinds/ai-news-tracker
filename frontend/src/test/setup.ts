@@ -27,3 +27,26 @@ class ResizeObserverMock {
 }
 
 vi.stubGlobal('ResizeObserver', ResizeObserverMock);
+
+const canvasContextMock = {
+  setTransform: vi.fn(),
+  clearRect: vi.fn(),
+  fillRect: vi.fn(),
+  beginPath: vi.fn(),
+  moveTo: vi.fn(),
+  lineTo: vi.fn(),
+  stroke: vi.fn(),
+  save: vi.fn(),
+  translate: vi.fn(),
+  scale: vi.fn(),
+  restore: vi.fn(),
+  arc: vi.fn(),
+  fill: vi.fn(),
+  strokeText: vi.fn(),
+  fillText: vi.fn(),
+};
+
+Object.defineProperty(window.HTMLCanvasElement.prototype, 'getContext', {
+  writable: true,
+  value: vi.fn(() => canvasContextMock),
+});

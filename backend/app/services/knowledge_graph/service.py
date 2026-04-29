@@ -718,7 +718,7 @@ class KnowledgeGraphService:
             if item.get("node_key")
         }
         normalized_query = self._normalize_text(query or "")
-        safe_limit = max(10, min(limit_nodes, 200))
+        safe_limit = max(10, min(limit_nodes, 500))
         safe_expand_depth = max(0, min(int(expand_depth or 0), 2))
         requested_focus_keys: List[str] = []
         for node_key in focus_node_keys or []:

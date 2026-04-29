@@ -179,7 +179,7 @@ describe('KnowledgeGraphExplorer', () => {
     });
 
     expect(await screen.findByText('路径高亮')).toBeInTheDocument();
-    expect(screen.getByText('距离布局')).toBeInTheDocument();
+    expect(screen.getByText('力导画布')).toBeInTheDocument();
     await waitFor(() => {
       expect(mocks.getKnowledgeGraphNode).toHaveBeenCalledWith('article:1');
     });

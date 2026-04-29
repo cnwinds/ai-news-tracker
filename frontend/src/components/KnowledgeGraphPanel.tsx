@@ -353,13 +353,14 @@ export default function KnowledgeGraphPanel() {
       return;
     }
     const target = graphSectionRef.current;
-    if (!target || typeof target.scrollIntoView !== 'function') {
+    if (!target) {
       return;
     }
     requestAnimationFrame(() => {
-      target.scrollIntoView({
+      const top = target.getBoundingClientRect().top + window.scrollY;
+      window.scrollTo({
+        top,
         behavior: 'smooth',
-        block: 'start',
       });
     });
   }, [graphCommand?.id]);

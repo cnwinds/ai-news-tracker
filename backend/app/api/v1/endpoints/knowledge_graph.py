@@ -136,7 +136,7 @@ async def get_knowledge_graph_snapshot(
     community_id: Optional[int] = Query(None),
     node_type: Optional[str] = Query(None),
     q: Optional[str] = Query(None),
-    limit_nodes: int = Query(80, ge=10, le=200),
+    limit_nodes: int = Query(160, ge=10, le=500),
     focus_node_keys: Optional[list[str]] = Query(None),
     expand_depth: int = Query(0, ge=0, le=2),
     service: KnowledgeGraphService = Depends(get_knowledge_graph_service),
