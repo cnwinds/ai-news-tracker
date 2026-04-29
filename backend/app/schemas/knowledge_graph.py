@@ -93,6 +93,56 @@ class KnowledgeGraphSyncResponse(BaseModel):
     stats: Optional["KnowledgeGraphStatsResponse"] = None
 
 
+class KnowledgeGraphIntegrityIssue(BaseModel):
+    """Single integrity issue summary."""
+
+    code: str
+    severity: Literal["info", "warning", "error"]
+    message: str
+    count: int = 0
+    samples: List[Any] = Field(default_factory=list)
+
+
+class KnowledgeGraphIntegrityReport(BaseModel):
+    """Knowledge graph integrity diagnosis report."""
+
+    healthy: bool
+    checked_at: datetime
+    db_counts: Dict[str, Any] = Field(default_factory=dict)
+    snapshot_counts: Dict[str, Any] = Field(default_factory=dict)
+    issues: List[KnowledgeGraphIntegrityIssue] = Field(default_factory=list)
+    suspect_article_ids: List[int] = Field(default_factory=list)
+    keyword_article_ids: List[int] = Field(default_factory=list)
+    recommendations: List[str] = Field(default_factory=list)
+
+
+class KnowledgeGraphIntegrityRepairRequest(BaseModel):
+    """Integrity repair request."""
+
+    dry_run: bool = Field(default=True, description="Preview repair without changing data")
+    cleanup_orphans: bool = Field(default=True, description="Remove orphan nodes and dangling edges")
+    rebuild_snapshot: bool = Field(default=True, description="Regenerate snapshot from graph tables")
+    resync_suspects: bool = Field(default=False, description="Incrementally resync suspect articles")
+    keyword: Optional[str] = Field(default=None, max_length=100, description="Optional article keyword to inspect")
+    limit: int = Field(default=100, ge=1, le=500, description="Maximum suspect articles to resync")
+    sync_mode: Optional[KnowledgeGraphRunMode] = Field(default=None, description="Optional sync mode for resync")
+
+
+class KnowledgeGraphIntegrityRepairResponse(BaseModel):
+    """Integrity repair response."""
+
+    dry_run: bool
+    repaired: bool
+    actions: List[str] = Field(default_factory=list)
+    deleted_dangling_edges: int = 0
+    deleted_orphan_nodes: int = 0
+    deleted_missing_article_states: int = 0
+    resynced_article_ids: List[int] = Field(default_factory=list)
+    resync_result: Optional[KnowledgeGraphSyncResponse] = None
+    before: KnowledgeGraphIntegrityReport
+    after: Optional[KnowledgeGraphIntegrityReport] = None
+
+
 class KnowledgeGraphEdgeSummary(BaseModel):
     """Edge payload used by detail endpoints."""
 

@@ -69,6 +69,7 @@ class KnowledgeGraphApiTests(unittest.TestCase):
         self.app.dependency_overrides[knowledge_graph_endpoints.get_knowledge_graph_service] = (
             lambda: self.service
         )
+        self.app.dependency_overrides[knowledge_graph_endpoints.require_auth] = lambda: "test-user"
         self.client = TestClient(self.app)
 
     def tearDown(self):
@@ -109,6 +110,27 @@ class KnowledgeGraphApiTests(unittest.TestCase):
         self.assertIn("summary_text", payload)
         self.assertIn(communities[0]["label"], payload["summary_text"])
         self.assertIn("relation_types", payload)
+
+    def test_integrity_endpoint_returns_report(self):
+        response = self.client.get("/knowledge-graph/integrity")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertIn("healthy", payload)
+        self.assertIn("issues", payload)
+        self.assertIn("recommendations", payload)
+
+    def test_integrity_repair_endpoint_supports_dry_run(self):
+        response = self.client.post(
+            "/knowledge-graph/integrity/repair",
+            json={"dry_run": True, "cleanup_orphans": True, "rebuild_snapshot": True},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["dry_run"])
+        self.assertFalse(payload["repaired"])
+        self.assertIn("before", payload)
 
 
 if __name__ == "__main__":

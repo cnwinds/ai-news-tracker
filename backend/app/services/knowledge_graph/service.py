@@ -16,6 +16,7 @@ from typing import Any, Deque, Dict, Iterable, List, Optional, Sequence, Set, Tu
 import networkx as nx
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy import func, or_
+from sqlalchemy.orm import aliased
 from sqlalchemy.orm import Session
 
 from backend.app.core.settings import settings
@@ -212,6 +213,408 @@ class KnowledgeGraphService:
             .all()
         )
         return [self._serialize_build(row) for row in rows]
+
+    def diagnose_integrity(self, *, keyword: Optional[str] = None, limit: int = 100) -> Dict[str, Any]:
+        safe_limit = max(1, min(int(limit or 100), 500))
+        checked_at = datetime.now()
+        issues: List[Dict[str, Any]] = []
+
+        db_counts = {
+            "nodes": int(self.db.query(func.count(KnowledgeGraphNode.id)).scalar() or 0),
+            "edges": int(self.db.query(func.count(KnowledgeGraphEdge.id)).scalar() or 0),
+            "articles": int(self.db.query(func.count(Article.id)).scalar() or 0),
+            "article_states": int(self.db.query(func.count(KnowledgeGraphArticleState.article_id)).scalar() or 0),
+            "synced_articles": int(
+                self.db.query(func.count(KnowledgeGraphArticleState.article_id))
+                .filter(KnowledgeGraphArticleState.status == "synced")
+                .scalar()
+                or 0
+            ),
+            "failed_articles": int(
+                self.db.query(func.count(KnowledgeGraphArticleState.article_id))
+                .filter(KnowledgeGraphArticleState.status == "error")
+                .scalar()
+                or 0
+            ),
+        }
+
+        source_node = aliased(KnowledgeGraphNode)
+        target_node = aliased(KnowledgeGraphNode)
+        dangling_query = (
+            self.db.query(KnowledgeGraphEdge.id)
+            .outerjoin(source_node, KnowledgeGraphEdge.source_node_id == source_node.id)
+            .outerjoin(target_node, KnowledgeGraphEdge.target_node_id == target_node.id)
+            .filter(or_(source_node.id.is_(None), target_node.id.is_(None)))
+        )
+        dangling_count = int(dangling_query.count())
+        dangling_samples = [int(row[0]) for row in dangling_query.order_by(KnowledgeGraphEdge.id).limit(safe_limit).all()]
+        if dangling_count:
+            issues.append(
+                {
+                    "code": "dangling_edges",
+                    "severity": "error",
+                    "message": "存在引用缺失节点的图谱边，需要先清理这些边。",
+                    "count": dangling_count,
+                    "samples": dangling_samples,
+                }
+            )
+
+        used_node_ids = (
+            self.db.query(KnowledgeGraphEdge.source_node_id.label("node_id"))
+            .union(self.db.query(KnowledgeGraphEdge.target_node_id.label("node_id")))
+            .subquery()
+        )
+        orphan_query = self.db.query(KnowledgeGraphNode.node_key).filter(
+            ~KnowledgeGraphNode.id.in_(self.db.query(used_node_ids.c.node_id))
+        )
+        orphan_count = int(orphan_query.count())
+        orphan_samples = [row[0] for row in orphan_query.order_by(KnowledgeGraphNode.id).limit(safe_limit).all()]
+        if orphan_count:
+            issues.append(
+                {
+                    "code": "orphan_nodes",
+                    "severity": "warning",
+                    "message": "存在没有任何关系边的孤立节点，会造成节点数量虚高和图谱噪声。",
+                    "count": orphan_count,
+                    "samples": orphan_samples,
+                }
+            )
+
+        missing_article_state_query = (
+            self.db.query(KnowledgeGraphArticleState.article_id)
+            .outerjoin(Article, KnowledgeGraphArticleState.article_id == Article.id)
+            .filter(Article.id.is_(None))
+        )
+        missing_article_state_count = int(missing_article_state_query.count())
+        missing_article_state_samples = [
+            int(row[0])
+            for row in missing_article_state_query.order_by(KnowledgeGraphArticleState.article_id)
+            .limit(safe_limit)
+            .all()
+        ]
+        if missing_article_state_count:
+            issues.append(
+                {
+                    "code": "states_without_articles",
+                    "severity": "warning",
+                    "message": "存在已经没有原文的文章同步状态，可以清理。",
+                    "count": missing_article_state_count,
+                    "samples": missing_article_state_samples,
+                }
+            )
+
+        synced_article_rows = (
+            self.db.query(Article, KnowledgeGraphArticleState)
+            .join(KnowledgeGraphArticleState, KnowledgeGraphArticleState.article_id == Article.id)
+            .filter(KnowledgeGraphArticleState.status == "synced")
+            .all()
+        )
+        article_node_keys = {
+            row[0]
+            for row in self.db.query(KnowledgeGraphNode.node_key)
+            .filter(KnowledgeGraphNode.node_type == "article")
+            .all()
+        }
+        edge_article_ids = {
+            int(row[0])
+            for row in self.db.query(KnowledgeGraphEdge.source_article_id)
+            .filter(KnowledgeGraphEdge.source_article_id.isnot(None))
+            .distinct()
+            .all()
+        }
+        hash_mismatch_ids: List[int] = []
+        missing_graph_article_ids: List[int] = []
+        for article, state in synced_article_rows:
+            if not state.last_synced_at or state.content_hash != self._compute_article_hash(article):
+                hash_mismatch_ids.append(int(article.id))
+            if f"article:{article.id}" not in article_node_keys or int(article.id) not in edge_article_ids:
+                missing_graph_article_ids.append(int(article.id))
+
+        if hash_mismatch_ids:
+            issues.append(
+                {
+                    "code": "stale_synced_articles",
+                    "severity": "warning",
+                    "message": "部分已同步文章的内容哈希已变化，需要增量重同步。",
+                    "count": len(hash_mismatch_ids),
+                    "samples": hash_mismatch_ids[:safe_limit],
+                }
+            )
+        if missing_graph_article_ids:
+            issues.append(
+                {
+                    "code": "synced_articles_missing_graph",
+                    "severity": "error",
+                    "message": "部分标记为已同步的文章缺少文章节点或关系边，需要精准重同步。",
+                    "count": len(missing_graph_article_ids),
+                    "samples": missing_graph_article_ids[:safe_limit],
+                }
+            )
+
+        unsynced_rows = (
+            self.db.query(KnowledgeGraphArticleState.article_id)
+            .join(Article, KnowledgeGraphArticleState.article_id == Article.id)
+            .filter(KnowledgeGraphArticleState.status != "synced")
+            .order_by(KnowledgeGraphArticleState.updated_at.desc())
+            .limit(safe_limit)
+            .all()
+        )
+        unsynced_article_ids = [int(row[0]) for row in unsynced_rows]
+
+        keyword_article_ids: List[int] = []
+        normalized_keyword = (keyword or "").strip()
+        if normalized_keyword:
+            keyword_filter = f"%{normalized_keyword}%"
+            keyword_rows = (
+                self.db.query(Article.id)
+                .filter(
+                    or_(
+                        Article.title.ilike(keyword_filter),
+                        Article.title_zh.ilike(keyword_filter),
+                        Article.summary.ilike(keyword_filter),
+                        Article.detailed_summary.ilike(keyword_filter),
+                        Article.content.ilike(keyword_filter),
+                    )
+                )
+                .order_by(Article.updated_at.desc(), Article.id.desc())
+                .limit(safe_limit)
+                .all()
+            )
+            keyword_article_ids = [int(row[0]) for row in keyword_rows]
+            missing_keyword_ids = [
+                article_id
+                for article_id in keyword_article_ids
+                if f"article:{article_id}" not in article_node_keys or article_id not in edge_article_ids
+            ]
+            if keyword_article_ids and missing_keyword_ids:
+                issues.append(
+                    {
+                        "code": "keyword_articles_missing_graph",
+                        "severity": "warning",
+                        "message": "关键词命中的文章未完整进入图谱，建议只重同步这些文章。",
+                        "count": len(missing_keyword_ids),
+                        "samples": missing_keyword_ids[:safe_limit],
+                    }
+                )
+
+        snapshot, snapshot_error = self._read_snapshot_for_integrity()
+        snapshot_nodes = list(snapshot.get("nodes", []) if snapshot else [])
+        snapshot_links = list(snapshot.get("links", []) if snapshot else [])
+        snapshot_node_keys = {item.get("node_key") for item in snapshot_nodes if item.get("node_key")}
+        invalid_snapshot_links = [
+            link
+            for link in snapshot_links
+            if link.get("source") not in snapshot_node_keys or link.get("target") not in snapshot_node_keys
+        ]
+        graph = self._build_networkx_graph()
+        snapshot_counts = {
+            "exists": int(bool(snapshot)),
+            "nodes": len(snapshot_nodes),
+            "links": len(snapshot_links),
+            "generated_at": snapshot.get("generated_at") if snapshot else None,
+            "graph_nodes_from_db": int(graph.number_of_nodes()),
+            "graph_links_from_db": int(graph.number_of_edges()),
+        }
+        if snapshot_error:
+            issues.append(
+                {
+                    "code": "snapshot_load_failed",
+                    "severity": "error",
+                    "message": f"快照文件读取失败：{snapshot_error}",
+                    "count": 1,
+                    "samples": [],
+                }
+            )
+        if invalid_snapshot_links:
+            issues.append(
+                {
+                    "code": "snapshot_invalid_links",
+                    "severity": "error",
+                    "message": "快照中存在指向不存在节点的关系，需要重建快照。",
+                    "count": len(invalid_snapshot_links),
+                    "samples": invalid_snapshot_links[:safe_limit],
+                }
+            )
+        if snapshot and (
+            len(snapshot_nodes) != graph.number_of_nodes()
+            or len(snapshot_links) != graph.number_of_edges()
+        ):
+            issues.append(
+                {
+                    "code": "snapshot_db_mismatch",
+                    "severity": "warning",
+                    "message": "快照与数据库图谱表不一致，建议重建快照。",
+                    "count": 1,
+                    "samples": [
+                        {
+                            "snapshot_nodes": len(snapshot_nodes),
+                            "db_graph_nodes": graph.number_of_nodes(),
+                            "snapshot_links": len(snapshot_links),
+                            "db_graph_links": graph.number_of_edges(),
+                        }
+                    ],
+                }
+            )
+        if not snapshot:
+            issues.append(
+                {
+                    "code": "snapshot_missing",
+                    "severity": "warning",
+                    "message": "当前没有可用快照，查询和前端展示可能为空或落后。",
+                    "count": 1,
+                    "samples": [],
+                }
+            )
+
+        suspect_article_ids = list(
+            dict.fromkeys(
+                [
+                    *missing_graph_article_ids,
+                    *hash_mismatch_ids,
+                    *unsynced_article_ids,
+                    *keyword_article_ids,
+                ]
+            )
+        )[:safe_limit]
+        recommendations: List[str] = []
+        issue_codes = {issue["code"] for issue in issues}
+        if issue_codes & {"dangling_edges", "orphan_nodes", "states_without_articles"}:
+            recommendations.append("先执行结构清理，删除悬空边、孤立节点和无原文状态。")
+        if issue_codes & {"snapshot_load_failed", "snapshot_invalid_links", "snapshot_db_mismatch", "snapshot_missing"}:
+            recommendations.append("重建图谱快照即可让前端和问答读取到数据库中的最新图谱。")
+        if suspect_article_ids:
+            recommendations.append("仅对 suspect_article_ids 做增量重同步，无需全量重建。")
+        if not recommendations:
+            recommendations.append("未发现需要修复的结构问题。")
+
+        return {
+            "healthy": not any(issue["severity"] == "error" for issue in issues),
+            "checked_at": checked_at,
+            "db_counts": db_counts,
+            "snapshot_counts": snapshot_counts,
+            "issues": issues,
+            "suspect_article_ids": suspect_article_ids,
+            "keyword_article_ids": keyword_article_ids,
+            "recommendations": recommendations,
+        }
+
+    def repair_integrity(
+        self,
+        *,
+        dry_run: bool = True,
+        cleanup_orphans: bool = True,
+        rebuild_snapshot: bool = True,
+        resync_suspects: bool = False,
+        keyword: Optional[str] = None,
+        limit: int = 100,
+        sync_mode: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        safe_limit = max(1, min(int(limit or 100), 500))
+        before = self.diagnose_integrity(keyword=keyword, limit=safe_limit)
+        actions: List[str] = []
+        deleted_dangling_edges = 0
+        deleted_orphan_nodes = 0
+        deleted_missing_article_states = 0
+        resync_result: Optional[Dict[str, Any]] = None
+        resynced_article_ids: List[int] = []
+
+        if cleanup_orphans:
+            actions.append("清理悬空边、孤立节点和无原文状态")
+        if rebuild_snapshot:
+            actions.append("从数据库重建图谱快照")
+        if resync_suspects and before["suspect_article_ids"]:
+            actions.append(f"增量重同步 {min(len(before['suspect_article_ids']), safe_limit)} 篇可疑文章")
+
+        if dry_run:
+            return {
+                "dry_run": True,
+                "repaired": False,
+                "actions": actions,
+                "deleted_dangling_edges": 0,
+                "deleted_orphan_nodes": 0,
+                "deleted_missing_article_states": 0,
+                "resynced_article_ids": [],
+                "resync_result": None,
+                "before": before,
+                "after": None,
+            }
+
+        try:
+            if cleanup_orphans:
+                source_node = aliased(KnowledgeGraphNode)
+                target_node = aliased(KnowledgeGraphNode)
+                dangling_ids = [
+                    row[0]
+                    for row in self.db.query(KnowledgeGraphEdge.id)
+                    .outerjoin(source_node, KnowledgeGraphEdge.source_node_id == source_node.id)
+                    .outerjoin(target_node, KnowledgeGraphEdge.target_node_id == target_node.id)
+                    .filter(or_(source_node.id.is_(None), target_node.id.is_(None)))
+                    .all()
+                ]
+                if dangling_ids:
+                    for index in range(0, len(dangling_ids), 500):
+                        deleted_dangling_edges += int(
+                            self.db.query(KnowledgeGraphEdge)
+                            .filter(KnowledgeGraphEdge.id.in_(dangling_ids[index : index + 500]))
+                            .delete(synchronize_session=False)
+                        )
+
+                missing_article_state_ids = [
+                    row[0]
+                    for row in self.db.query(KnowledgeGraphArticleState.article_id)
+                    .outerjoin(Article, KnowledgeGraphArticleState.article_id == Article.id)
+                    .filter(Article.id.is_(None))
+                    .all()
+                ]
+                if missing_article_state_ids:
+                    for index in range(0, len(missing_article_state_ids), 500):
+                        deleted_missing_article_states += int(
+                            self.db.query(KnowledgeGraphArticleState)
+                            .filter(
+                                KnowledgeGraphArticleState.article_id.in_(
+                                    missing_article_state_ids[index : index + 500]
+                                )
+                            )
+                            .delete(synchronize_session=False)
+                        )
+
+                before_orphan_count = next(
+                    (issue["count"] for issue in before["issues"] if issue["code"] == "orphan_nodes"),
+                    0,
+                )
+                self._cleanup_orphan_nodes()
+                deleted_orphan_nodes = int(before_orphan_count)
+                self.db.commit()
+
+            if resync_suspects and before["suspect_article_ids"]:
+                resynced_article_ids = [int(item) for item in before["suspect_article_ids"][:safe_limit]]
+                resync_result = self.sync_articles(
+                    article_ids=resynced_article_ids,
+                    force_rebuild=False,
+                    sync_mode=sync_mode,
+                    max_articles=safe_limit,
+                    trigger_source="integrity_repair",
+                )
+            elif rebuild_snapshot:
+                self.rebuild_snapshot()
+                self.db.commit()
+
+            after = self.diagnose_integrity(keyword=keyword, limit=safe_limit)
+            return {
+                "dry_run": False,
+                "repaired": True,
+                "actions": actions,
+                "deleted_dangling_edges": deleted_dangling_edges,
+                "deleted_orphan_nodes": deleted_orphan_nodes,
+                "deleted_missing_article_states": deleted_missing_article_states,
+                "resynced_article_ids": resynced_article_ids,
+                "resync_result": resync_result,
+                "before": before,
+                "after": after,
+            }
+        except Exception:
+            self.db.rollback()
+            raise
 
     def get_snapshot_view(
         self,
@@ -1298,6 +1701,14 @@ class KnowledgeGraphService:
                 logger.warning("Failed to load knowledge graph snapshot: %s", exc)
         self._snapshot_cache = self.rebuild_snapshot()
         return self._snapshot_cache
+
+    def _read_snapshot_for_integrity(self) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+        if not self.snapshot_path.exists():
+            return None, None
+        try:
+            return json.loads(self.snapshot_path.read_text(encoding="utf-8")), None
+        except Exception as exc:
+            return None, str(exc)
 
     def _generate_snapshot_payload(self, graph: nx.Graph, *, build_id: Optional[str]) -> Dict[str, Any]:
         node_type_counts = Counter()

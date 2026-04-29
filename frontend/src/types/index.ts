@@ -466,6 +466,48 @@ export interface KnowledgeGraphSyncResponse {
   stats?: KnowledgeGraphStatsResponse | null;
 }
 
+export interface KnowledgeGraphIntegrityIssue {
+  code: string;
+  severity: 'info' | 'warning' | 'error';
+  message: string;
+  count: number;
+  samples: unknown[];
+}
+
+export interface KnowledgeGraphIntegrityReport {
+  healthy: boolean;
+  checked_at: string;
+  db_counts: Record<string, unknown>;
+  snapshot_counts: Record<string, unknown>;
+  issues: KnowledgeGraphIntegrityIssue[];
+  suspect_article_ids: number[];
+  keyword_article_ids: number[];
+  recommendations: string[];
+}
+
+export interface KnowledgeGraphIntegrityRepairRequest {
+  dry_run?: boolean;
+  cleanup_orphans?: boolean;
+  rebuild_snapshot?: boolean;
+  resync_suspects?: boolean;
+  keyword?: string | null;
+  limit?: number;
+  sync_mode?: 'auto' | 'agent' | 'deterministic' | null;
+}
+
+export interface KnowledgeGraphIntegrityRepairResponse {
+  dry_run: boolean;
+  repaired: boolean;
+  actions: string[];
+  deleted_dangling_edges: number;
+  deleted_orphan_nodes: number;
+  deleted_missing_article_states: number;
+  resynced_article_ids: number[];
+  resync_result?: KnowledgeGraphSyncResponse | null;
+  before: KnowledgeGraphIntegrityReport;
+  after?: KnowledgeGraphIntegrityReport | null;
+}
+
 export interface KnowledgeGraphNodeListResponse {
   items: KnowledgeGraphNodeSummary[];
   total: number;

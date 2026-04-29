@@ -55,6 +55,9 @@ import type {
   KnowledgeGraphStatsResponse,
   KnowledgeGraphSyncRequest,
   KnowledgeGraphSyncResponse,
+  KnowledgeGraphIntegrityReport,
+  KnowledgeGraphIntegrityRepairRequest,
+  KnowledgeGraphIntegrityRepairResponse,
   KnowledgeGraphBuildSummary,
   KnowledgeGraphNodeListResponse,
   KnowledgeGraphNodeDetail,
@@ -881,6 +884,27 @@ class ApiService {
   async syncKnowledgeGraph(request: KnowledgeGraphSyncRequest): Promise<KnowledgeGraphSyncResponse> {
     return this.handleRequest(
       this.client.post<KnowledgeGraphSyncResponse>('/knowledge-graph/sync', request)
+    );
+  }
+
+  async diagnoseKnowledgeGraphIntegrity(params?: {
+    keyword?: string;
+    limit?: number;
+  }): Promise<KnowledgeGraphIntegrityReport> {
+    const queryParams = new URLSearchParams();
+    if (params?.keyword) queryParams.append('keyword', params.keyword);
+    if (params?.limit !== undefined) queryParams.append('limit', params.limit.toString());
+    const suffix = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return this.handleRequest(
+      this.client.get<KnowledgeGraphIntegrityReport>(`/knowledge-graph/integrity${suffix}`)
+    );
+  }
+
+  async repairKnowledgeGraphIntegrity(
+    request: KnowledgeGraphIntegrityRepairRequest
+  ): Promise<KnowledgeGraphIntegrityRepairResponse> {
+    return this.handleRequest(
+      this.client.post<KnowledgeGraphIntegrityRepairResponse>('/knowledge-graph/integrity/repair', request)
     );
   }
 

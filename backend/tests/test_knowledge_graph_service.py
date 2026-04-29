@@ -10,7 +10,7 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 from backend.app.core.settings import settings
-from backend.app.db.models import Article, Base, KnowledgeGraphEdge, KnowledgeGraphNode
+from backend.app.db.models import Article, Base, KnowledgeGraphArticleState, KnowledgeGraphEdge, KnowledgeGraphNode
 from backend.app.services.knowledge_graph import KnowledgeGraphService
 
 
@@ -218,6 +218,61 @@ class KnowledgeGraphServiceTests(unittest.TestCase):
         delete_sql, parameters = delete_statements[0]
         self.assertIn("SELECT", delete_sql.upper())
         self.assertEqual(parameters, ())
+
+    def test_diagnose_integrity_reports_snapshot_and_orphan_issues(self):
+        self.service.sync_articles(sync_mode="deterministic", trigger_source="test")
+        orphan = KnowledgeGraphNode(node_key="test:orphan", label="Orphan", node_type="test")
+        self.session.add(orphan)
+        self.session.commit()
+
+        report = self.service.diagnose_integrity(limit=10)
+
+        issue_codes = {issue["code"] for issue in report["issues"]}
+        self.assertIn("orphan_nodes", issue_codes)
+        self.assertIn("snapshot_db_mismatch", issue_codes)
+        self.assertTrue(report["recommendations"])
+
+    def test_repair_integrity_cleans_orphans_and_rebuilds_snapshot(self):
+        self.service.sync_articles(sync_mode="deterministic", trigger_source="test")
+        orphan = KnowledgeGraphNode(node_key="test:orphan", label="Orphan", node_type="test")
+        self.session.add(orphan)
+        self.session.commit()
+
+        response = self.service.repair_integrity(dry_run=False, resync_suspects=False, limit=10)
+
+        self.assertTrue(response["repaired"])
+        self.assertGreaterEqual(response["deleted_orphan_nodes"], 1)
+        remaining_orphan = (
+            self.session.query(KnowledgeGraphNode)
+            .filter(KnowledgeGraphNode.node_key == "test:orphan")
+            .first()
+        )
+        self.assertIsNone(remaining_orphan)
+        self.assertNotIn(
+            "snapshot_db_mismatch",
+            {issue["code"] for issue in (response["after"] or {})["issues"]},
+        )
+
+    def test_diagnose_integrity_marks_synced_article_missing_graph_as_suspect(self):
+        article = self.session.get(Article, self.article_id)
+        content_hash = self.service._compute_article_hash(article)
+        self.session.add(
+            KnowledgeGraphArticleState(
+                article_id=self.article_id,
+                content_hash=content_hash,
+                status="synced",
+                sync_mode="deterministic",
+                last_synced_at=datetime.now(),
+            )
+        )
+        self.session.commit()
+
+        report = self.service.diagnose_integrity(keyword="OpenAI", limit=10)
+
+        issue_codes = {issue["code"] for issue in report["issues"]}
+        self.assertIn("synced_articles_missing_graph", issue_codes)
+        self.assertIn(self.article_id, report["suspect_article_ids"])
+        self.assertIn(self.article_id, report["keyword_article_ids"])
 
 
 if __name__ == "__main__":

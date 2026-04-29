@@ -19,6 +19,9 @@ from backend.app.schemas.knowledge_graph import (
     KnowledgeGraphBuildSummary,
     KnowledgeGraphCommunityDetail,
     KnowledgeGraphCommunityListResponse,
+    KnowledgeGraphIntegrityRepairRequest,
+    KnowledgeGraphIntegrityRepairResponse,
+    KnowledgeGraphIntegrityReport,
     KnowledgeGraphNodeDetail,
     KnowledgeGraphNodeListResponse,
     KnowledgeGraphPathRequest,
@@ -87,6 +90,38 @@ async def list_knowledge_graph_builds(
     service: KnowledgeGraphService = Depends(get_knowledge_graph_service),
 ):
     return [KnowledgeGraphBuildSummary(**item) for item in service.get_builds(limit=limit)]
+
+
+@router.get("/integrity", response_model=KnowledgeGraphIntegrityReport)
+async def diagnose_knowledge_graph_integrity(
+    keyword: Optional[str] = Query(None, max_length=100),
+    limit: int = Query(100, ge=1, le=500),
+    service: KnowledgeGraphService = Depends(get_knowledge_graph_service),
+):
+    return KnowledgeGraphIntegrityReport(**service.diagnose_integrity(keyword=keyword, limit=limit))
+
+
+@router.post("/integrity/repair", response_model=KnowledgeGraphIntegrityRepairResponse)
+async def repair_knowledge_graph_integrity(
+    request: KnowledgeGraphIntegrityRepairRequest,
+    current_user: str = Depends(require_auth),
+    service: KnowledgeGraphService = Depends(get_knowledge_graph_service),
+):
+    del current_user
+    try:
+        result = service.repair_integrity(
+            dry_run=request.dry_run,
+            cleanup_orphans=request.cleanup_orphans,
+            rebuild_snapshot=request.rebuild_snapshot,
+            resync_suspects=request.resync_suspects,
+            keyword=request.keyword,
+            limit=request.limit,
+            sync_mode=request.sync_mode,
+        )
+        return KnowledgeGraphIntegrityRepairResponse(**result)
+    except Exception as exc:
+        logger.error("Knowledge graph integrity repair failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Knowledge graph integrity repair failed: {exc}") from exc
 
 
 @router.get("/snapshot", response_model=KnowledgeGraphSnapshotResponse)

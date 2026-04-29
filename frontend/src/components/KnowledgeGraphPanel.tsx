@@ -45,6 +45,7 @@ import type {
   AIQueryEngine,
   KnowledgeGraphBuildSummary,
   KnowledgeGraphCommunitySummary,
+  KnowledgeGraphIntegrityReport,
   KnowledgeGraphPathResponse,
   KnowledgeGraphQueryResponse,
 } from '@/types';
@@ -141,6 +142,38 @@ function truncateMiddle(text: string, head = 140, tail = 80) {
   return `${text.slice(0, head)}...${text.slice(-tail)}`;
 }
 
+function formatIntegrityStatus(report?: KnowledgeGraphIntegrityReport | null) {
+  if (!report) {
+    return {
+      type: 'info' as const,
+      message: '尚未运行图谱完整性诊断',
+      description: '诊断修复会优先清理结构问题并重建快照，不会默认逐篇重建图谱。',
+    };
+  }
+
+  const errorCount = report.issues.filter((issue) => issue.severity === 'error').length;
+  const warningCount = report.issues.filter((issue) => issue.severity === 'warning').length;
+  if (errorCount > 0) {
+    return {
+      type: 'error' as const,
+      message: `仍有 ${errorCount} 个严重问题`,
+      description: report.recommendations.join(' '),
+    };
+  }
+  if (warningCount > 0) {
+    return {
+      type: 'warning' as const,
+      message: `发现 ${warningCount} 个待关注问题`,
+      description: report.recommendations.join(' '),
+    };
+  }
+  return {
+    type: 'success' as const,
+    message: '图谱完整性正常',
+    description: report.recommendations.join(' '),
+  };
+}
+
 function BuildHistoryList({
   builds,
   loading,
@@ -187,7 +220,7 @@ export default function KnowledgeGraphPanel() {
   const queryClient = useQueryClient();
   const { theme } = useTheme();
   const { isAuthenticated } = useAuth();
-  const { createErrorHandler, showSuccess, showWarning } = useErrorHandler();
+  const { createErrorHandler, showInfo, showSuccess, showWarning } = useErrorHandler();
   const { graphCommand, focusArticle, focusCommunity, focusNode, focusPath } = useKnowledgeGraphView();
   const graphSectionRef = useRef<HTMLDivElement | null>(null);
 
@@ -202,6 +235,7 @@ export default function KnowledgeGraphPanel() {
   const [navigationSearch, setNavigationSearch] = useState('');
   const [syncMode, setSyncMode] = useState<SyncRunMode>('auto');
   const [maxArticles, setMaxArticles] = useState<number>(100);
+  const [integrityReport, setIntegrityReport] = useState<KnowledgeGraphIntegrityReport | null>(null);
   const [communityDrawerOpen, setCommunityDrawerOpen] = useState(false);
   const [activeCommunityId, setActiveCommunityId] = useState<number>();
 
@@ -326,6 +360,36 @@ export default function KnowledgeGraphPanel() {
     }),
   });
 
+  const integrityRepairMutation = useMutation({
+    mutationFn: ({ resyncSuspects }: { resyncSuspects: boolean }) =>
+      apiService.repairKnowledgeGraphIntegrity({
+        dry_run: false,
+        cleanup_orphans: true,
+        rebuild_snapshot: true,
+        resync_suspects: resyncSuspects,
+        limit: maxArticles,
+        sync_mode: syncMode,
+      }),
+    onSuccess: (response) => {
+      const latestReport = response.after || response.before;
+      setIntegrityReport(latestReport);
+      if (response.resynced_article_ids.length) {
+        showSuccess(`诊断修复完成，已重同步 ${response.resynced_article_ids.length} 篇可疑文章`);
+      } else if (latestReport.suspect_article_ids.length) {
+        showInfo(`诊断修复完成，仍有 ${latestReport.suspect_article_ids.length} 篇文章建议精准重同步`);
+      } else {
+        showSuccess('诊断修复完成，图谱快照已更新');
+      }
+      refreshGraphQueries();
+    },
+    onError: createErrorHandler({
+      operationName: '执行图谱诊断修复',
+      customMessages: {
+        auth: '需要登录后才能执行图谱诊断修复',
+      },
+    }),
+  });
+
   const queryMutation = useMutation({
     mutationFn: async () => {
       const currentQuestion = question.trim();
@@ -424,6 +488,14 @@ export default function KnowledgeGraphPanel() {
       return;
     }
     syncMutation.mutate({ forceRebuild });
+  };
+
+  const handleIntegrityRepair = (resyncSuspects: boolean) => {
+    if (!isAuthenticated) {
+      showWarning('需要登录后才能执行图谱诊断修复');
+      return;
+    }
+    integrityRepairMutation.mutate({ resyncSuspects });
   };
 
   const handleAsk = () => {
@@ -830,6 +902,11 @@ export default function KnowledgeGraphPanel() {
       ),
     },
   ];
+  const integrityStatus = formatIntegrityStatus(integrityReport);
+  const canResyncSuspects = Boolean(integrityReport?.suspect_article_ids.length);
+  const isRepairingWithResync = integrityRepairMutation.isPending
+    && Boolean(integrityRepairMutation.variables?.resyncSuspects);
+  const isRepairingStructure = integrityRepairMutation.isPending && !isRepairingWithResync;
 
   return (
     <Spin spinning={statsLoading}>
@@ -1025,7 +1102,7 @@ export default function KnowledgeGraphPanel() {
                       运维工具
                     </Title>
                     <Paragraph style={{ marginTop: 8, marginBottom: 0, color: getThemeColor(theme, 'textSecondary') }}>
-                      这里只保留刷新、增量同步和全量重建。它们是低频动作，不再占据页面主操作区。
+                      这里只保留刷新、增量同步和诊断修复。诊断修复会优先清理结构问题并重建快照。
                     </Paragraph>
                   </div>
                   <Space wrap>
@@ -1057,20 +1134,55 @@ export default function KnowledgeGraphPanel() {
                       type="primary"
                       icon={<SyncOutlined />}
                       loading={syncMutation.isPending}
-                      disabled={!stats?.enabled}
+                      disabled={!stats?.enabled || integrityRepairMutation.isPending}
                       onClick={() => handleSync(false)}
                     >
                       增量同步
                     </Button>
                     <Button
-                      danger
-                      loading={syncMutation.isPending}
-                      disabled={!stats?.enabled}
-                      onClick={() => handleSync(true)}
+                      loading={isRepairingStructure}
+                      disabled={!stats?.enabled || syncMutation.isPending}
+                      onClick={() => handleIntegrityRepair(false)}
                     >
-                      全量重建
+                      诊断修复
                     </Button>
+                    {canResyncSuspects && (
+                      <Button
+                        danger
+                        loading={isRepairingWithResync}
+                        disabled={!stats?.enabled || syncMutation.isPending}
+                        onClick={() => handleIntegrityRepair(true)}
+                      >
+                        重同步可疑文章
+                      </Button>
+                    )}
                   </Space>
+                  <Alert
+                    type={integrityStatus.type}
+                    showIcon
+                    message={integrityStatus.message}
+                    description={integrityStatus.description}
+                  />
+                  {integrityReport?.issues.length ? (
+                    <List
+                      size="small"
+                      dataSource={integrityReport.issues.slice(0, 4)}
+                      renderItem={(issue) => (
+                        <List.Item>
+                          <Space direction="vertical" size={2} style={{ width: '100%' }}>
+                            <Space wrap>
+                              <Tag color={issue.severity === 'error' ? 'red' : 'orange'}>{issue.code}</Tag>
+                              <Text>{issue.message}</Text>
+                            </Space>
+                            <Text type="secondary">
+                              数量 {issue.count}
+                              {issue.samples.length ? ` · 样例 ${issue.samples.slice(0, 3).join(', ')}` : ''}
+                            </Text>
+                          </Space>
+                        </List.Item>
+                      )}
+                    />
+                  ) : null}
                 </Space>
               </div>
               </Col>
