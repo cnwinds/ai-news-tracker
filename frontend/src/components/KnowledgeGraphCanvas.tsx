@@ -167,8 +167,7 @@ function hasLayoutCoordinates(node: KnowledgeGraphNodeSummary) {
 
 function createInitialNode(
   node: KnowledgeGraphNodeSummary,
-  dimensions: CanvasDimensions,
-  selectedNodeKey?: string
+  dimensions: CanvasDimensions
 ): CanvasNode {
   const seed = hashString(node.node_key);
   const angle = ((seed % 360) / 180) * Math.PI;
@@ -184,16 +183,13 @@ function createInitialNode(
   const initialY = hasCoordinates
     ? centerY + Number(node.layout_y) * coordinateScale
     : centerY + Math.sin(angle) * cloudRadius * 0.78;
-  const isSelected = node.node_key === selectedNodeKey;
 
   return {
     ...node,
     color: getCommunityColor(node),
     radius: getNodeRadius(node),
-    x: isSelected ? centerX : initialX,
-    y: isSelected ? centerY : initialY,
-    fx: isSelected ? centerX : undefined,
-    fy: isSelected ? centerY : undefined,
+    x: initialX,
+    y: initialY,
   };
 }
 
@@ -560,7 +556,7 @@ export default function KnowledgeGraphCanvas({
       animationFrameRef.current = undefined;
     }
 
-    const nextNodes = nodes.map((node) => createInitialNode(node, dimensions, selectedNodeKey));
+    const nextNodes = nodes.map((node) => createInitialNode(node, dimensions));
     const nodeKeySet = new Set(nextNodes.map((node) => node.node_key));
     const nextLinks: CanvasLink[] = links
       .filter((link) => nodeKeySet.has(link.source) && nodeKeySet.has(link.target))
@@ -587,15 +583,7 @@ export default function KnowledgeGraphCanvas({
         'link',
         forceLink<CanvasNode, CanvasLink>(nextLinks)
           .id((node) => node.node_key)
-          .distance((link) => {
-            const sourceKey = link.sourceKey;
-            const targetKey = link.targetKey;
-            const touchesFocus = selectedNodeKey
-              ? sourceKey === selectedNodeKey || targetKey === selectedNodeKey
-              : false;
-            const baseDistance = touchesFocus ? 62 : 88;
-            return clamp(baseDistance - Math.log1p(link.weight || 1) * 8, 40, 122);
-          })
+          .distance((link) => clamp(88 - Math.log1p(link.weight || 1) * 8, 40, 122))
           .strength((link) => clamp(0.08 + Math.log1p(link.weight || 1) * 0.06, 0.1, 0.34))
       )
       .force('charge', forceManyBody<CanvasNode>().strength((node) => -54 - node.radius * 10))
@@ -631,7 +619,7 @@ export default function KnowledgeGraphCanvas({
         animationFrameRef.current = undefined;
       }
     };
-  }, [dimensions, drawGraph, links, nodes, selectedNodeKey, updateAnchors]);
+  }, [dimensions, drawGraph, links, nodes, updateAnchors]);
 
   const getRelativePoint = useCallback((event: React.MouseEvent) => {
     const rect = canvasRef.current?.getBoundingClientRect();
