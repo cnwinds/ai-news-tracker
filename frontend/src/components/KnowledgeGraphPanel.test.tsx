@@ -9,11 +9,11 @@ const mocks = vi.hoisted(() => ({
   getKnowledgeGraphSettings: vi.fn(),
   getKnowledgeGraphStats: vi.fn(),
   getKnowledgeGraphBuilds: vi.fn(),
-  getKnowledgeGraphCommunities: vi.fn(),
   getKnowledgeGraphNodes: vi.fn(),
   syncKnowledgeGraph: vi.fn(),
   queryKnowledgeGraph: vi.fn(),
   queryKnowledgeGraphStream: vi.fn(),
+  structuredQueryKnowledgeGraph: vi.fn(),
   findKnowledgeGraphPath: vi.fn(),
   repairKnowledgeGraphIntegrity: vi.fn(),
   createErrorHandler: vi.fn(() => vi.fn()),
@@ -28,11 +28,11 @@ vi.mock('@/services/api', () => ({
     getKnowledgeGraphSettings: mocks.getKnowledgeGraphSettings,
     getKnowledgeGraphStats: mocks.getKnowledgeGraphStats,
     getKnowledgeGraphBuilds: mocks.getKnowledgeGraphBuilds,
-    getKnowledgeGraphCommunities: mocks.getKnowledgeGraphCommunities,
     getKnowledgeGraphNodes: mocks.getKnowledgeGraphNodes,
     syncKnowledgeGraph: mocks.syncKnowledgeGraph,
     queryKnowledgeGraph: mocks.queryKnowledgeGraph,
     queryKnowledgeGraphStream: mocks.queryKnowledgeGraphStream,
+    structuredQueryKnowledgeGraph: mocks.structuredQueryKnowledgeGraph,
     findKnowledgeGraphPath: mocks.findKnowledgeGraphPath,
     repairKnowledgeGraphIntegrity: mocks.repairKnowledgeGraphIntegrity,
   },
@@ -57,21 +57,17 @@ vi.mock('@/components/KnowledgeGraphExplorer', () => ({
   default: () => <div>Mock Graph Explorer</div>,
 }));
 
-vi.mock('@/components/KnowledgeGraphCommunityDrawer', () => ({
-  default: () => null,
-}));
-
 describe('KnowledgeGraphPanel', () => {
   beforeEach(() => {
     mockIsAuthenticated = true;
     mocks.getKnowledgeGraphSettings.mockReset();
     mocks.getKnowledgeGraphStats.mockReset();
     mocks.getKnowledgeGraphBuilds.mockReset();
-    mocks.getKnowledgeGraphCommunities.mockReset();
     mocks.getKnowledgeGraphNodes.mockReset();
     mocks.syncKnowledgeGraph.mockReset();
     mocks.queryKnowledgeGraph.mockReset();
     mocks.queryKnowledgeGraphStream.mockReset();
+    mocks.structuredQueryKnowledgeGraph.mockReset();
     mocks.findKnowledgeGraphPath.mockReset();
     mocks.repairKnowledgeGraphIntegrity.mockReset();
     mocks.createErrorHandler.mockClear();
@@ -91,7 +87,6 @@ describe('KnowledgeGraphPanel', () => {
       enabled: true,
       total_nodes: 42,
       total_edges: 84,
-      total_article_nodes: 12,
       total_articles: 20,
       synced_articles: 18,
       failed_articles: 1,
@@ -101,25 +96,14 @@ describe('KnowledgeGraphPanel', () => {
       relation_type_counts: {},
       top_nodes: [
         {
-          node_key: 'model:o3',
-          label: 'o3',
-          node_type: 'model',
+          node_key: 'organization:openai',
+          label: 'OpenAI',
+          node_type: 'organization',
           aliases: [],
           metadata: {},
           degree: 9,
           article_count: 3,
-          community_id: 1,
           centrality: 0.8,
-        },
-      ],
-      top_communities: [
-        {
-          community_id: 1,
-          label: '推理模型社区',
-          node_count: 6,
-          edge_count: 5,
-          article_count: 3,
-          top_nodes: [],
         },
       ],
       last_build: {
@@ -157,20 +141,6 @@ describe('KnowledgeGraphPanel', () => {
       },
     ]);
 
-    mocks.getKnowledgeGraphCommunities.mockResolvedValue({
-      items: [
-        {
-          community_id: 1,
-          label: '推理模型社区',
-          node_count: 6,
-          edge_count: 5,
-          article_count: 3,
-          top_nodes: [],
-        },
-      ],
-      total: 1,
-    });
-
     mocks.getKnowledgeGraphNodes.mockResolvedValue({
       items: [],
       total: 0,
@@ -180,14 +150,11 @@ describe('KnowledgeGraphPanel', () => {
   it('renders the knowledge graph page in the new section order', async () => {
     renderWithProviders(<KnowledgeGraphPanel />);
 
-    expect(await screen.findByText('当前知识图谱状态')).toBeInTheDocument();
-    expect(screen.getByText('工具工作台')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: '知识图谱' })).toBeInTheDocument();
-    expect(screen.getByText('运维与构建')).toBeInTheDocument();
-    expect(screen.getByText('运行状态')).toBeInTheDocument();
+    expect(await screen.findByText('知识图谱')).toBeInTheDocument();
+    expect(screen.getByLabelText('打开运维管理')).toBeInTheDocument();
     expect(await screen.findByText('Mock Graph Explorer')).toBeInTheDocument();
-    expect(screen.getByText('图谱问答')).toBeInTheDocument();
-    expect(screen.getByText('图谱已启用')).toBeInTheDocument();
+    expect(screen.getByText('问答')).toBeInTheDocument();
+    expect(screen.getByText('结构化')).toBeInTheDocument();
   });
 
   it('renders markdown answers in the qa workbench', async () => {
@@ -198,7 +165,6 @@ describe('KnowledgeGraphPanel', () => {
           mode: 'hybrid',
           resolved_mode: 'graph',
           matched_nodes: [],
-          matched_communities: [],
           related_articles: [],
           context_node_count: 2,
           context_edge_count: 1,
@@ -224,7 +190,7 @@ describe('KnowledgeGraphPanel', () => {
 
     renderWithProviders(<KnowledgeGraphPanel />);
 
-    await screen.findByText('工具工作台');
+    await screen.findByText('问答');
 
     const questionInput = Array.from(document.querySelectorAll('textarea.ant-input')).find(
       (element) => element.getAttribute('aria-hidden') !== 'true'
@@ -232,7 +198,7 @@ describe('KnowledgeGraphPanel', () => {
 
     expect(questionInput).toBeTruthy();
     await userEvent.type(questionInput as HTMLElement, '最近有哪些变化？');
-    await userEvent.click(screen.getByRole('button', { name: '开始问答' }));
+    await userEvent.click(screen.getByLabelText('开始问答'));
 
     expect(mocks.queryKnowledgeGraphStream).toHaveBeenCalled();
     expect(await screen.findByRole('heading', { name: '结论' })).toBeInTheDocument();
@@ -240,29 +206,119 @@ describe('KnowledgeGraphPanel', () => {
     expect(screen.getByText('第二条')).toBeInTheDocument();
   });
 
+  it('runs structured graph query and shows parsed conditions', async () => {
+    mocks.structuredQueryKnowledgeGraph.mockResolvedValue({
+      question: '帮我找基于 Agent-to-UI，并解决跨平台的应用',
+      parsed_query: {
+        target_type: 'product',
+        conditions: [
+          { relation_type: 'BASED_ON', target_type: 'concept', target_terms: ['Agent-to-UI', 'A2UI'] },
+          { relation_type: 'SOLVES', target_type: 'feature', target_terms: ['跨平台'] },
+        ],
+      },
+      results: [
+        {
+          node: {
+            node_key: 'product:agenui',
+            label: 'AGenUI',
+            node_type: 'product',
+            aliases: [],
+            metadata: {},
+            degree: 2,
+            article_count: 1,
+            centrality: 0,
+          },
+          matched_edges: [
+            {
+              source_node_key: 'product:agenui',
+              target_node_key: 'concept:agent-to-ui',
+              relation_type: 'BASED_ON',
+              confidence: 'EXTRACTED',
+              confidence_score: 0.95,
+              weight: 1,
+              source_article_id: 1,
+              source_label: 'AGenUI',
+              target_label: 'Agent-to-UI',
+              evidence_snippet: '基于 Agent-to-UI 协议',
+              metadata: {},
+            },
+          ],
+          related_articles: [
+            {
+              id: 1,
+              title: 'AGenUI released',
+              title_zh: 'AGenUI 发布',
+              url: 'https://example.com/a',
+              source: 'Amap',
+              published_at: '2026-04-08T12:00:00Z',
+              summary: '摘要',
+              detailed_summary: null,
+              importance: 'high',
+              tags: [],
+              relation_count: 1,
+              distance: null,
+            },
+          ],
+        },
+      ],
+      related_articles: [
+        {
+          id: 1,
+          title: 'AGenUI released',
+          title_zh: 'AGenUI 发布',
+          url: 'https://example.com/a',
+          source: 'Amap',
+          published_at: '2026-04-08T12:00:00Z',
+          summary: '摘要',
+          detailed_summary: null,
+          importance: 'high',
+          tags: [],
+          relation_count: 1,
+          distance: null,
+        },
+      ],
+      answer: '命中结果：AGenUI',
+    });
+
+    renderWithProviders(<KnowledgeGraphPanel />);
+
+    await screen.findByText('结构化');
+    await userEvent.click(screen.getByRole('button', { name: /结构化/ }));
+
+    const questionInput = Array.from(document.querySelectorAll('textarea.ant-input')).find(
+      (element) => element.getAttribute('aria-hidden') !== 'true'
+    );
+
+    expect(questionInput).toBeTruthy();
+    await userEvent.type(questionInput as HTMLElement, '帮我找基于 Agent-to-UI，并解决跨平台的应用');
+    await userEvent.click(screen.getByRole('button', { name: '执行结构化查询' }));
+
+    expect(mocks.structuredQueryKnowledgeGraph).toHaveBeenCalled();
+    expect(await screen.findByText('目标类型：product · 条件 2 · 命中 1')).toBeInTheDocument();
+    expect(screen.getByText('条件 1：BASED_ON → concept / Agent-to-UI、A2UI')).toBeInTheDocument();
+    expect(screen.getByText('AGenUI')).toBeInTheDocument();
+    expect(screen.getByText(/AGenUI -\[BASED_ON\]-> Agent-to-UI/)).toBeInTheDocument();
+  });
+
   it('switches between path and navigation tools', async () => {
     renderWithProviders(<KnowledgeGraphPanel />);
 
-    await screen.findByText('工具工作台');
+    await screen.findByText('路径');
 
-    await userEvent.click(screen.getByText('关系路径'));
+    await userEvent.click(screen.getByText('路径'));
     expect(await screen.findByRole('button', { name: '查询最短路径' })).toBeInTheDocument();
 
-    await userEvent.click(screen.getByText('实体导航'));
-    expect(await screen.findByText('实体入口')).toBeInTheDocument();
-    expect(await screen.findByText('社区入口')).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('tab', { name: '社区入口' }));
-    expect(await screen.findByRole('button', { name: '打开社区' })).toBeInTheDocument();
+    await userEvent.click(screen.getByText('导航'));
+    expect(await screen.findByText('OpenAI')).toBeInTheDocument();
+    expect(screen.getByText('organization · 度数 9')).toBeInTheDocument();
   });
 
   it('hides the operations and build panel when unauthenticated', async () => {
     mockIsAuthenticated = false;
     renderWithProviders(<KnowledgeGraphPanel />);
 
-    await screen.findByText('工具工作台');
-    expect(screen.queryByText('运维与构建')).not.toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: '运维工具' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: '构建历史' })).not.toBeInTheDocument();
+    await screen.findByText('问答');
+    expect(screen.queryByLabelText('打开运维管理')).not.toBeInTheDocument();
   });
 
   it('shows an inline integrity repair result when no issues remain', async () => {
@@ -299,7 +355,9 @@ describe('KnowledgeGraphPanel', () => {
 
     renderWithProviders(<KnowledgeGraphPanel />);
 
-    await screen.findByText('运维工具');
+    await screen.findByLabelText('打开运维管理');
+    await userEvent.click(screen.getByLabelText('打开运维管理'));
+    await screen.findByText('同步与修复');
     await userEvent.click(screen.getByRole('button', { name: '诊断修复' }));
 
     expect(await screen.findByText('诊断修复完成，未发现需要继续处理的问题')).toBeInTheDocument();

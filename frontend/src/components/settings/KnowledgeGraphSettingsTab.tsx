@@ -70,7 +70,7 @@ export default function KnowledgeGraphSettingsTab() {
           type="info"
           showIcon
           message="知识图谱配置说明"
-          description="知识图谱在现有 RAG 之外补充实体、关系、社区和路径能力。建议默认开启，并保持运行模式为自动。"
+          description="知识图谱在现有 RAG 之外补充实体、关系和路径能力。建议默认开启，并保持运行模式为自动。"
         />
 
         {stats && (
@@ -123,14 +123,13 @@ export default function KnowledgeGraphSettingsTab() {
               name="run_mode"
               label="抽取模式"
               rules={[{ required: true, message: '请选择抽取模式' }]}
-              extra="自动模式会在可用时启用 AI 抽取，否则退化为确定性抽取。"
+              extra="自动模式会在可用时启用本体约束 AI 抽取。"
             >
               <Select
                 disabled={!isAuthenticated}
                 options={[
                   { label: '自动（推荐）', value: 'auto' },
                   { label: 'Agent 语义抽取', value: 'agent' },
-                  { label: '确定性抽取', value: 'deterministic' },
                 ]}
               />
             </Form.Item>

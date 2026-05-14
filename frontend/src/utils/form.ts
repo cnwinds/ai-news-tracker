@@ -15,7 +15,6 @@ export function safeSetFieldsValue<T extends object = Record<string, unknown>>(
   setTimeout(() => {
     try {
       // Ant Design 的 FormInstance.setFieldsValue 接受 Partial<T>，但类型定义可能不匹配
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (form.setFieldsValue as (values: Partial<T>) => void)(values);
     } catch {
       // 忽略表单未连接的错误

@@ -8,43 +8,36 @@ import {
   type ReactNode,
 } from 'react';
 
-import {
-  buildKnowledgeGraphArticleNodeKey,
-  buildKnowledgeGraphEdgeKey,
-} from '@/utils/knowledgeGraph';
+import { apiService } from '@/services/api';
+import { buildKnowledgeGraphEdgeKey } from '@/utils/knowledgeGraph';
 
-type KnowledgeGraphCommandReason = 'node' | 'community' | 'path' | 'article' | 'custom';
+type KnowledgeGraphCommandReason = 'node' | 'path' | 'article' | 'custom';
 
 export interface KnowledgeGraphNavigationCommand {
   id: number;
   reason: KnowledgeGraphCommandReason;
   searchTerm?: string;
   nodeType?: string;
-  communityId?: number;
   selectedNodeKey?: string;
   focusNodeKeys: string[];
   expandDepth: number;
   highlightedNodeKeys: string[];
   highlightedEdgeKeys: string[];
-  openCommunityId?: number;
 }
 
 interface KnowledgeGraphCommandOptions {
   searchTerm?: string;
   nodeType?: string;
-  communityId?: number;
   selectedNodeKey?: string;
   focusNodeKeys?: string[];
   expandDepth?: number;
   highlightedNodeKeys?: string[];
   highlightedEdgeKeys?: string[];
-  openCommunityId?: number;
 }
 
 interface KnowledgeGraphViewContextValue {
   graphCommand: KnowledgeGraphNavigationCommand | null;
   focusNode: (nodeKey: string, options?: KnowledgeGraphCommandOptions) => void;
-  focusCommunity: (communityId: number, options?: KnowledgeGraphCommandOptions) => void;
   focusPath: (
     nodeKeys: string[],
     edges: Array<{ source: string; target: string }>,
@@ -67,13 +60,11 @@ function normalizeCommand(
     reason,
     searchTerm: options.searchTerm,
     nodeType: options.nodeType,
-    communityId: options.communityId,
     selectedNodeKey: options.selectedNodeKey,
     focusNodeKeys: options.focusNodeKeys || [],
     expandDepth: options.expandDepth ?? 0,
     highlightedNodeKeys: options.highlightedNodeKeys || [],
     highlightedEdgeKeys: options.highlightedEdgeKeys || [],
-    openCommunityId: options.openCommunityId,
   };
 }
 
@@ -107,28 +98,7 @@ export function KnowledgeGraphViewProvider({ children }: { children: ReactNode }
           expandDepth: options.expandDepth ?? 1,
           highlightedNodeKeys: options.highlightedNodeKeys,
           highlightedEdgeKeys: options.highlightedEdgeKeys,
-          communityId: options.communityId,
           nodeType: options.nodeType,
-          openCommunityId: options.openCommunityId,
-        })
-      );
-    },
-    [createCommandId]
-  );
-
-  const focusCommunity = useCallback(
-    (communityId: number, options: KnowledgeGraphCommandOptions = {}) => {
-      setGraphCommand(
-        normalizeCommand(createCommandId(), 'community', {
-          searchTerm: options.searchTerm,
-          communityId,
-          selectedNodeKey: options.selectedNodeKey,
-          focusNodeKeys: options.focusNodeKeys || [],
-          expandDepth: options.expandDepth ?? 0,
-          highlightedNodeKeys: options.highlightedNodeKeys,
-          highlightedEdgeKeys: options.highlightedEdgeKeys,
-          nodeType: options.nodeType,
-          openCommunityId: options.openCommunityId ?? communityId,
         })
       );
     },
@@ -145,7 +115,6 @@ export function KnowledgeGraphViewProvider({ children }: { children: ReactNode }
       setGraphCommand(
         normalizeCommand(createCommandId(), 'path', {
           searchTerm: options.searchTerm,
-          communityId: options.communityId,
           selectedNodeKey: options.selectedNodeKey ?? uniqueNodeKeys[0],
           focusNodeKeys: options.focusNodeKeys ?? uniqueNodeKeys,
           expandDepth: options.expandDepth ?? 0,
@@ -154,7 +123,6 @@ export function KnowledgeGraphViewProvider({ children }: { children: ReactNode }
             options.highlightedEdgeKeys ||
             edges.map((edge) => buildKnowledgeGraphEdgeKey(edge.source, edge.target)),
           nodeType: options.nodeType,
-          openCommunityId: options.openCommunityId,
         })
       );
     },
@@ -162,19 +130,21 @@ export function KnowledgeGraphViewProvider({ children }: { children: ReactNode }
   );
 
   const focusArticle = useCallback(
-    (articleId: number, options: KnowledgeGraphCommandOptions = {}) => {
-      const articleNodeKey = buildKnowledgeGraphArticleNodeKey(articleId);
+    async (articleId: number, options: KnowledgeGraphCommandOptions = {}) => {
+      const context = await apiService.getKnowledgeGraphArticleContext(articleId);
+      const focusNodeKeys = options.focusNodeKeys ?? context.nodes.map((node) => node.node_key);
+      const highlightedEdgeKeys = options.highlightedEdgeKeys ?? context.edges.map((edge) =>
+        buildKnowledgeGraphEdgeKey(edge.source_node_key, edge.target_node_key)
+      );
       setGraphCommand(
         normalizeCommand(createCommandId(), 'article', {
-          searchTerm: options.searchTerm ?? articleNodeKey,
-          selectedNodeKey: options.selectedNodeKey ?? articleNodeKey,
-          focusNodeKeys: options.focusNodeKeys ?? [articleNodeKey],
+          searchTerm: options.searchTerm ?? (context.article?.title_zh || context.article?.title || ''),
+          selectedNodeKey: options.selectedNodeKey ?? focusNodeKeys[0],
+          focusNodeKeys,
           expandDepth: options.expandDepth ?? 1,
-          highlightedNodeKeys: options.highlightedNodeKeys ?? [articleNodeKey],
-          highlightedEdgeKeys: options.highlightedEdgeKeys,
-          communityId: options.communityId,
+          highlightedNodeKeys: options.highlightedNodeKeys ?? focusNodeKeys,
+          highlightedEdgeKeys,
           nodeType: options.nodeType,
-          openCommunityId: options.openCommunityId,
         })
       );
     },
@@ -189,7 +159,6 @@ export function KnowledgeGraphViewProvider({ children }: { children: ReactNode }
     () => ({
       graphCommand,
       focusNode,
-      focusCommunity,
       focusPath,
       focusArticle,
       issueCustomCommand,
@@ -198,7 +167,6 @@ export function KnowledgeGraphViewProvider({ children }: { children: ReactNode }
     [
       clearGraphCommand,
       focusArticle,
-      focusCommunity,
       focusNode,
       focusPath,
       graphCommand,

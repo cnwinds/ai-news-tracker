@@ -1,6 +1,6 @@
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import KnowledgeGraphExplorer from '@/components/KnowledgeGraphExplorer';
 import { useKnowledgeGraphView } from '@/contexts/KnowledgeGraphViewContext';
@@ -36,8 +36,8 @@ function ExplorerHarness() {
         type="button"
         onClick={() =>
           focusPath(
-            ['article:1', 'source:OpenAI'],
-            [{ source: 'article:1', target: 'source:OpenAI' }]
+            ['organization:openai', 'product:gpt-next'],
+            [{ source: 'organization:openai', target: 'product:gpt-next' }]
           )
         }
       >
@@ -61,7 +61,7 @@ describe('KnowledgeGraphExplorer', () => {
         build_id: 'build-1',
         status: 'completed',
         trigger_source: 'test',
-        sync_mode: 'deterministic',
+        sync_mode: 'agent',
         total_articles: 1,
         processed_articles: 1,
         skipped_articles: 0,
@@ -73,94 +73,82 @@ describe('KnowledgeGraphExplorer', () => {
       },
       nodes: [
         {
-          node_key: 'article:1',
-          label: 'OpenAI reasoning update',
-          node_type: 'article',
+          node_key: 'organization:openai',
+          label: 'OpenAI',
+          node_type: 'organization',
           aliases: [],
           metadata: {},
           degree: 3,
           article_count: 1,
-          community_id: 1,
-          centrality: 0.4,
+          centrality: 0.7,
           layout_x: 0,
           layout_y: 0,
         },
         {
-          node_key: 'source:OpenAI',
-          label: 'OpenAI',
-          node_type: 'source',
+          node_key: 'product:gpt-next',
+          label: 'GPT-Next',
+          node_type: 'product',
           aliases: [],
           metadata: {},
           degree: 8,
           article_count: 2,
-          community_id: 1,
-          centrality: 0.7,
+          centrality: 0.4,
           layout_x: 0.6,
           layout_y: 0.1,
         },
       ],
       links: [
         {
-          source: 'article:1',
-          target: 'source:OpenAI',
+          source: 'organization:openai',
+          target: 'product:gpt-next',
           weight: 1,
-          relation_types: ['mentions'],
+          relation_types: ['DEVELOPED'],
           article_count: 1,
-        },
-      ],
-      communities: [
-        {
-          community_id: 1,
-          label: 'OpenAI 社区',
-          node_count: 2,
-          edge_count: 1,
-          article_count: 1,
-          top_nodes: [],
         },
       ],
       total_nodes: 2,
       total_links: 1,
-      available_node_types: ['article', 'source'],
+      available_node_types: ['organization', 'product'],
       layout_mode: 'distance_weighted_kamada_kawai',
     });
 
     mocks.getKnowledgeGraphNode.mockResolvedValue({
       node: {
-        node_key: 'article:1',
-        label: 'OpenAI reasoning update',
-        node_type: 'article',
+        node_key: 'organization:openai',
+        label: 'OpenAI',
+        node_type: 'organization',
         aliases: [],
-        metadata: {},
+        metadata: {
+          description: 'AI organization',
+          official_site: 'https://openai.com',
+        },
         degree: 3,
         article_count: 1,
-        community_id: 1,
-        centrality: 0.4,
+        centrality: 0.7,
       },
       neighbors: [
         {
-          node_key: 'source:OpenAI',
-          label: 'OpenAI',
-          node_type: 'source',
+          node_key: 'product:gpt-next',
+          label: 'GPT-Next',
+          node_type: 'product',
           aliases: [],
           metadata: {},
           degree: 8,
           article_count: 2,
-          community_id: 1,
-          centrality: 0.7,
+          centrality: 0.4,
         },
       ],
       edges: [
         {
-          source_node_key: 'article:1',
-          target_node_key: 'source:OpenAI',
-          relation_type: 'mentions',
+          source_node_key: 'organization:openai',
+          target_node_key: 'product:gpt-next',
+          relation_type: 'DEVELOPED',
           confidence: 'EXTRACTED',
           confidence_score: 1,
           weight: 1,
         },
       ],
       related_articles: [],
-      matched_communities: [],
     });
   });
 
@@ -172,25 +160,28 @@ describe('KnowledgeGraphExplorer', () => {
     await waitFor(() => {
       expect(mocks.getKnowledgeGraphSnapshot).toHaveBeenLastCalledWith(
         expect.objectContaining({
-          focus_node_keys: ['article:1', 'source:OpenAI'],
+          focus_node_keys: ['organization:openai', 'product:gpt-next'],
           expand_depth: 0,
         })
       );
     });
 
-    expect(await screen.findByText('路径高亮')).toBeInTheDocument();
-    expect(screen.getByText('力导画布')).toBeInTheDocument();
+    expect(await screen.findByText('路径高亮中')).toBeInTheDocument();
+    expect(screen.getByText('力导图')).toBeInTheDocument();
     await waitFor(() => {
-      expect(mocks.getKnowledgeGraphNode).toHaveBeenCalledWith('article:1');
+      expect(mocks.getKnowledgeGraphNode).toHaveBeenCalledWith('organization:openai');
     });
-    expect(await screen.findByRole('heading', { name: 'OpenAI reasoning update' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'OpenAI' })).toBeInTheDocument();
+    expect(screen.getByText('organization')).toBeInTheDocument();
+    expect(screen.getByText('AI organization')).toBeInTheDocument();
+    expect(screen.getByText('official_site: https://openai.com')).toBeInTheDocument();
 
-    await userEvent.click(await screen.findByRole('button', { name: /1 跳邻域/ }));
+    await userEvent.click(await screen.findByRole('button', { name: '全' }));
 
     await waitFor(() => {
       expect(mocks.getKnowledgeGraphSnapshot).toHaveBeenLastCalledWith(
         expect.objectContaining({
-          focus_node_keys: ['article:1'],
+          focus_node_keys: ['organization:openai'],
           expand_depth: 1,
         })
       );
@@ -201,15 +192,15 @@ describe('KnowledgeGraphExplorer', () => {
     const { container } = renderWithProviders(<KnowledgeGraphExplorer searchTerm="" limitNodes={160} />);
 
     await waitFor(() => {
-      expect(container.querySelector('[data-node-key="source:OpenAI"]')).toBeTruthy();
+      expect(container.querySelector('[data-node-key="organization:openai"]')).toBeTruthy();
     });
 
-    const graphNode = container.querySelector('[data-node-key="source:OpenAI"]');
+    const graphNode = container.querySelector('[data-node-key="organization:openai"]');
     expect(graphNode).toBeTruthy();
     await userEvent.hover(graphNode as Element);
 
     expect(await screen.findByText('节点预览')).toBeInTheDocument();
     expect(screen.getByText('中心性 0.70')).toBeInTheDocument();
-    expect(screen.getByText('source:OpenAI')).toBeInTheDocument();
+    expect(screen.getByText('organization:openai')).toBeInTheDocument();
   });
 });

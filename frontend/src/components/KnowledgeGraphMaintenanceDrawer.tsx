@@ -26,7 +26,7 @@ import { getFriendlyErrorMessage } from '@/utils/errorHandler';
 
 const { Text, Title } = Typography;
 
-type SyncRunMode = 'auto' | 'agent' | 'deterministic';
+type SyncRunMode = 'auto' | 'agent';
 
 type IntegrityStatusFeedback = {
   type: 'success' | 'info' | 'warning' | 'error';
@@ -153,22 +153,25 @@ export default function KnowledgeGraphMaintenanceDrawer({
     queryClient.invalidateQueries({ queryKey: ['knowledge-graph-settings'] });
     queryClient.invalidateQueries({ queryKey: ['knowledge-graph-stats'] });
     queryClient.invalidateQueries({ queryKey: ['knowledge-graph-builds'] });
-    queryClient.invalidateQueries({ queryKey: ['knowledge-graph-communities'] });
     queryClient.invalidateQueries({ queryKey: ['knowledge-graph-nodes'] });
     queryClient.invalidateQueries({ queryKey: ['knowledge-graph-snapshot'] });
     onRefresh();
   };
 
   const syncMutation = useMutation({
-    mutationFn: () =>
+    mutationFn: ({ forceRebuild }: { forceRebuild: boolean }) =>
       apiService.syncKnowledgeGraph({
-        force_rebuild: false,
+        force_rebuild: forceRebuild,
         sync_mode: syncMode,
         max_articles: maxArticles,
-        trigger_source: 'dashboard',
+        trigger_source: forceRebuild ? 'dashboard_rebuild' : 'dashboard',
       }),
-    onSuccess: (response) => {
-      showSuccess(`知识图谱同步完成，处理 ${response.build.processed_articles} 篇文章`);
+    onSuccess: (response, variables) => {
+      showSuccess(
+        variables.forceRebuild
+          ? `知识图谱全量重建完成，处理 ${response.build.processed_articles} 篇文章`
+          : `知识图谱同步完成，处理 ${response.build.processed_articles} 篇文章`
+      );
       refreshAll();
     },
     onError: createErrorHandler({
@@ -223,9 +226,12 @@ export default function KnowledgeGraphMaintenanceDrawer({
     },
   });
 
-  const handleSync = () => {
-    if (!isAuthenticated) { showWarning('需要登录后才能执行知识图谱同步'); return; }
-    syncMutation.mutate();
+  const handleSync = (forceRebuild: boolean) => {
+    if (!isAuthenticated) {
+      showWarning(forceRebuild ? '需要登录后才能执行知识图谱全量重建' : '需要登录后才能执行知识图谱同步');
+      return;
+    }
+    syncMutation.mutate({ forceRebuild });
   };
 
   const handleRepair = (resyncSuspects: boolean) => {
@@ -238,7 +244,7 @@ export default function KnowledgeGraphMaintenanceDrawer({
   const isRepairingWithResync = integrityRepairMutation.isPending && Boolean(integrityRepairMutation.variables?.resyncSuspects);
   const isRepairingStructure = integrityRepairMutation.isPending && !isRepairingWithResync;
 
-  const syncModeLabel = syncMode === 'agent' ? 'Agent' : syncMode === 'deterministic' ? '确定性' : '自动';
+  const syncModeLabel = syncMode === 'agent' ? 'Agent' : '自动';
 
   return (
     <Drawer
@@ -265,7 +271,6 @@ export default function KnowledgeGraphMaintenanceDrawer({
                 options={[
                   { label: '自动', value: 'auto' },
                   { label: 'Agent', value: 'agent' },
-                  { label: '确定性', value: 'deterministic' },
                 ]}
               />
               <Select<number>
@@ -282,11 +287,19 @@ export default function KnowledgeGraphMaintenanceDrawer({
               <Button
                 type="primary"
                 icon={<SyncOutlined />}
-                loading={syncMutation.isPending}
+                loading={syncMutation.isPending && !Boolean(syncMutation.variables?.forceRebuild)}
                 disabled={!enabled || integrityRepairMutation.isPending}
-                onClick={handleSync}
+                onClick={() => handleSync(false)}
               >
                 增量同步
+              </Button>
+              <Button
+                danger
+                loading={syncMutation.isPending && Boolean(syncMutation.variables?.forceRebuild)}
+                disabled={!enabled || integrityRepairMutation.isPending}
+                onClick={() => handleSync(true)}
+              >
+                全量重建
               </Button>
               <Button
                 loading={isRepairingStructure}

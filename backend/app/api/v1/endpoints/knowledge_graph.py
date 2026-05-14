@@ -17,8 +17,6 @@ from backend.app.db import get_db
 from backend.app.schemas.knowledge_graph import (
     KnowledgeGraphArticleContextResponse,
     KnowledgeGraphBuildSummary,
-    KnowledgeGraphCommunityDetail,
-    KnowledgeGraphCommunityListResponse,
     KnowledgeGraphIntegrityRepairRequest,
     KnowledgeGraphIntegrityRepairResponse,
     KnowledgeGraphIntegrityReport,
@@ -30,6 +28,8 @@ from backend.app.schemas.knowledge_graph import (
     KnowledgeGraphQueryResponse,
     KnowledgeGraphSnapshotResponse,
     KnowledgeGraphStatsResponse,
+    KnowledgeGraphStructuredQueryRequest,
+    KnowledgeGraphStructuredQueryResponse,
     KnowledgeGraphSyncRequest,
     KnowledgeGraphSyncResponse,
 )
@@ -133,7 +133,6 @@ async def repair_knowledge_graph_integrity(
 
 @router.get("/snapshot", response_model=KnowledgeGraphSnapshotResponse)
 async def get_knowledge_graph_snapshot(
-    community_id: Optional[int] = Query(None),
     node_type: Optional[str] = Query(None),
     q: Optional[str] = Query(None),
     limit_nodes: int = Query(160, ge=10, le=500),
@@ -143,7 +142,6 @@ async def get_knowledge_graph_snapshot(
 ):
     return KnowledgeGraphSnapshotResponse(
         **service.get_snapshot_view(
-            community_id=community_id,
             node_type=node_type,
             query=q,
             limit_nodes=limit_nodes,
@@ -171,26 +169,6 @@ async def get_knowledge_graph_node(
 ):
     try:
         return KnowledgeGraphNodeDetail(**service.get_node_detail(node_key))
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-
-@router.get("/communities", response_model=KnowledgeGraphCommunityListResponse)
-async def list_knowledge_graph_communities(
-    limit: int = Query(20, ge=1, le=100),
-    service: KnowledgeGraphService = Depends(get_knowledge_graph_service),
-):
-    items = service.get_communities(limit=limit)
-    return KnowledgeGraphCommunityListResponse(items=items, total=len(items))
-
-
-@router.get("/communities/{community_id}", response_model=KnowledgeGraphCommunityDetail)
-async def get_knowledge_graph_community(
-    community_id: int,
-    service: KnowledgeGraphService = Depends(get_knowledge_graph_service),
-):
-    try:
-        return KnowledgeGraphCommunityDetail(**service.get_community_detail(community_id))
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -228,6 +206,25 @@ async def query_knowledge_graph(
     except Exception as exc:
         logger.error("Knowledge graph query failed: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail=f"Knowledge graph query failed: {exc}") from exc
+
+
+@router.post("/structured-query", response_model=KnowledgeGraphStructuredQueryResponse)
+async def structured_query_knowledge_graph(
+    request: KnowledgeGraphStructuredQueryRequest,
+    service: KnowledgeGraphService = Depends(get_knowledge_graph_service),
+):
+    try:
+        result = await asyncio.to_thread(
+            service.structured_query,
+            request.question,
+            top_k=request.top_k,
+        )
+        return KnowledgeGraphStructuredQueryResponse(**result)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.error("Knowledge graph structured query failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Knowledge graph structured query failed: {exc}") from exc
 
 
 @router.post("/query/stream")

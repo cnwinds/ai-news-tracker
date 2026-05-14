@@ -130,7 +130,7 @@ class Settings:
         # 知识图谱配置（从数据库加载）
         self.KNOWLEDGE_GRAPH_ENABLED: bool = True
         self.KNOWLEDGE_GRAPH_AUTO_SYNC_ENABLED: bool = True
-        self.KNOWLEDGE_GRAPH_RUN_MODE: str = "auto"  # auto/agent/deterministic
+        self.KNOWLEDGE_GRAPH_RUN_MODE: str = "auto"  # auto/agent
         self.KNOWLEDGE_GRAPH_MAX_ARTICLES_PER_SYNC: int = 100
         self.KNOWLEDGE_GRAPH_QUERY_DEPTH: int = 2
 
@@ -1566,7 +1566,7 @@ class Settings:
                     )
                     or "auto"
                 ).strip().lower()
-                if run_mode not in {"auto", "agent", "deterministic"}:
+                if run_mode not in {"auto", "agent"}:
                     run_mode = "auto"
                 self.KNOWLEDGE_GRAPH_RUN_MODE = run_mode
                 self.KNOWLEDGE_GRAPH_MAX_ARTICLES_PER_SYNC = self._load_setting(
@@ -1597,7 +1597,7 @@ class Settings:
     ) -> bool:
         """保存知识图谱配置到数据库"""
         normalized_mode = str(run_mode or "auto").strip().lower()
-        if normalized_mode not in {"auto", "agent", "deterministic"}:
+        if normalized_mode not in {"auto", "agent"}:
             normalized_mode = "auto"
 
         max_articles_value = max(1, min(1000, int(max_articles_per_sync)))
@@ -1627,7 +1627,7 @@ class Settings:
                     "knowledge_graph_run_mode",
                     normalized_mode,
                     "string",
-                    "知识图谱执行模式（auto/agent/deterministic）",
+                    "知识图谱执行模式（auto/agent）",
                 )
                 self._save_setting(
                     session,
@@ -1664,7 +1664,7 @@ class Settings:
     def get_knowledge_graph_run_mode(self) -> str:
         """获取知识图谱执行模式"""
         mode = str(self.KNOWLEDGE_GRAPH_RUN_MODE or "auto").strip().lower()
-        if mode not in {"auto", "agent", "deterministic"}:
+        if mode not in {"auto", "agent"}:
             mode = "auto"
         return mode
 

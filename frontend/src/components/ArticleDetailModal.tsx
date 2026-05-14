@@ -48,7 +48,7 @@ interface ArticleDetailModalProps {
 export default function ArticleDetailModal({ articleId, open, onClose }: ArticleDetailModalProps) {
   const { theme } = useTheme();
   const { isAuthenticated, username } = useAuth();
-  const { focusArticle, focusCommunity, focusNode } = useKnowledgeGraphView();
+  const { focusArticle, focusNode } = useKnowledgeGraphView();
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [isContentExpanded, setIsContentExpanded] = useState(false);
   const queryClient = useQueryClient();
@@ -337,26 +337,6 @@ export default function ArticleDetailModal({ articleId, open, onClose }: Article
                         ))
                       ) : (
                         <Text type="secondary">当前文章还没有同步出可展示的图谱实体。</Text>
-                      )}
-                    </div>
-                  </div>
-
-                  <div>
-                    <Text strong>命中社区</Text>
-                    <div style={{ marginTop: 8 }}>
-                      {graphContext.communities.length > 0 ? (
-                        graphContext.communities.map((community) => (
-                          <Tag
-                            key={community.community_id}
-                            color="blue"
-                            style={{ cursor: 'pointer' }}
-                            onClick={() => focusCommunity(community.community_id)}
-                          >
-                            {community.label}
-                          </Tag>
-                        ))
-                      ) : (
-                        <Text type="secondary">暂无社区归属。</Text>
                       )}
                     </div>
                   </div>

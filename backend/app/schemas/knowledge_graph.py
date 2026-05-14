@@ -8,8 +8,9 @@ from pydantic import BaseModel, Field
 
 
 GraphConfidence = Literal["EXTRACTED", "INFERRED", "AMBIGUOUS"]
-KnowledgeGraphRunMode = Literal["auto", "agent", "deterministic"]
+KnowledgeGraphRunMode = Literal["auto", "agent"]
 KnowledgeGraphQueryMode = Literal["auto", "graph", "hybrid", "rag"]
+KnowledgeGraphQueryStrategy = Literal["structured", "generic_graph"]
 BuildStatus = Literal["pending", "running", "completed", "failed"]
 
 
@@ -153,6 +154,8 @@ class KnowledgeGraphEdgeSummary(BaseModel):
     confidence_score: float
     weight: float
     source_article_id: Optional[int] = None
+    source_label: Optional[str] = None
+    target_label: Optional[str] = None
     evidence_snippet: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
 
@@ -184,7 +187,6 @@ class KnowledgeGraphNodeSummary(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict)
     degree: int = 0
     article_count: int = 0
-    community_id: Optional[int] = None
     centrality: float = 0.0
     layout_x: Optional[float] = None
     layout_y: Optional[float] = None
@@ -204,35 +206,6 @@ class KnowledgeGraphNodeDetail(BaseModel):
     neighbors: List[KnowledgeGraphNodeSummary]
     edges: List[KnowledgeGraphEdgeSummary]
     related_articles: List[KnowledgeGraphArticleReference]
-    matched_communities: List["KnowledgeGraphCommunitySummary"] = Field(default_factory=list)
-
-
-class KnowledgeGraphCommunitySummary(BaseModel):
-    """Community summary."""
-
-    community_id: int
-    label: str
-    node_count: int
-    edge_count: int
-    article_count: int
-    top_nodes: List[KnowledgeGraphNodeSummary] = Field(default_factory=list)
-
-
-class KnowledgeGraphCommunityListResponse(BaseModel):
-    """Community list response."""
-
-    items: List[KnowledgeGraphCommunitySummary]
-    total: int
-
-
-class KnowledgeGraphCommunityDetail(BaseModel):
-    """Community detail response."""
-
-    community: KnowledgeGraphCommunitySummary
-    nodes: List[KnowledgeGraphNodeSummary]
-    articles: List[KnowledgeGraphArticleReference]
-    summary_text: str = ""
-    relation_types: List[str] = Field(default_factory=list)
 
 
 class KnowledgeGraphLinkSummary(BaseModel):
@@ -252,7 +225,6 @@ class KnowledgeGraphSnapshotResponse(BaseModel):
     build: Optional[KnowledgeGraphBuildSummary] = None
     nodes: List[KnowledgeGraphNodeSummary] = Field(default_factory=list)
     links: List[KnowledgeGraphLinkSummary] = Field(default_factory=list)
-    communities: List[KnowledgeGraphCommunitySummary] = Field(default_factory=list)
     total_nodes: int = 0
     total_links: int = 0
     available_node_types: List[str] = Field(default_factory=list)
@@ -285,7 +257,6 @@ class KnowledgeGraphArticleContextResponse(BaseModel):
     article: Optional[KnowledgeGraphArticleReference] = None
     nodes: List[KnowledgeGraphNodeSummary] = Field(default_factory=list)
     edges: List[KnowledgeGraphEdgeSummary] = Field(default_factory=list)
-    communities: List[KnowledgeGraphCommunitySummary] = Field(default_factory=list)
     related_articles: List[KnowledgeGraphArticleReference] = Field(default_factory=list)
 
 
@@ -321,12 +292,52 @@ class KnowledgeGraphQueryResponse(BaseModel):
     question: str
     mode: KnowledgeGraphQueryMode
     resolved_mode: KnowledgeGraphQueryMode
+    query_strategy: KnowledgeGraphQueryStrategy = "generic_graph"
     answer: str
     matched_nodes: List[KnowledgeGraphNodeSummary] = Field(default_factory=list)
-    matched_communities: List[KnowledgeGraphCommunitySummary] = Field(default_factory=list)
     related_articles: List[KnowledgeGraphArticleReference] = Field(default_factory=list)
     context_node_count: int = 0
     context_edge_count: int = 0
+
+
+class KnowledgeGraphStructuredQueryRequest(BaseModel):
+    """Structured graph query request."""
+
+    question: str = Field(..., description="Natural language question")
+    top_k: int = Field(default=10, ge=1, le=20, description="Maximum number of results")
+
+
+class KnowledgeGraphStructuredCondition(BaseModel):
+    """Parsed structured condition."""
+
+    relation_type: str
+    target_type: str
+    target_terms: List[str] = Field(default_factory=list)
+
+
+class KnowledgeGraphStructuredParsedQuery(BaseModel):
+    """Parsed structured graph query."""
+
+    target_type: str
+    conditions: List[KnowledgeGraphStructuredCondition] = Field(default_factory=list)
+
+
+class KnowledgeGraphStructuredResult(BaseModel):
+    """Single structured query result."""
+
+    node: KnowledgeGraphNodeSummary
+    matched_edges: List[KnowledgeGraphEdgeSummary] = Field(default_factory=list)
+    related_articles: List[KnowledgeGraphArticleReference] = Field(default_factory=list)
+
+
+class KnowledgeGraphStructuredQueryResponse(BaseModel):
+    """Structured graph query response."""
+
+    question: str
+    parsed_query: KnowledgeGraphStructuredParsedQuery
+    results: List[KnowledgeGraphStructuredResult] = Field(default_factory=list)
+    related_articles: List[KnowledgeGraphArticleReference] = Field(default_factory=list)
+    answer: str = ""
 
 
 class KnowledgeGraphStatsResponse(BaseModel):
@@ -335,7 +346,6 @@ class KnowledgeGraphStatsResponse(BaseModel):
     enabled: bool = True
     total_nodes: int = 0
     total_edges: int = 0
-    total_article_nodes: int = 0
     total_articles: int = 0
     synced_articles: int = 0
     failed_articles: int = 0
@@ -344,10 +354,7 @@ class KnowledgeGraphStatsResponse(BaseModel):
     node_type_counts: Dict[str, int] = Field(default_factory=dict)
     relation_type_counts: Dict[str, int] = Field(default_factory=dict)
     top_nodes: List[KnowledgeGraphNodeSummary] = Field(default_factory=list)
-    top_communities: List[KnowledgeGraphCommunitySummary] = Field(default_factory=list)
     last_build: Optional[KnowledgeGraphBuildSummary] = None
 
 
 KnowledgeGraphSyncResponse.model_rebuild()
-KnowledgeGraphNodeDetail.model_rebuild()
-KnowledgeGraphArticleContextResponse.model_rebuild()

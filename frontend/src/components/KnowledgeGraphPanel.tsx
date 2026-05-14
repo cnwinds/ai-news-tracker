@@ -16,8 +16,10 @@ import {
   Typography,
 } from 'antd';
 import {
+  ArrowUpOutlined,
   BranchesOutlined,
   CommentOutlined,
+  FilterOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   NodeIndexOutlined,
@@ -25,7 +27,6 @@ import {
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-import KnowledgeGraphCommunityDrawer from '@/components/KnowledgeGraphCommunityDrawer';
 import KnowledgeGraphExplorer from '@/components/KnowledgeGraphExplorer';
 import KnowledgeGraphMaintenanceDrawer from '@/components/KnowledgeGraphMaintenanceDrawer';
 import { useAuth } from '@/contexts/AuthContext';
@@ -35,10 +36,10 @@ import { useErrorHandler } from '@/hooks/useErrorHandler';
 import { apiService } from '@/services/api';
 import type {
   AIQueryEngine,
-  KnowledgeGraphCommunitySummary,
   KnowledgeGraphPathResponse,
   KnowledgeGraphQueryResponse,
   KnowledgeGraphSnapshotResponse,
+  KnowledgeGraphStructuredQueryResponse,
 } from '@/types';
 import {
   createMarkdownComponents,
@@ -50,7 +51,7 @@ import { getThemeColor } from '@/utils/theme';
 const { Paragraph, Text } = Typography;
 const { TextArea, Search } = Input;
 
-type WorkbenchTabKey = 'qa' | 'path' | 'navigate';
+type WorkbenchTabKey = 'qa' | 'structured' | 'path' | 'navigate';
 
 // ─── Sidebar tab button ───────────────────────────────────────────────────────
 
@@ -110,7 +111,6 @@ function QATabContent({
   isPending,
   onAsk,
   onFocusNode,
-  onOpenCommunity,
   onFocusArticle,
   enabled,
 }: {
@@ -123,56 +123,103 @@ function QATabContent({
   isPending: boolean;
   onAsk: () => void;
   onFocusNode: (nodeKey: string) => void;
-  onOpenCommunity: (community: KnowledgeGraphCommunitySummary) => void;
   onFocusArticle: (articleId: number) => void;
   enabled: boolean;
 }) {
   const markdownComponents = useMemo(() => createMarkdownComponents(theme), [theme]);
   const normalizedAnswer = normalizeMarkdownImageContent(queryResult?.answer || '');
+  const borderColor = getThemeColor(theme, 'border');
+  const textColor = getThemeColor(theme, 'text');
+  const canAsk = enabled || queryMode === 'rag';
   const surfaceStyle = {
-    borderRadius: 10,
-    border: `1px solid ${getThemeColor(theme, 'border')}`,
-    background: theme === 'dark' ? 'rgba(2, 6, 23, 0.44)' : 'rgba(255, 255, 255, 0.84)',
-    padding: 14,
+    borderRadius: 14,
+    border: `1px solid ${borderColor}`,
+    background: theme === 'dark' ? 'rgba(2, 6, 23, 0.56)' : 'rgba(255, 255, 255, 0.94)',
+    padding: 12,
+    boxShadow: theme === 'dark' ? '0 8px 20px rgba(0, 0, 0, 0.20)' : '0 8px 20px rgba(15, 23, 42, 0.05)',
+  };
+  const composerStyle = {
+    borderRadius: 18,
+    border: `1px solid ${borderColor}`,
+    background: theme === 'dark' ? 'rgba(15, 23, 42, 0.88)' : '#ffffff',
+    padding: '10px 12px',
+    boxShadow: theme === 'dark' ? '0 8px 20px rgba(0, 0, 0, 0.24)' : '0 8px 20px rgba(15, 23, 42, 0.06)',
   };
 
   return (
-    <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-      <Space wrap size={[8, 8]}>
-        <Select<AIQueryEngine>
-          value={queryMode}
-          onChange={setQueryMode}
-          style={{ minWidth: 140 }}
-          options={[
-            { label: '自动', value: 'auto' },
-            { label: 'RAG', value: 'rag' },
-            { label: 'Graph', value: 'graph' },
-            { label: 'Hybrid', value: 'hybrid' },
-          ]}
+    <Space direction="vertical" size={12} style={{ width: '100%' }}>
+      <div style={composerStyle}>
+        <TextArea
+          value={question}
+          onChange={(e) => setQuestion(e.target.value)}
+          autoSize={{ minRows: 2, maxRows: 5 }}
+          placeholder="请输入问题..."
+          onPressEnter={(e) => {
+            if (e.shiftKey) {
+              return;
+            }
+            e.preventDefault();
+            if (!isPending && canAsk) {
+              onAsk();
+            }
+          }}
+          style={{
+            padding: 0,
+            marginBottom: 8,
+            border: 'none',
+            background: 'transparent',
+            boxShadow: 'none',
+            color: textColor,
+            fontSize: 14,
+            lineHeight: 1.6,
+            resize: 'none',
+          }}
         />
-        <Button
-          type="primary"
-          onClick={onAsk}
-          loading={isPending}
-          disabled={!enabled && queryMode !== 'rag'}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+          }}
         >
-          开始问答
-        </Button>
-      </Space>
-      <TextArea
-        value={question}
-        onChange={(e) => setQuestion(e.target.value)}
-        autoSize={{ minRows: 3, maxRows: 6 }}
-        placeholder="请输入你的问题，例如：推理模型相关实体最近有哪些重要关系变化？"
-        onPressEnter={(e) => {
-          if (e.ctrlKey || e.metaKey) onAsk();
-        }}
-      />
+          <Select<AIQueryEngine>
+            value={queryMode}
+            onChange={setQueryMode}
+            size="small"
+            style={{ width: 118, flexShrink: 0 }}
+            options={[
+              { label: 'Hybrid', value: 'hybrid', disabled: !enabled },
+              { label: 'Graph', value: 'graph', disabled: !enabled },
+              { label: 'RAG', value: 'rag' },
+              { label: 'Auto', value: 'auto', disabled: !enabled },
+            ]}
+          />
+          <div style={{ flex: 1 }} />
+          <Button
+            type="primary"
+            shape="circle"
+            aria-label="开始问答"
+            icon={<ArrowUpOutlined />}
+            onClick={onAsk}
+            loading={isPending}
+            disabled={!canAsk}
+            style={{
+              flexShrink: 0,
+              boxShadow: isPending || !canAsk
+                ? 'none'
+                : theme === 'dark'
+                  ? '0 8px 18px rgba(64, 150, 255, 0.28)'
+                  : '0 8px 18px rgba(24, 144, 255, 0.22)',
+            }}
+          />
+        </div>
+      </div>
+
       {queryResult ? (
         <div style={surfaceStyle}>
           <Space direction="vertical" size="middle" style={{ width: '100%' }}>
             <Text type="secondary" style={{ fontSize: 11 }}>
-              模式：{queryResult.resolved_mode} · 节点 {queryResult.context_node_count} · 边 {queryResult.context_edge_count}
+              模式：{queryResult.resolved_mode} · 检索：{queryResult.query_strategy === 'structured' ? '结构化检索' : '通用图检索'} · 节点 {queryResult.context_node_count} · 边 {queryResult.context_edge_count}
             </Text>
             <ReactMarkdown components={markdownComponents} remarkPlugins={[remarkGfm]}>
               {normalizedAnswer}
@@ -190,24 +237,6 @@ function QATabContent({
                       onClick={() => onFocusNode(node.node_key)}
                     >
                       {node.label} / {node.node_type}
-                    </Tag>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {queryResult.matched_communities.length > 0 && (
-              <div>
-                <Text strong style={{ fontSize: 12 }}>命中社区</Text>
-                <div style={{ marginTop: 6 }}>
-                  {queryResult.matched_communities.map((community) => (
-                    <Tag
-                      key={community.community_id}
-                      color="blue"
-                      style={{ cursor: 'pointer', marginBottom: 4 }}
-                      onClick={() => onOpenCommunity(community)}
-                    >
-                      {community.label}
                     </Tag>
                   ))}
                 </div>
@@ -258,6 +287,171 @@ function QATabContent({
           description={
             <Text type="secondary" style={{ fontSize: 12 }}>
               输入问题后，回答结果和命中节点会出现在这里，点击节点标签可直接在图谱中聚焦
+            </Text>
+          }
+        />
+      )}
+    </Space>
+  );
+}
+
+function StructuredQueryTabContent({
+  theme,
+  question,
+  setQuestion,
+  result,
+  isPending,
+  onQuery,
+  onFocusNode,
+  onFocusArticle,
+  enabled,
+}: {
+  theme: 'light' | 'dark';
+  question: string;
+  setQuestion: (v: string) => void;
+  result: KnowledgeGraphStructuredQueryResponse | null;
+  isPending: boolean;
+  onQuery: () => void;
+  onFocusNode: (nodeKey: string) => void;
+  onFocusArticle: (articleId: number) => void;
+  enabled: boolean;
+}) {
+  const markdownComponents = useMemo(() => createMarkdownComponents(theme), [theme]);
+  const surfaceStyle = {
+    borderRadius: 10,
+    border: `1px solid ${getThemeColor(theme, 'border')}`,
+    background: theme === 'dark' ? 'rgba(2, 6, 23, 0.44)' : 'rgba(255, 255, 255, 0.84)',
+    padding: 14,
+  };
+
+  return (
+    <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+      <Paragraph type="secondary" style={{ marginBottom: 0, fontSize: 12 }}>
+        适合查“满足哪些关系条件的产品/组织/技术”。例如：帮我找基于 Agent-to-UI，并解决跨平台的应用。
+      </Paragraph>
+      <Space wrap size={[8, 8]}>
+        <Button type="primary" onClick={onQuery} loading={isPending} disabled={!enabled}>
+          执行结构化查询
+        </Button>
+      </Space>
+      <TextArea
+        value={question}
+        onChange={(e) => setQuestion(e.target.value)}
+        autoSize={{ minRows: 3, maxRows: 6 }}
+        placeholder="请输入更明确的条件型问题，例如：帮我找基于 Agent-to-UI，并解决跨平台的应用"
+        onPressEnter={(e) => {
+          if (e.ctrlKey || e.metaKey) onQuery();
+        }}
+      />
+      {result ? (
+        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+          <div style={surfaceStyle}>
+            <Space direction="vertical" size="small" style={{ width: '100%' }}>
+              <Text type="secondary" style={{ fontSize: 11 }}>
+                目标类型：{result.parsed_query.target_type} · 条件 {result.parsed_query.conditions.length} · 命中 {result.results.length}
+              </Text>
+              {result.answer ? (
+                <ReactMarkdown components={markdownComponents} remarkPlugins={[remarkGfm]}>
+                  {normalizeMarkdownImageContent(result.answer)}
+                </ReactMarkdown>
+              ) : (
+                <Text type="secondary">当前问题还没有解析出可执行的结构化条件。</Text>
+              )}
+            </Space>
+          </div>
+
+          <div style={surfaceStyle}>
+            <Space direction="vertical" size="small" style={{ width: '100%' }}>
+              <Text strong style={{ fontSize: 12 }}>解析条件</Text>
+              {result.parsed_query.conditions.length > 0 ? (
+                result.parsed_query.conditions.map((condition, index) => (
+                  <Text key={`${condition.relation_type}-${condition.target_type}-${index}`} style={{ fontSize: 12 }}>
+                    条件 {index + 1}：{condition.relation_type} → {condition.target_type} / {condition.target_terms.join('、')}
+                  </Text>
+                ))
+              ) : (
+                <Alert
+                  type="info"
+                  showIcon
+                  message="未解析出结构化条件"
+                  description="请把问题写得更明确一些，最好包含目标对象和关系条件。"
+                />
+              )}
+            </Space>
+          </div>
+
+          {result.results.length > 0 ? (
+            result.results.map((item) => (
+              <div key={item.node.node_key} style={surfaceStyle}>
+                <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                  <Space wrap>
+                    <Tag color="geekblue" style={{ cursor: 'pointer' }} onClick={() => onFocusNode(item.node.node_key)}>
+                      {item.node.label}
+                    </Tag>
+                    <Tag>{item.node.node_type}</Tag>
+                    <Text type="secondary" style={{ fontSize: 11 }}>
+                      命中关系 {item.matched_edges.length} · 相关文章 {item.related_articles.length}
+                    </Text>
+                  </Space>
+                  {item.matched_edges.map((edge, index) => (
+                    <div key={`${item.node.node_key}-${edge.relation_type}-${edge.target_node_key}-${index}`}>
+                      <Text style={{ fontSize: 12 }}>
+                        {(edge.source_label || item.node.label)} -[{edge.relation_type}]-&gt; {(edge.target_label || edge.target_node_key)}
+                      </Text>
+                      {edge.evidence_snippet ? (
+                        <Paragraph type="secondary" style={{ margin: '4px 0 0', fontSize: 12 }}>
+                          证据：{edge.evidence_snippet}
+                        </Paragraph>
+                      ) : null}
+                    </div>
+                  ))}
+                  {item.related_articles.length > 0 ? (
+                    <List
+                      size="small"
+                      dataSource={item.related_articles.slice(0, 3)}
+                      renderItem={(article) => (
+                        <List.Item
+                          style={{ padding: '4px 0' }}
+                          actions={[
+                            <Button
+                              key="focus"
+                              type="link"
+                              size="small"
+                              style={{ padding: 0 }}
+                              onClick={() => onFocusArticle(article.id)}
+                            >
+                              定位
+                            </Button>,
+                          ]}
+                        >
+                          <Space direction="vertical" size={0} style={{ width: '100%' }}>
+                            <a href={article.url} target="_blank" rel="noreferrer" style={{ fontSize: 12 }}>
+                              {article.title_zh || article.title}
+                            </a>
+                            <Text type="secondary" style={{ fontSize: 11 }}>
+                              {article.source} · 关系 {article.relation_count}
+                            </Text>
+                          </Space>
+                        </List.Item>
+                      )}
+                    />
+                  ) : null}
+                </Space>
+              </div>
+            ))
+          ) : result.parsed_query.conditions.length > 0 ? (
+            <Empty
+              image={Empty.PRESENTED_IMAGE_SIMPLE}
+              description={<Text type="secondary" style={{ fontSize: 12 }}>没有找到同时满足全部条件的结果</Text>}
+            />
+          ) : null}
+        </Space>
+      ) : (
+        <Empty
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+          description={
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              这里会展示结构化条件、命中实体、关系证据和相关文章
             </Text>
           }
         />
@@ -403,25 +597,17 @@ function NavigateTabContent({
   navigationSearch,
   setNavigationSearch,
   navigationNodes,
-  communityItems,
   navigationNodesLoading,
-  communitiesLoading,
   onFocusNode,
-  onOpenCommunity,
 }: {
   theme: 'light' | 'dark';
   navigationSearch: string;
   setNavigationSearch: (v: string) => void;
-  navigationNodes: KnowledgeGraphCommunitySummary['top_nodes'];
-  communityItems: KnowledgeGraphCommunitySummary[];
+  navigationNodes: KnowledgeGraphSnapshotResponse['nodes'];
   navigationNodesLoading: boolean;
-  communitiesLoading: boolean;
   onFocusNode: (nodeKey: string) => void;
-  onOpenCommunity: (community: KnowledgeGraphCommunitySummary) => void;
 }) {
-  const [subTab, setSubTab] = useState<'nodes' | 'communities'>('nodes');
   const textColor = getThemeColor(theme, 'text');
-  const borderColor = getThemeColor(theme, 'border');
 
   return (
     <Space direction="vertical" size="middle" style={{ width: '100%' }}>
@@ -432,122 +618,36 @@ function NavigateTabContent({
         onChange={(e) => setNavigationSearch(e.target.value)}
       />
 
-      <div style={{ display: 'flex', borderBottom: `1px solid ${borderColor}`, marginBottom: 4 }}>
-        <button
-          type="button"
-          onClick={() => setSubTab('nodes')}
-          style={{
-            flex: 1,
-            height: 32,
-            border: 'none',
-            borderBottom: `2px solid ${subTab === 'nodes' ? '#1677ff' : 'transparent'}`,
-            background: 'transparent',
-            cursor: 'pointer',
-            color: subTab === 'nodes' ? '#1677ff' : getThemeColor(theme, 'textSecondary'),
-            fontSize: 12,
-            fontWeight: subTab === 'nodes' ? 600 : 400,
-          }}
-        >
-          实体入口
-        </button>
-        <button
-          type="button"
-          onClick={() => setSubTab('communities')}
-          style={{
-            flex: 1,
-            height: 32,
-            border: 'none',
-            borderBottom: `2px solid ${subTab === 'communities' ? '#1677ff' : 'transparent'}`,
-            background: 'transparent',
-            cursor: 'pointer',
-            color: subTab === 'communities' ? '#1677ff' : getThemeColor(theme, 'textSecondary'),
-            fontSize: 12,
-            fontWeight: subTab === 'communities' ? 600 : 400,
-          }}
-        >
-          社区入口
-        </button>
-      </div>
-
-      {subTab === 'nodes' && (
-        <List
-          size="small"
-          loading={navigationNodesLoading}
-          dataSource={navigationNodes}
-          locale={{ emptyText: '暂无节点' }}
-          renderItem={(node) => (
-            <List.Item
-              style={{ padding: '6px 0', cursor: 'pointer' }}
-              onClick={() => onFocusNode(node.node_key)}
-              actions={[
-                <Button
-                  key="focus"
-                  type="link"
-                  size="small"
-                  style={{ padding: 0 }}
-                  onClick={(e) => { e.stopPropagation(); onFocusNode(node.node_key); }}
-                >
-                  定位
-                </Button>,
-              ]}
-            >
-              <Space direction="vertical" size={0} style={{ width: '100%' }}>
-                <Text strong style={{ fontSize: 12, color: textColor }}>{node.label}</Text>
-                <Text type="secondary" style={{ fontSize: 11 }}>
-                  {node.node_type} · 度数 {node.degree}
-                </Text>
-              </Space>
-            </List.Item>
-          )}
-        />
-      )}
-
-      {subTab === 'communities' && (
-        <List
-          size="small"
-          loading={communitiesLoading}
-          dataSource={communityItems}
-          locale={{ emptyText: '暂无社区数据' }}
-          renderItem={(community) => (
-            <List.Item
-              style={{ padding: '8px 0', cursor: 'pointer' }}
-              onClick={() => onOpenCommunity(community)}
-              actions={[
-                <Button
-                  key="open"
-                  type="link"
-                  size="small"
-                  style={{ padding: 0 }}
-                  onClick={(e) => { e.stopPropagation(); onOpenCommunity(community); }}
-                >
-                  打开
-                </Button>,
-              ]}
-            >
-              <Space direction="vertical" size={4} style={{ width: '100%' }}>
-                <Text strong style={{ fontSize: 12, color: textColor }}>{community.label}</Text>
-                <Text type="secondary" style={{ fontSize: 11 }}>
-                  节点 {community.node_count} · 边 {community.edge_count} · 文章 {community.article_count}
-                </Text>
-                {community.top_nodes.length > 0 && (
-                  <Space wrap size={[4, 4]}>
-                    {community.top_nodes.slice(0, 3).map((node) => (
-                      <Tag
-                        key={node.node_key}
-                        color="purple"
-                        style={{ cursor: 'pointer', fontSize: 11, padding: '0 6px' }}
-                        onClick={(e) => { e.stopPropagation(); onFocusNode(node.node_key); }}
-                      >
-                        {node.label}
-                      </Tag>
-                    ))}
-                  </Space>
-                )}
-              </Space>
-            </List.Item>
-          )}
-        />
-      )}
+      <List
+        size="small"
+        loading={navigationNodesLoading}
+        dataSource={navigationNodes}
+        locale={{ emptyText: '暂无节点' }}
+        renderItem={(node) => (
+          <List.Item
+            style={{ padding: '6px 0', cursor: 'pointer' }}
+            onClick={() => onFocusNode(node.node_key)}
+            actions={[
+              <Button
+                key="focus"
+                type="link"
+                size="small"
+                style={{ padding: 0 }}
+                onClick={(e) => { e.stopPropagation(); onFocusNode(node.node_key); }}
+              >
+                定位
+              </Button>,
+            ]}
+          >
+            <Space direction="vertical" size={0} style={{ width: '100%' }}>
+              <Text strong style={{ fontSize: 12, color: textColor }}>{node.label}</Text>
+              <Text type="secondary" style={{ fontSize: 11 }}>
+                {node.node_type} · 度数 {node.degree}
+              </Text>
+            </Space>
+          </List.Item>
+        )}
+      />
     </Space>
   );
 }
@@ -559,7 +659,7 @@ export default function KnowledgeGraphPanel() {
   const { theme } = useTheme();
   const { isAuthenticated } = useAuth();
   const { createErrorHandler, showWarning } = useErrorHandler();
-  const { graphCommand, focusArticle, focusCommunity, focusNode, focusPath } = useKnowledgeGraphView();
+  const { graphCommand, focusArticle, focusNode, focusPath } = useKnowledgeGraphView();
 
   // Layout state
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -569,17 +669,17 @@ export default function KnowledgeGraphPanel() {
   // Filter state (used by Explorer + top bar)
   const [searchTerm, setSearchTerm] = useState('');
   const [nodeTypeFilter, setNodeTypeFilter] = useState<string>();
-  const [communityFilter, setCommunityFilter] = useState<number>();
   const [limitNodes, setLimitNodes] = useState(160);
 
   // Available options from snapshot (passed up from Explorer)
   const [availableNodeTypes, setAvailableNodeTypes] = useState<string[]>([]);
-  const [snapshotCommunities, setSnapshotCommunities] = useState<KnowledgeGraphCommunitySummary[]>([]);
 
   // Q&A state
   const [question, setQuestion] = useState('');
+  const [structuredQuestion, setStructuredQuestion] = useState('');
   const [queryMode, setQueryMode] = useState<AIQueryEngine>('hybrid');
   const [queryResult, setQueryResult] = useState<KnowledgeGraphQueryResponse | null>(null);
+  const [structuredQueryResult, setStructuredQueryResult] = useState<KnowledgeGraphStructuredQueryResponse | null>(null);
 
   // Path state
   const [pathSource, setPathSource] = useState<string>();
@@ -590,10 +690,6 @@ export default function KnowledgeGraphPanel() {
   // Navigation state
   const [navigationSearch, setNavigationSearch] = useState('');
 
-  // Community drawer state
-  const [communityDrawerOpen, setCommunityDrawerOpen] = useState(false);
-  const [activeCommunityId, setActiveCommunityId] = useState<number>();
-
   const { data: stats, isLoading: statsLoading } = useQuery({
     queryKey: ['knowledge-graph-stats'],
     queryFn: () => apiService.getKnowledgeGraphStats(),
@@ -603,11 +699,6 @@ export default function KnowledgeGraphPanel() {
   const { data: settings } = useQuery({
     queryKey: ['knowledge-graph-settings'],
     queryFn: () => apiService.getKnowledgeGraphSettings(),
-  });
-
-  const { data: communities, isLoading: communitiesLoading } = useQuery({
-    queryKey: ['knowledge-graph-communities'],
-    queryFn: () => apiService.getKnowledgeGraphCommunities(20),
   });
 
   const { data: pathNodeResults, isLoading: pathNodesLoading } = useQuery({
@@ -628,44 +719,23 @@ export default function KnowledgeGraphPanel() {
     // Update filter state from command
     if (graphCommand.searchTerm !== undefined) setSearchTerm(graphCommand.searchTerm);
     if (graphCommand.nodeType !== undefined) setNodeTypeFilter(graphCommand.nodeType);
-    if (graphCommand.communityId !== undefined) setCommunityFilter(graphCommand.communityId);
     // Switch sidebar tab based on reason
     if (graphCommand.reason === 'path') setActiveTab('path');
     else if (graphCommand.reason === 'node' || graphCommand.reason === 'article') setActiveTab('navigate');
   }, [graphCommand?.id]);
 
-  // Open community drawer when commanded
-  useEffect(() => {
-    if (!graphCommand?.openCommunityId) return;
-    setActiveCommunityId(graphCommand.openCommunityId);
-    setCommunityDrawerOpen(true);
-  }, [graphCommand?.id, graphCommand?.openCommunityId]);
-
   const handleSnapshotChange = useCallback((snapshot: KnowledgeGraphSnapshotResponse | undefined) => {
     if (!snapshot) return;
     setAvailableNodeTypes(snapshot.available_node_types || []);
-    setSnapshotCommunities(snapshot.communities || []);
   }, []);
 
   const refreshGraphQueries = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ['knowledge-graph-settings'] });
     queryClient.invalidateQueries({ queryKey: ['knowledge-graph-stats'] });
     queryClient.invalidateQueries({ queryKey: ['knowledge-graph-builds'] });
-    queryClient.invalidateQueries({ queryKey: ['knowledge-graph-communities'] });
     queryClient.invalidateQueries({ queryKey: ['knowledge-graph-nodes'] });
     queryClient.invalidateQueries({ queryKey: ['knowledge-graph-snapshot'] });
   }, [queryClient]);
-
-  const openCommunityDrawer = useCallback(
-    (community: KnowledgeGraphCommunitySummary) => {
-      setActiveCommunityId(community.community_id);
-      setCommunityDrawerOpen(true);
-      focusCommunity(community.community_id, {
-        selectedNodeKey: community.top_nodes[0]?.node_key,
-      });
-    },
-    [focusCommunity]
-  );
 
   // Q&A mutation
   const queryMutation = useMutation({
@@ -677,9 +747,9 @@ export default function KnowledgeGraphPanel() {
         question: currentQuestion,
         mode: queryMode,
         resolved_mode: queryMode,
+        query_strategy: 'generic_graph',
         answer: '',
         matched_nodes: [],
-        matched_communities: [],
         related_articles: [],
         context_node_count: 0,
         context_edge_count: 0,
@@ -695,8 +765,8 @@ export default function KnowledgeGraphPanel() {
               ...latestResult,
               mode: chunk.data.mode || queryMode,
               resolved_mode: chunk.data.resolved_mode || queryMode,
+              query_strategy: chunk.data.query_strategy || latestResult.query_strategy,
               matched_nodes: chunk.data.matched_nodes || [],
-              matched_communities: chunk.data.matched_communities || [],
               related_articles: chunk.data.related_articles || [],
               context_node_count: chunk.data.context_node_count || 0,
               context_edge_count: chunk.data.context_edge_count || 0,
@@ -725,6 +795,18 @@ export default function KnowledgeGraphPanel() {
     onError: createErrorHandler({ operationName: '执行图谱问答' }),
   });
 
+  const structuredQueryMutation = useMutation({
+    mutationFn: () =>
+      apiService.structuredQueryKnowledgeGraph({
+        question: structuredQuestion.trim(),
+        top_k: 6,
+      }),
+    onSuccess: (response) => {
+      setStructuredQueryResult(response);
+    },
+    onError: createErrorHandler({ operationName: '执行结构化图谱查询' }),
+  });
+
   // Path mutation
   const pathMutation = useMutation({
     mutationFn: () =>
@@ -750,6 +832,11 @@ export default function KnowledgeGraphPanel() {
     queryMutation.mutate();
   };
 
+  const handleStructuredQuery = () => {
+    if (!structuredQuestion.trim()) { showWarning('请输入结构化查询问题'); return; }
+    structuredQueryMutation.mutate();
+  };
+
   const handlePathQuery = () => {
     if (!pathSource || !pathTarget) { showWarning('请选择起点和终点节点'); return; }
     pathMutation.mutate();
@@ -771,11 +858,6 @@ export default function KnowledgeGraphPanel() {
   const navigationNodes = useMemo(
     () => (navigationSearch.trim() ? navigationNodeResults?.items || [] : stats?.top_nodes || []),
     [navigationNodeResults?.items, navigationSearch, stats?.top_nodes]
-  );
-
-  const communityItems = useMemo(
-    () => communities?.items || stats?.top_communities || [],
-    [communities?.items, stats?.top_communities]
   );
 
   const coveragePercent = Number(((stats?.coverage ?? 0) * 100).toFixed(1));
@@ -857,20 +939,6 @@ export default function KnowledgeGraphPanel() {
         options={availableNodeTypes.map((t) => ({ label: t, value: t }))}
       />
 
-      {/* Community filter */}
-      <Select
-        allowClear
-        placeholder="筛选社区"
-        value={communityFilter}
-        onChange={setCommunityFilter}
-        style={{ width: 140, flexShrink: 0 }}
-        size="small"
-        options={snapshotCommunities.map((c) => ({
-          label: `${c.label} (${c.node_count})`,
-          value: c.community_id,
-        }))}
-      />
-
       {/* Node limit */}
       <Select<number>
         value={limitNodes}
@@ -884,6 +952,7 @@ export default function KnowledgeGraphPanel() {
       {isAuthenticated && (
         <Tooltip title="运维管理">
           <Button
+            aria-label="打开运维管理"
             type="text"
             size="small"
             icon={<SettingOutlined />}
@@ -927,6 +996,15 @@ export default function KnowledgeGraphPanel() {
           icon={<CommentOutlined />}
           onClick={() => { setSidebarCollapsed(false); setActiveTab('qa'); }}
           style={{ color: activeTab === 'qa' ? '#1677ff' : textSecondary }}
+        />
+      </Tooltip>
+      <Tooltip title="结构化查询" placement="right">
+        <Button
+          type="text"
+          size="small"
+          icon={<FilterOutlined />}
+          onClick={() => { setSidebarCollapsed(false); setActiveTab('structured'); }}
+          style={{ color: activeTab === 'structured' ? '#1677ff' : textSecondary }}
         />
       </Tooltip>
       <Tooltip title="关系路径" placement="right">
@@ -977,6 +1055,10 @@ export default function KnowledgeGraphPanel() {
           <CommentOutlined />
           <span>问答</span>
         </SidebarTab>
+        <SidebarTab active={activeTab === 'structured'} onClick={() => setActiveTab('structured')} theme={theme}>
+          <FilterOutlined />
+          <span>结构化</span>
+        </SidebarTab>
         <SidebarTab active={activeTab === 'path'} onClick={() => setActiveTab('path')} theme={theme}>
           <BranchesOutlined />
           <span>路径</span>
@@ -1011,7 +1093,19 @@ export default function KnowledgeGraphPanel() {
             isPending={queryMutation.isPending}
             onAsk={handleAsk}
             onFocusNode={(nodeKey) => focusNode(nodeKey)}
-            onOpenCommunity={openCommunityDrawer}
+            onFocusArticle={(id) => focusArticle(id)}
+            enabled={stats?.enabled ?? false}
+          />
+        )}
+        {activeTab === 'structured' && (
+          <StructuredQueryTabContent
+            theme={theme}
+            question={structuredQuestion}
+            setQuestion={setStructuredQuestion}
+            result={structuredQueryResult}
+            isPending={structuredQueryMutation.isPending}
+            onQuery={handleStructuredQuery}
+            onFocusNode={(nodeKey) => focusNode(nodeKey)}
             onFocusArticle={(id) => focusArticle(id)}
             enabled={stats?.enabled ?? false}
           />
@@ -1040,11 +1134,8 @@ export default function KnowledgeGraphPanel() {
             navigationSearch={navigationSearch}
             setNavigationSearch={setNavigationSearch}
             navigationNodes={navigationNodes}
-            communityItems={communityItems}
             navigationNodesLoading={navigationNodesLoading}
-            communitiesLoading={communitiesLoading}
             onFocusNode={(nodeKey) => focusNode(nodeKey)}
-            onOpenCommunity={openCommunityDrawer}
           />
         )}
       </div>
@@ -1105,20 +1196,12 @@ export default function KnowledgeGraphPanel() {
             <KnowledgeGraphExplorer
               searchTerm={searchTerm}
               nodeTypeFilter={nodeTypeFilter}
-              communityFilter={communityFilter}
               limitNodes={limitNodes}
               onSnapshotChange={handleSnapshotChange}
             />
           )}
         </div>
       </div>
-
-      {/* Overlays */}
-      <KnowledgeGraphCommunityDrawer
-        open={communityDrawerOpen}
-        communityId={activeCommunityId}
-        onClose={() => setCommunityDrawerOpen(false)}
-      />
 
       <KnowledgeGraphMaintenanceDrawer
         open={maintenanceOpen}

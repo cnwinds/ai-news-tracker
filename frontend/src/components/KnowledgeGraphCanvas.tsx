@@ -26,7 +26,6 @@ import {
 } from '@/utils/knowledgeGraph';
 import { getThemeColor } from '@/utils/theme';
 import type {
-  KnowledgeGraphCommunitySummary,
   KnowledgeGraphLinkSummary,
   KnowledgeGraphNodeSummary,
 } from '@/types';
@@ -95,7 +94,7 @@ const DEFAULT_CANVAS_HEIGHT = 680;
 const MIN_SCALE = 0.45;
 const MAX_SCALE = 3.2;
 const HOVER_CARD_WIDTH = 300;
-export const COMMUNITY_PALETTE = [
+export const NODE_TYPE_PALETTE = [
   '#2dd4bf',
   '#60a5fa',
   '#f59e0b',
@@ -110,14 +109,11 @@ export const COMMUNITY_PALETTE = [
   '#38bdf8',
 ];
 
-export function getCommunityColorByIndex(communityId: number | null | undefined, nodeType?: string): string {
-  if (communityId !== null && communityId !== undefined) {
-    return COMMUNITY_PALETTE[Math.abs(communityId) % COMMUNITY_PALETTE.length];
-  }
+export function getNodeTypeColor(nodeType?: string): string {
   if (nodeType) {
-    return COMMUNITY_PALETTE[hashString(nodeType) % COMMUNITY_PALETTE.length];
+    return NODE_TYPE_PALETTE[hashString(nodeType) % NODE_TYPE_PALETTE.length];
   }
-  return COMMUNITY_PALETTE[0];
+  return NODE_TYPE_PALETTE[0];
 }
 
 const graphCanvasMarkerLayerStyle: CSSProperties = {
@@ -154,11 +150,8 @@ function getNodeRadius(node: KnowledgeGraphNodeSummary) {
   return 3.2 + Math.min(Math.log2(signal) * 1.9, 8.6);
 }
 
-function getCommunityColor(node: KnowledgeGraphNodeSummary) {
-  if (node.community_id !== null && node.community_id !== undefined) {
-    return COMMUNITY_PALETTE[Math.abs(node.community_id) % COMMUNITY_PALETTE.length];
-  }
-  return COMMUNITY_PALETTE[hashString(node.node_type || node.node_key) % COMMUNITY_PALETTE.length];
+function getNodeColor(node: KnowledgeGraphNodeSummary) {
+  return NODE_TYPE_PALETTE[hashString(node.node_type || node.node_key) % NODE_TYPE_PALETTE.length];
 }
 
 function hasLayoutCoordinates(node: KnowledgeGraphNodeSummary) {
@@ -186,7 +179,7 @@ function createInitialNode(
 
   return {
     ...node,
-    color: getCommunityColor(node),
+    color: getNodeColor(node),
     radius: getNodeRadius(node),
     x: initialX,
     y: initialY,
@@ -254,7 +247,6 @@ interface KnowledgeGraphCanvasProps {
   links: KnowledgeGraphLinkSummary[];
   theme: 'light' | 'dark';
   selectedNodeKey?: string;
-  selectedCommunity?: KnowledgeGraphCommunitySummary;
   focusNodeKeys: string[];
   highlightedNodeKeys: string[];
   highlightedEdgeKeys: Set<string>;
@@ -271,7 +263,6 @@ export default function KnowledgeGraphCanvas({
   links,
   theme,
   selectedNodeKey,
-  selectedCommunity,
   focusNodeKeys,
   highlightedNodeKeys,
   highlightedEdgeKeys,
@@ -909,7 +900,6 @@ export default function KnowledgeGraphCanvas({
           <Tag color="cyan">力导图</Tag>
           <Tag>节点 {nodes.length}</Tag>
           <Tag>边 {links.length}</Tag>
-          {selectedCommunity && <Tag color="purple">社区 {selectedCommunity.community_id}</Tag>}
         </Space>
       </div>
 
@@ -945,9 +935,6 @@ export default function KnowledgeGraphCanvas({
               <Tag color="blue">{hoverPreview.node.node_type}</Tag>
               <Tag>度数 {hoverPreview.node.degree}</Tag>
               <Tag>文章 {hoverPreview.node.article_count}</Tag>
-              {hoverPreview.node.community_id !== null && hoverPreview.node.community_id !== undefined && (
-                <Tag>社区 {hoverPreview.node.community_id}</Tag>
-              )}
             </Space>
 
             <Text type="secondary">{hoverPreview.node.node_key}</Text>

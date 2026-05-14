@@ -10,7 +10,6 @@ import math
 import re
 import time
 import unicodedata
-import threading
 import uuid
 from collections import Counter, defaultdict, deque
 from datetime import datetime
@@ -54,8 +53,74 @@ ALLOWED_SEMANTIC_NODE_TYPES = {
     "source",
     "author",
 }
+DOMAIN_NODE_TYPES = {
+    "product",
+    "organization",
+    "platform",
+    "technology",
+    "concept",
+    "feature",
+}
+DOMAIN_NODE_TYPE_ALIASES = {
+    "product": "product",
+    "model": "product",
+    "framework": "product",
+    "tool": "product",
+    "application": "product",
+    "app": "product",
+    "organization": "organization",
+    "org": "organization",
+    "company": "organization",
+    "person": "organization",
+    "author": "organization",
+    "source": "organization",
+    "platform": "platform",
+    "technology": "technology",
+    "tech": "technology",
+    "concept": "concept",
+    "paper": "concept",
+    "dataset": "concept",
+    "benchmark": "concept",
+    "topic": "concept",
+    "tag": "concept",
+    "feature": "feature",
+    "capability": "feature",
+    "scenario": "feature",
+}
+DOMAIN_RELATION_TYPES = {
+    "DEVELOPED",
+    "BASED_ON",
+    "USES",
+    "SUPPORTS",
+    "HAS_FEATURE",
+    "SOLVES",
+}
+STRONG_IDENTITY_FIELDS = (
+    "github_url",
+    "official_site",
+    "paper_url",
+    "model_url",
+    "arxiv_id",
+    "doi",
+    "url",
+)
+CANONICAL_NAME_ALIAS_MAP = {
+    "a2ui": "Agent-to-UI",
+    "agent-to-ui": "Agent-to-UI",
+    "agent to ui": "Agent-to-UI",
+    "google a2ui协议": "Agent-to-UI",
+    "google a2ui protocol": "Agent-to-UI",
+    "ios": "iOS",
+    "android": "Android",
+    "安卓": "Android",
+    "harmony os": "HarmonyOS",
+    "harmonyos": "HarmonyOS",
+    "鸿蒙": "HarmonyOS",
+    "鸿蒙系统": "HarmonyOS",
+}
 ALLOWED_QUERY_MODES = {"auto", "graph", "hybrid", "rag"}
-ALLOWED_RUN_MODES = {"auto", "agent", "deterministic"}
+ALLOWED_RUN_MODES = {"auto", "agent"}
+REMOVED_RUN_MODES = {"deterministic"}
 LAYOUT_COMPONENT_GAP = 2.8
 LAYOUT_MAX_NODES = 500  # 只对前 N 个高度数节点计算布局，避免大图 O(n³) 爆炸
 
@@ -117,7 +182,7 @@ class KnowledgeGraphService:
             if force_rebuild:
                 logger.info("[sync] force_rebuild=True — clearing graph tables")
                 t0 = time.perf_counter()
-                self._clear_graph_tables()
+                self._clear_graph_tables(keep_build_id=build.build_id, clear_build_history=True)
                 logger.info("[sync] graph tables cleared in %.2fs", time.perf_counter() - t0)
 
             t0 = time.perf_counter()
@@ -231,7 +296,6 @@ class KnowledgeGraphService:
             "enabled": bool(settings.KNOWLEDGE_GRAPH_ENABLED),
             "total_nodes": int(snapshot.get("stats", {}).get("total_nodes", 0)),
             "total_edges": int(snapshot.get("stats", {}).get("total_edges", 0)),
-            "total_article_nodes": int(snapshot.get("stats", {}).get("total_article_nodes", 0)),
             "total_articles": int(total_articles),
             "synced_articles": int(synced_articles),
             "failed_articles": int(failed_articles),
@@ -240,7 +304,6 @@ class KnowledgeGraphService:
             "node_type_counts": snapshot.get("stats", {}).get("node_type_counts", {}),
             "relation_type_counts": snapshot.get("stats", {}).get("relation_type_counts", {}),
             "top_nodes": snapshot.get("god_nodes", [])[:8],
-            "top_communities": snapshot.get("communities", [])[:6],
             "last_build": self._serialize_build(last_build) if last_build else None,
         }
 
@@ -348,12 +411,6 @@ class KnowledgeGraphService:
             .filter(KnowledgeGraphArticleState.status == "synced")
             .all()
         )
-        article_node_keys = {
-            row[0]
-            for row in self.db.query(KnowledgeGraphNode.node_key)
-            .filter(KnowledgeGraphNode.node_type == "article")
-            .all()
-        }
         edge_article_ids = {
             int(row[0])
             for row in self.db.query(KnowledgeGraphEdge.source_article_id)
@@ -362,12 +419,9 @@ class KnowledgeGraphService:
             .all()
         }
         hash_mismatch_ids: List[int] = []
-        missing_graph_article_ids: List[int] = []
         for article, state in synced_article_rows:
             if not state.last_synced_at or state.content_hash != self._compute_article_hash(article):
                 hash_mismatch_ids.append(int(article.id))
-            if f"article:{article.id}" not in article_node_keys or int(article.id) not in edge_article_ids:
-                missing_graph_article_ids.append(int(article.id))
 
         if hash_mismatch_ids:
             issues.append(
@@ -379,17 +433,6 @@ class KnowledgeGraphService:
                     "samples": hash_mismatch_ids[:safe_limit],
                 }
             )
-        if missing_graph_article_ids:
-            issues.append(
-                {
-                    "code": "synced_articles_missing_graph",
-                    "severity": "error",
-                    "message": "部分标记为已同步的文章缺少文章节点或关系边，需要精准重同步。",
-                    "count": len(missing_graph_article_ids),
-                    "samples": missing_graph_article_ids[:safe_limit],
-                }
-            )
-
         unsynced_rows = (
             self.db.query(KnowledgeGraphArticleState.article_id)
             .join(Article, KnowledgeGraphArticleState.article_id == Article.id)
@@ -423,7 +466,7 @@ class KnowledgeGraphService:
             missing_keyword_ids = [
                 article_id
                 for article_id in keyword_article_ids
-                if f"article:{article_id}" not in article_node_keys or article_id not in edge_article_ids
+                if article_id not in edge_article_ids
             ]
             if keyword_article_ids and missing_keyword_ids:
                 issues.append(
@@ -508,7 +551,6 @@ class KnowledgeGraphService:
         suspect_article_ids = list(
             dict.fromkeys(
                 [
-                    *missing_graph_article_ids,
                     *hash_mismatch_ids,
                     *unsynced_article_ids,
                     *keyword_article_ids,
@@ -649,8 +691,7 @@ class KnowledgeGraphService:
                 )
             elif rebuild_snapshot:
                 # Load snapshot from disk into memory cache so _generate_snapshot_payload
-                # can reuse previous community assignments and layout positions
-                # (incremental detection) instead of doing a full recompute.
+                # can reuse previous layout positions instead of recomputing from scratch.
                 if self._snapshot_cache is None and self.snapshot_path.exists():
                     try:
                         self._snapshot_cache = json.loads(
@@ -702,7 +743,6 @@ class KnowledgeGraphService:
     def get_snapshot_view(
         self,
         *,
-        community_id: Optional[int] = None,
         node_type: Optional[str] = None,
         query: Optional[str] = None,
         limit_nodes: int = 80,
@@ -727,8 +767,6 @@ class KnowledgeGraphService:
 
         filtered_nodes = []
         for item in all_nodes:
-            if community_id is not None and item.get("community_id") != community_id:
-                continue
             if node_type and item.get("node_type") != node_type:
                 continue
             if normalized_query and not self._snapshot_node_matches_query(item, normalized_query):
@@ -783,7 +821,7 @@ class KnowledgeGraphService:
 
         should_add_ranked_nodes = not requested_focus_keys or any(
             value is not None and value != ""
-            for value in (community_id, node_type, normalized_query)
+            for value in (node_type, normalized_query)
         )
 
         if should_add_ranked_nodes:
@@ -819,17 +857,6 @@ class KnowledgeGraphService:
             )
         )
 
-        community_ids = {
-            item.get("community_id")
-            for item in selected_nodes
-            if item.get("community_id") is not None
-        }
-        communities = [
-            item
-            for item in snapshot.get("communities", [])
-            if item.get("community_id") in community_ids
-        ]
-
         available_node_types = sorted(
             {
                 str(item.get("node_type"))
@@ -843,7 +870,6 @@ class KnowledgeGraphService:
             "build": snapshot.get("build"),
             "nodes": selected_nodes,
             "links": selected_links,
-            "communities": communities,
             "total_nodes": len(selected_nodes),
             "total_links": len(selected_links),
             "available_node_types": available_node_types,
@@ -959,6 +985,10 @@ class KnowledgeGraphService:
             db_node.id: db_node.node_key,
             **{node.id: node.node_key for node in neighbor_nodes},
         }
+        node_label_by_id = {
+            db_node.id: db_node.label,
+            **{node.id: node.label for node in neighbor_nodes},
+        }
 
         neighbor_keys = [node.node_key for node in neighbor_nodes]
         neighbors = [node_map[key] for key in neighbor_keys if key in node_map]
@@ -986,6 +1016,8 @@ class KnowledgeGraphService:
                     "confidence_score": float(edge.confidence_score or 0.0),
                     "weight": float(edge.weight or 1.0),
                     "source_article_id": edge.source_article_id,
+                    "source_label": node_label_by_id.get(edge.source_node_id),
+                    "target_label": node_label_by_id.get(edge.target_node_id),
                     "evidence_snippet": edge.evidence_snippet,
                     "metadata": edge.metadata_json or {},
                 }
@@ -1012,70 +1044,11 @@ class KnowledgeGraphService:
             if len(related_articles) >= 10:
                 break
 
-        community_ids = {
-            node_map[node_key].get("community_id"),
-            *[item.get("community_id") for item in neighbors],
-        }
-        communities = [
-            community
-            for community in snapshot.get("communities", [])
-            if community.get("community_id") in community_ids and community.get("community_id") is not None
-        ]
         return {
             "node": node_map[node_key],
             "neighbors": neighbors[:20],
             "edges": edges[:50],
             "related_articles": related_articles,
-            "matched_communities": communities,
-        }
-
-    def get_communities(self, limit: int = 20) -> List[Dict[str, Any]]:
-        snapshot = self._load_snapshot()
-        communities = snapshot.get("communities", [])
-        return communities[: max(1, min(limit, 100))]
-
-    def get_community_detail(self, community_id: int) -> Dict[str, Any]:
-        snapshot = self._load_snapshot()
-        communities = {item["community_id"]: item for item in snapshot.get("communities", [])}
-        community = communities.get(community_id)
-        if not community:
-            raise ValueError("Community not found")
-
-        node_keys = set(community.get("node_keys", []))
-        nodes = [item for item in snapshot.get("nodes", []) if item.get("node_key") in node_keys]
-        nodes.sort(key=lambda item: (-int(item.get("degree", 0)), item.get("label", "")))
-        articles = [
-            self._serialize_article_reference(article_id, relation_count=0)
-            for article_id in community.get("article_ids", [])
-        ]
-        articles = [article for article in articles if article]
-        relation_counter: Counter[str] = Counter()
-        for link in snapshot.get("links", []):
-            if link.get("source") in node_keys and link.get("target") in node_keys:
-                relation_counter.update(link.get("relation_types") or [])
-
-        relation_types = [
-            relation_type
-            for relation_type, _ in relation_counter.most_common(8)
-        ]
-        top_node_labels = [item.get("label", "") for item in nodes[:3] if item.get("label")]
-        node_preview = "、".join(top_node_labels) if top_node_labels else "暂无核心节点"
-        relation_preview = "、".join(relation_types[:3]) if relation_types else "实体共现"
-        summary_text = (
-            f"社区「{community.get('label', community_id)}」包含 {community.get('node_count', 0)} 个节点、"
-            f"{community.get('edge_count', 0)} 条边、{community.get('article_count', 0)} 篇文章，"
-            f"核心节点包括 {node_preview}，关系类型以 {relation_preview} 为主。"
-        )
-        return {
-            "community": {
-                key: value
-                for key, value in community.items()
-                if key not in {"node_keys", "article_ids"}
-            },
-            "nodes": nodes[:60],
-            "articles": articles[:20],
-            "summary_text": summary_text,
-            "relation_types": relation_types,
         }
 
     def find_path(self, source_node_key: str, target_node_key: str) -> Dict[str, Any]:
@@ -1136,63 +1109,60 @@ class KnowledgeGraphService:
         }
 
     def get_article_context(self, article_id: int) -> Dict[str, Any]:
-        article_node_key = f"article:{article_id}"
-        graph = self._get_graph()
-        if not graph.has_node(article_node_key):
-            article = self.db.query(Article).filter(Article.id == article_id).first()
+        article = self.db.query(Article).filter(Article.id == article_id).first()
+        if not article:
             return {
                 "article_id": article_id,
-                "article": self._serialize_article_reference(article_id, relation_count=0) if article else None,
+                "article": None,
                 "nodes": [],
                 "edges": [],
-                "communities": [],
                 "related_articles": [],
             }
 
         snapshot = self._load_snapshot()
         node_map = {item["node_key"]: item for item in snapshot.get("nodes", [])}
-        neighbor_keys = set(graph.neighbors(article_node_key))
-        nodes = [node_map[key] for key in neighbor_keys if key in node_map]
+        source_node = aliased(KnowledgeGraphNode)
+        target_node = aliased(KnowledgeGraphNode)
+        edge_rows = (
+            self.db.query(KnowledgeGraphEdge, source_node, target_node)
+            .join(source_node, KnowledgeGraphEdge.source_node_id == source_node.id)
+            .join(target_node, KnowledgeGraphEdge.target_node_id == target_node.id)
+            .filter(KnowledgeGraphEdge.source_article_id == article_id)
+            .all()
+        )
+
+        node_keys: Set[str] = set()
+        edges: List[Dict[str, Any]] = []
+        for edge, source_row, target_row in edge_rows:
+            node_keys.add(source_row.node_key)
+            node_keys.add(target_row.node_key)
+            edges.append(
+                {
+                    "source_node_key": source_row.node_key,
+                    "target_node_key": target_row.node_key,
+                    "relation_type": edge.relation_type,
+                    "confidence": edge.confidence,
+                    "confidence_score": float(edge.confidence_score or 0.0),
+                    "weight": float(edge.weight or 1.0),
+                    "source_article_id": edge.source_article_id,
+                    "source_label": source_row.label,
+                    "target_label": target_row.label,
+                    "evidence_snippet": edge.evidence_snippet,
+                    "metadata": edge.metadata_json or {},
+                }
+            )
+
+        nodes = [node_map[key] for key in node_keys if key in node_map]
         nodes.sort(key=lambda item: (-int(item.get("degree", 0)), item.get("label", "")))
 
-        edges = []
-        for neighbor_key in neighbor_keys:
-            edge_data = graph.get_edge_data(article_node_key, neighbor_key) or {}
-            for relation in edge_data.get("relations", []):
-                if relation.get("source_article_id") == article_id:
-                    edges.append(
-                        {
-                            "source_node_key": relation["source_node_key"],
-                            "target_node_key": relation["target_node_key"],
-                            "relation_type": relation["relation_type"],
-                            "confidence": relation["confidence"],
-                            "confidence_score": relation["confidence_score"],
-                            "weight": relation["weight"],
-                            "source_article_id": relation.get("source_article_id"),
-                            "evidence_snippet": relation.get("evidence_snippet"),
-                            "metadata": relation.get("metadata"),
-                        }
-                    )
-
-        community_ids = {
-            node_map[key].get("community_id")
-            for key in {article_node_key, *neighbor_keys}
-            if key in node_map and node_map[key].get("community_id") is not None
-        }
-        communities = [
-            community
-            for community in snapshot.get("communities", [])
-            if community.get("community_id") in community_ids
-        ]
-        related_articles = self._collect_related_articles({article_node_key, *neighbor_keys}, top_k=8, graph=graph)
-        related_articles = [article for article in related_articles if article["id"] != article_id]
+        related_articles = self._collect_related_articles(node_keys, top_k=8, graph=self._get_graph())
+        related_articles = [item for item in related_articles if item["id"] != article_id]
 
         return {
             "article_id": article_id,
-            "article": self._serialize_article_reference(article_id, relation_count=0),
+            "article": self._serialize_article_reference(article_id, relation_count=max(len(edges), 1)),
             "nodes": nodes[:20],
             "edges": edges[:30],
-            "communities": communities,
             "related_articles": related_articles[:8],
         }
 
@@ -1207,7 +1177,46 @@ class KnowledgeGraphService:
     ) -> Dict[str, Any]:
         requested_mode = self._normalize_query_mode(mode)
         resolved_mode = self._resolve_query_mode(requested_mode)
-        graph_context = self._build_question_context(
+
+        structured_result = self.structured_query(question, top_k=top_k)
+        if structured_result.get("results"):
+            matched_nodes = [item["node"] for item in structured_result["results"]]
+            related_articles = self._merge_articles(
+                structured_result.get("related_articles", []),
+                self._rag_search(question, top_k=top_k) if resolved_mode in {"rag", "hybrid"} else [],
+            )
+            graph_context = {
+                "matched_nodes": matched_nodes,
+                "related_articles": related_articles,
+                "context_node_count": len(matched_nodes),
+                "context_edge_count": sum(len(item.get("matched_edges", [])) for item in structured_result["results"]),
+                "subgraph_nodes": matched_nodes,
+                "subgraph_edges": [
+                    f"{edge.get('source_label') or edge['source_node_key']} -[{edge['relation_type']}]-> {edge.get('target_label') or edge['target_node_key']}"
+                    for item in structured_result["results"]
+                    for edge in item.get("matched_edges", [])
+                ],
+            }
+            answer = structured_result.get("answer") or self._generate_answer(
+                question=question,
+                resolved_mode=resolved_mode,
+                graph_context=graph_context,
+                related_articles=related_articles,
+                conversation_history=conversation_history,
+            )
+            return {
+                "question": question,
+                "mode": requested_mode,
+                "resolved_mode": resolved_mode,
+                "query_strategy": "structured",
+                "answer": answer,
+                "matched_nodes": matched_nodes,
+                "related_articles": related_articles,
+                "context_node_count": graph_context["context_node_count"],
+                "context_edge_count": graph_context["context_edge_count"],
+            }
+
+        graph_context = self._build_generic_graph_context(
             question,
             query_depth=query_depth or settings.KNOWLEDGE_GRAPH_QUERY_DEPTH,
             top_k=top_k,
@@ -1232,9 +1241,9 @@ class KnowledgeGraphService:
             "question": question,
             "mode": requested_mode,
             "resolved_mode": resolved_mode,
+            "query_strategy": "generic_graph",
             "answer": answer,
             "matched_nodes": graph_context["matched_nodes"],
-            "matched_communities": graph_context["matched_communities"],
             "related_articles": related_articles,
             "context_node_count": graph_context["context_node_count"],
             "context_edge_count": graph_context["context_edge_count"],
@@ -1251,26 +1260,48 @@ class KnowledgeGraphService:
     ):
         requested_mode = self._normalize_query_mode(mode)
         resolved_mode = self._resolve_query_mode(requested_mode)
-        graph_context = self._build_question_context(
-            question,
-            query_depth=query_depth or settings.KNOWLEDGE_GRAPH_QUERY_DEPTH,
-            top_k=top_k,
-        )
 
-        related_articles = list(graph_context["related_articles"])
-        if resolved_mode in {"rag", "hybrid"}:
+        structured_result = self.structured_query(question, top_k=top_k)
+        if structured_result.get("results"):
+            query_strategy = "structured"
+            matched_nodes = [item["node"] for item in structured_result["results"]]
             related_articles = self._merge_articles(
-                related_articles,
-                self._rag_search(question, top_k=top_k),
+                structured_result.get("related_articles", []),
+                self._rag_search(question, top_k=top_k) if resolved_mode in {"rag", "hybrid"} else [],
             )
+            graph_context = {
+                "matched_nodes": matched_nodes,
+                "related_articles": related_articles,
+                "context_node_count": len(matched_nodes),
+                "context_edge_count": sum(len(item.get("matched_edges", [])) for item in structured_result["results"]),
+                "subgraph_nodes": matched_nodes,
+                "subgraph_edges": [
+                    f"{edge.get('source_label') or edge['source_node_key']} -[{edge['relation_type']}]-> {edge.get('target_label') or edge['target_node_key']}"
+                    for item in structured_result["results"]
+                    for edge in item.get("matched_edges", [])
+                ],
+            }
+        else:
+            query_strategy = "generic_graph"
+            graph_context = self._build_generic_graph_context(
+                question,
+                query_depth=query_depth or settings.KNOWLEDGE_GRAPH_QUERY_DEPTH,
+                top_k=top_k,
+            )
+            related_articles = list(graph_context["related_articles"])
+            if resolved_mode in {"rag", "hybrid"}:
+                related_articles = self._merge_articles(
+                    related_articles,
+                    self._rag_search(question, top_k=top_k),
+                )
 
         yield {
             "type": "graph_context",
             "data": {
                 "mode": requested_mode,
                 "resolved_mode": resolved_mode,
+                "query_strategy": query_strategy,
                 "matched_nodes": graph_context["matched_nodes"],
-                "matched_communities": graph_context["matched_communities"],
                 "related_articles": related_articles,
                 "context_node_count": graph_context["context_node_count"],
                 "context_edge_count": graph_context["context_edge_count"],
@@ -1281,7 +1312,7 @@ class KnowledgeGraphService:
             yield {
                 "type": "content",
                 "data": {
-                    "content": self._build_fallback_answer(
+                    "content": self._build_generic_graph_fallback_answer(
                         question=question,
                         resolved_mode=resolved_mode,
                         graph_context=graph_context,
@@ -1320,6 +1351,31 @@ class KnowledgeGraphService:
                 "type": "error",
                 "data": {"message": f"Knowledge graph streaming failed: {exc}"},
             }
+
+    def structured_query(self, question: str, *, top_k: int = 10) -> Dict[str, Any]:
+        parsed_query = self._extract_structured_graph_query(question)
+        if not parsed_query.get("conditions"):
+            return {
+                "question": question,
+                "parsed_query": parsed_query,
+                "results": [],
+                "related_articles": [],
+                "answer": "",
+            }
+
+        results = self._execute_structured_graph_query(parsed_query, limit=max(1, min(top_k, 20)))
+        related_articles = self._merge_articles(
+            [],
+            [article for item in results for article in item.get("related_articles", [])],
+        )
+        answer = self._build_structured_query_answer(question, parsed_query, results)
+        return {
+            "question": question,
+            "parsed_query": parsed_query,
+            "results": results,
+            "related_articles": related_articles[:top_k],
+            "answer": answer,
+        }
 
     def _select_articles_for_sync(
         self,
@@ -1367,21 +1423,12 @@ class KnowledgeGraphService:
         )
 
     def _sync_single_article(self, article: Article, content_hash: str, run_mode: str) -> Dict[str, int]:
-        article_node = self._build_article_node(article)
-        deterministic_nodes, deterministic_edges = self._extract_deterministic_structure(article, article_node)
-        semantic_nodes: List[NodeSpec] = []
-        semantic_edges: List[EdgeSpec] = []
-        if run_mode == "agent":
-            semantic_nodes, semantic_edges = self._extract_semantic_structure(article, article_node)
-
+        semantic_nodes, semantic_edges = self._extract_semantic_structure(article)
         nodes_by_key: Dict[str, NodeSpec] = {}
-        for spec in [article_node, *deterministic_nodes, *semantic_nodes]:
+        for spec in semantic_nodes:
             self._merge_node_spec(nodes_by_key, spec)
 
-        edges = self._deduplicate_edges(
-            [*deterministic_edges, *semantic_edges],
-            article_id=article.id,
-        )
+        edges = self._deduplicate_edges(semantic_edges, article_id=article.id)
         self._replace_article_edges(article.id)
         node_id_map = self._upsert_nodes(list(nodes_by_key.values()))
         edges_upserted = self._insert_edges(edges, node_id_map=node_id_map)
@@ -1393,55 +1440,12 @@ class KnowledgeGraphService:
             "edges_upserted": edges_upserted,
         }
 
-    def _extract_deterministic_structure(
-        self,
-        article: Article,
-        article_node: NodeSpec,
-    ) -> Tuple[List[NodeSpec], List[EdgeSpec]]:
-        nodes: List[NodeSpec] = []
-        edges: List[EdgeSpec] = []
-
-        def add_link(node_type: str, label: str, relation_type: str, metadata: Optional[Dict[str, Any]] = None):
-            if not label or not str(label).strip():
-                return
-            node = self._build_entity_node(node_type, str(label).strip(), metadata=metadata)
-            nodes.append(node)
-            edges.append(
-                self._build_edge_spec(
-                    source_node_key=article_node["node_key"],
-                    target_node_key=node["node_key"],
-                    relation_type=relation_type,
-                    article_id=article.id,
-                    confidence="EXTRACTED",
-                    confidence_score=1.0,
-                    metadata={"origin": "deterministic", **(metadata or {})},
-                )
-            )
-
-        add_link("source", article.source, "published_by", {"source_name": article.source})
-
-        if article.author:
-            for author in self._split_multi_value(article.author):
-                add_link("author", author, "written_by", {"author": author})
-
-        for tag in self._iter_json_strings(article.tags):
-            add_link("tag", tag, "has_tag", {"tag": tag})
-
-        for topic in self._iter_json_strings(getattr(article, "topics", None)):
-            add_link("topic", topic, "has_topic", {"topic": topic})
-
-        for paper in self._iter_json_strings(getattr(article, "related_papers", None)):
-            add_link("paper", paper, "mentions_paper", {"paper": paper})
-
-        return nodes, edges
-
     def _extract_semantic_structure(
         self,
         article: Article,
-        article_node: NodeSpec,
     ) -> Tuple[List[NodeSpec], List[EdgeSpec]]:
         if not self.ai_analyzer:
-            return [], []
+            raise ValueError("Strict ontology extraction requires a configured knowledge-graph AI provider")
 
         prompt = self._build_semantic_prompt(article)
         try:
@@ -1471,46 +1475,67 @@ class KnowledgeGraphService:
         edges: List[EdgeSpec] = []
         entity_index: Dict[Tuple[str, str], NodeSpec] = {}
         for entity in payload.get("entities", []) or []:
-            label = str(entity.get("label") or "").strip()
-            if not label:
+            mention_name = str(entity.get("id") or entity.get("canonical_name") or entity.get("label") or "").strip()
+            canonical_name = self._canonicalize_entity_name(
+                str(entity.get("canonical_name") or mention_name).strip(),
+                self._normalize_domain_node_type(entity.get("label") or entity.get("node_type")),
+            )
+            if not canonical_name:
                 continue
-            node_type = self._normalize_semantic_node_type(entity.get("node_type"))
+            node_type = self._normalize_domain_node_type(entity.get("label") or entity.get("node_type"))
+            aliases = self._merge_aliases(
+                [],
+                [mention_name, *self._coerce_string_list(entity.get("aliases"))],
+                canonical_name,
+            )
+            metadata = {
+                "origin": "semantic",
+                "canonical_name": canonical_name,
+                "description": str(entity.get("description") or "").strip()[:1000] or None,
+                **(entity.get("properties") or {}),
+            }
             node = self._build_entity_node(
                 node_type,
-                label,
-                aliases=self._coerce_string_list(entity.get("aliases")),
-                metadata={
-                    "origin": "semantic",
-                    "confidence": str(entity.get("confidence") or "EXTRACTED").upper(),
-                    "confidence_score": float(entity.get("confidence_score") or 0.8),
-                },
+                canonical_name,
+                aliases=aliases,
+                metadata={k: v for k, v in metadata.items() if v is not None},
             )
             nodes.append(node)
-            entity_index[(node_type, self._normalize_text(label))] = node
+            entity_index[(node_type, self._normalize_text(canonical_name))] = node
+            if mention_name:
+                entity_index[(node_type, self._normalize_text(mention_name))] = node
+            for alias in aliases:
+                entity_index[(node_type, self._normalize_text(alias))] = node
 
-        for relation in payload.get("relations", []) or []:
-            source_label = str(relation.get("source_label") or "").strip()
-            target_label = str(relation.get("target_label") or "").strip()
-            relation_type = str(relation.get("relation_type") or "related_to").strip() or "related_to"
-            if not source_label or not target_label:
+        relations = payload.get("relationships", []) or payload.get("relations", []) or []
+        for relation in relations:
+            source_label = str(relation.get("source") or relation.get("source_label") or "").strip()
+            target_label = str(relation.get("target") or relation.get("target_label") or "").strip()
+            relation_type = self._normalize_domain_relation_type(relation.get("type") or relation.get("relation_type"))
+            if not source_label or not target_label or not relation_type:
                 continue
 
-            source_type = self._normalize_semantic_node_type(relation.get("source_type"))
-            target_type = self._normalize_semantic_node_type(relation.get("target_type"))
+            source_type = self._normalize_domain_node_type(relation.get("source_label") or relation.get("source_type"))
+            target_type = self._normalize_domain_node_type(relation.get("target_label") or relation.get("target_type"))
             source_node = entity_index.get((source_type, self._normalize_text(source_label))) or self._build_entity_node(
                 source_type,
-                source_label,
-                metadata={"origin": "semantic"},
+                self._canonicalize_entity_name(source_label, source_type),
+                aliases=self._merge_aliases([], [source_label], self._canonicalize_entity_name(source_label, source_type)),
+                metadata={"origin": "semantic", "canonical_name": self._canonicalize_entity_name(source_label, source_type)},
             )
             target_node = entity_index.get((target_type, self._normalize_text(target_label))) or self._build_entity_node(
                 target_type,
-                target_label,
-                metadata={"origin": "semantic"},
+                self._canonicalize_entity_name(target_label, target_type),
+                aliases=self._merge_aliases([], [target_label], self._canonicalize_entity_name(target_label, target_type)),
+                metadata={"origin": "semantic", "canonical_name": self._canonicalize_entity_name(target_label, target_type)},
             )
             nodes.extend([source_node, target_node])
             confidence = str(relation.get("confidence") or "EXTRACTED").upper()
             if confidence not in {"EXTRACTED", "INFERRED", "AMBIGUOUS"}:
                 confidence = "EXTRACTED"
+            confidence_score = float(relation.get("confidence_score") or 0.75)
+            if confidence_score < 0.6:
+                continue
 
             edges.append(
                 self._build_edge_spec(
@@ -1519,46 +1544,13 @@ class KnowledgeGraphService:
                     relation_type=relation_type,
                     article_id=article.id,
                     confidence=confidence,
-                    confidence_score=float(relation.get("confidence_score") or 0.75),
+                    confidence_score=confidence_score,
                     evidence_snippet=str(relation.get("evidence_snippet") or "")[:500] or None,
                     metadata={"origin": "semantic"},
                 )
             )
 
-            for node in (source_node, target_node):
-                if node["node_key"] != article_node["node_key"]:
-                    edges.append(
-                        self._build_edge_spec(
-                            source_node_key=article_node["node_key"],
-                            target_node_key=node["node_key"],
-                            relation_type="mentions_entity",
-                            article_id=article.id,
-                            confidence="EXTRACTED",
-                            confidence_score=0.9,
-                            metadata={"origin": "semantic"},
-                        )
-                    )
-
         return nodes, edges
-
-    def _build_article_node(self, article: Article) -> NodeSpec:
-        label = article.title_zh or article.title or f"Article {article.id}"
-        return {
-            "node_key": f"article:{article.id}",
-            "label": label[:500],
-            "node_type": "article",
-            "aliases": [article.title] if article.title and article.title_zh and article.title != article.title_zh else [],
-            "metadata": {
-                "article_id": article.id,
-                "title": article.title,
-                "title_zh": article.title_zh,
-                "url": article.url,
-                "source": article.source,
-                "author": article.author,
-                "published_at": article.published_at.isoformat() if article.published_at else None,
-                "importance": article.importance,
-            },
-        }
 
     def _build_entity_node(
         self,
@@ -1570,12 +1562,23 @@ class KnowledgeGraphService:
     ) -> NodeSpec:
         safe_type = self._normalize_node_type(node_type)
         safe_label = label.strip()[:500]
+        safe_metadata = dict(metadata or {})
+        canonical_name = self._canonicalize_entity_name(
+            str(safe_metadata.get("canonical_name") or safe_label),
+            safe_type,
+        )
+        safe_metadata["canonical_name"] = canonical_name
+        merged_aliases = self._merge_aliases(
+            [],
+            aliases or [],
+            canonical_name,
+        )
         return {
-            "node_key": self._make_node_key(safe_type, safe_label),
-            "label": safe_label,
+            "node_key": self._make_node_key(safe_type, canonical_name),
+            "label": canonical_name[:500],
             "node_type": safe_type,
-            "aliases": self._coerce_string_list(aliases),
-            "metadata": metadata or {},
+            "aliases": merged_aliases,
+            "metadata": safe_metadata,
         }
 
     def _build_edge_spec(
@@ -1615,13 +1618,23 @@ class KnowledgeGraphService:
             }
             return
 
-        aliases = set(existing.get("aliases") or [])
-        aliases.update(self._coerce_string_list(new_spec.get("aliases")))
-        existing["aliases"] = sorted(alias for alias in aliases if alias and alias != existing["label"])
+        existing_metadata = existing.get("metadata") or {}
+        new_metadata = new_spec.get("metadata") or {}
         existing["metadata"] = {
-            **(existing.get("metadata") or {}),
-            **(new_spec.get("metadata") or {}),
+            **existing_metadata,
+            **new_metadata,
         }
+        canonical_name = str(existing["metadata"].get("canonical_name") or existing["label"])
+        description = str(existing_metadata.get("description") or "").strip()
+        new_description = str(new_metadata.get("description") or "").strip()
+        if new_description and (not description or len(new_description) > len(description)):
+            existing["metadata"]["description"] = new_description
+        existing["aliases"] = self._merge_aliases(
+            existing.get("aliases") or [],
+            [new_spec.get("label", ""), *self._coerce_string_list(new_spec.get("aliases"))],
+            canonical_name,
+        )
+        existing["label"] = canonical_name
 
     def _deduplicate_edges(self, edges: Iterable[EdgeSpec], *, article_id: int) -> List[EdgeSpec]:
         grouped: Dict[Tuple[str, str, str], EdgeSpec] = {}
@@ -1642,21 +1655,25 @@ class KnowledgeGraphService:
     def _upsert_nodes(self, nodes: Sequence[NodeSpec]) -> Dict[str, int]:
         node_id_map: Dict[str, int] = {}
         for spec in nodes:
-            row = (
-                self.db.query(KnowledgeGraphNode)
-                .filter(KnowledgeGraphNode.node_key == spec["node_key"])
-                .first()
-            )
+            row = self._resolve_existing_entity_node(spec)
             if row:
-                aliases = set(row.aliases or [])
-                aliases.update(spec.get("aliases") or [])
-                row.label = spec["label"]
-                row.node_type = spec["node_type"]
-                row.aliases = sorted(alias for alias in aliases if alias and alias != row.label)
-                row.metadata_json = {
+                merged_metadata = {
                     **(row.metadata_json or {}),
                     **(spec.get("metadata") or {}),
                 }
+                canonical_name = self._canonicalize_entity_name(
+                    str(merged_metadata.get("canonical_name") or spec["label"]),
+                    spec["node_type"],
+                )
+                row.label = canonical_name
+                row.node_type = spec["node_type"]
+                row.aliases = self._merge_aliases(
+                    row.aliases or [],
+                    [spec.get("label", ""), *(spec.get("aliases") or [])],
+                    canonical_name,
+                )
+                merged_metadata["canonical_name"] = canonical_name
+                row.metadata_json = merged_metadata
                 row.updated_at = datetime.now()
             else:
                 row = KnowledgeGraphNode(
@@ -1669,6 +1686,7 @@ class KnowledgeGraphService:
                 self.db.add(row)
                 self.db.flush()
             node_id_map[spec["node_key"]] = row.id
+            node_id_map[row.node_key] = row.id
         return node_id_map
 
     def _insert_edges(self, edges: Sequence[EdgeSpec], *, node_id_map: Dict[str, int]) -> int:
@@ -1741,10 +1759,20 @@ class KnowledgeGraphService:
             ~KnowledgeGraphNode.id.in_(self.db.query(used_ids.c.node_id))
         ).delete(synchronize_session=False)
 
-    def _clear_graph_tables(self) -> None:
+    def _clear_graph_tables(
+        self,
+        *,
+        keep_build_id: Optional[str] = None,
+        clear_build_history: bool = False,
+    ) -> None:
         self.db.query(KnowledgeGraphEdge).delete(synchronize_session=False)
         self.db.query(KnowledgeGraphNode).delete(synchronize_session=False)
         self.db.query(KnowledgeGraphArticleState).delete(synchronize_session=False)
+        if clear_build_history:
+            build_query = self.db.query(KnowledgeGraphBuild)
+            if keep_build_id:
+                build_query = build_query.filter(KnowledgeGraphBuild.build_id != keep_build_id)
+            build_query.delete(synchronize_session=False)
         self.db.commit()
         self._graph = None
         self._snapshot_cache = None
@@ -1787,6 +1815,8 @@ class KnowledgeGraphService:
                 "confidence_score": float(edge.confidence_score or 0.0),
                 "weight": float(edge.weight or 1.0),
                 "source_article_id": edge.source_article_id,
+                "source_label": source.label,
+                "target_label": target.label,
                 "evidence_snippet": edge.evidence_snippet,
                 "metadata": edge.metadata_json or {},
             }
@@ -1858,46 +1888,27 @@ class KnowledgeGraphService:
 
         for node_key, attrs in graph.nodes(data=True):
             node_type_counts[attrs.get("node_type", "unknown")] += 1
-            if attrs.get("node_type") == "article":
-                article_id = attrs.get("metadata", {}).get("article_id")
-                if article_id:
-                    article_ids_per_node[node_key].add(int(article_id))
         logger.info("[payload] edge/node stats pass done (%.2fs)", time.perf_counter() - t0)
 
         t0 = time.perf_counter()
         centrality = nx.degree_centrality(graph) if graph.number_of_nodes() else {}
         logger.info("[payload] degree_centrality done (%.2fs)", time.perf_counter() - t0)
 
-        # Extract cached community map and layout positions for incremental reuse.
+        # Extract cached layout positions for incremental reuse.
         t0 = time.perf_counter()
         cached_snapshot = self._snapshot_cache
-        cached_community_map: Optional[Dict[str, int]] = None
         cached_layout_positions: Optional[Dict[str, Dict[str, float]]] = None
         if cached_snapshot:
-            cached_community_map = {
-                item["node_key"]: item["community_id"]
-                for item in cached_snapshot.get("nodes", [])
-                if item.get("community_id") is not None
-            }
             cached_layout_positions = {
                 item["node_key"]: {"x": item["layout_x"], "y": item["layout_y"]}
                 for item in cached_snapshot.get("nodes", [])
                 if item.get("layout_x") is not None and item.get("layout_y") is not None
             }
         logger.info(
-            "[payload] cache extracted: community_map=%d, layout_positions=%d (%.2fs)",
-            len(cached_community_map or {}), len(cached_layout_positions or {}),
+            "[payload] cache extracted: layout_positions=%d (%.2fs)",
+            len(cached_layout_positions or {}),
             time.perf_counter() - t0,
         )
-
-        t0 = time.perf_counter()
-        communities_payload, community_map = self._detect_communities(
-            graph,
-            article_ids_per_node=article_ids_per_node,
-            centrality=centrality,
-            cached_community_map=cached_community_map or None,
-        )
-        logger.info("[payload] _detect_communities done (%.2fs)", time.perf_counter() - t0)
 
         t0 = time.perf_counter()
         layout_positions = self._compute_distance_layout(
@@ -1919,7 +1930,6 @@ class KnowledgeGraphService:
                     "metadata": attrs.get("metadata", {}) or {},
                     "degree": int(graph.degree(node_key)),
                     "article_count": len(article_ids_per_node.get(node_key, set())),
-                    "community_id": community_map.get(node_key),
                     "centrality": round(float(centrality.get(node_key, 0.0)), 6),
                     "layout_x": layout_position["x"] if layout_position else None,
                     "layout_y": layout_position["y"] if layout_position else None,
@@ -1977,14 +1987,12 @@ class KnowledgeGraphService:
             "stats": {
                 "total_nodes": graph.number_of_nodes(),
                 "total_edges": graph.number_of_edges(),
-                "total_article_nodes": int(node_type_counts.get("article", 0)),
                 "node_type_counts": dict(node_type_counts),
                 "relation_type_counts": dict(relation_type_counts),
                 "coverage": round((synced_articles / total_articles) if total_articles else 0.0, 6),
             },
             "nodes": nodes_payload,
             "links": links_payload,
-            "communities": communities_payload,
             "layout_mode": "distance_weighted_kamada_kawai",
             "god_nodes": nodes_payload[:10],
             "article_coverage": {
@@ -2151,216 +2159,7 @@ class KnowledgeGraphService:
             for node_key, (x_value, y_value) in positions.items()
         }
 
-    def _detect_communities(
-        self,
-        graph: nx.Graph,
-        *,
-        article_ids_per_node: Dict[str, Set[int]],
-        centrality: Dict[str, float],
-        cached_community_map: Optional[Dict[str, int]] = None,
-    ) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
-        """Detect communities, reusing a cached map when structural change is small.
-
-        If the fraction of new or removed nodes relative to the current graph is below
-        COMMUNITY_INCREMENTAL_THRESHOLD, existing community assignments are kept and only
-        new nodes are assigned via majority-vote of their mapped neighbours.  This makes
-        rebuild_snapshot() fast for "clean + rebuild" operations where no real articles
-        were added or removed.
-        """
-        COMMUNITY_INCREMENTAL_THRESHOLD = 0.15
-
-        if graph.number_of_nodes() == 0:
-            return [], {}
-
-        current_keys: Set[str] = set(graph.nodes())
-
-        if cached_community_map:
-            cached_keys = set(cached_community_map.keys())
-            new_keys = current_keys - cached_keys
-            removed_keys = cached_keys - current_keys
-            change_ratio = (len(new_keys) + len(removed_keys)) / max(len(current_keys), 1)
-
-            if change_ratio < COMMUNITY_INCREMENTAL_THRESHOLD:
-                logger.info(
-                    "[community] incremental reuse (change_ratio=%.3f < %.2f): new=%d removed=%d",
-                    change_ratio, COMMUNITY_INCREMENTAL_THRESHOLD, len(new_keys), len(removed_keys),
-                )
-                t0 = time.perf_counter()
-                community_map: Dict[str, int] = {
-                    k: v for k, v in cached_community_map.items() if k in current_keys
-                }
-                max_existing_id = max(community_map.values(), default=0)
-                for node_key in new_keys:
-                    neighbor_communities = [
-                        community_map[nb]
-                        for nb in graph.neighbors(node_key)
-                        if nb in community_map
-                    ]
-                    if neighbor_communities:
-                        community_map[node_key] = Counter(neighbor_communities).most_common(1)[0][0]
-                    else:
-                        max_existing_id += 1
-                        community_map[node_key] = max_existing_id
-                logger.info(
-                    "[community] incremental assignment done: %d communities, %d nodes (%.2fs)",
-                    len(set(community_map.values())), len(community_map), time.perf_counter() - t0,
-                )
-                return self._build_community_payload(graph, community_map, article_ids_per_node, centrality), community_map
-
-        if graph.number_of_edges() == 0:
-            logger.info("[community] no edges — assigning each node its own community")
-            raw_communities = [{node_key} for node_key in graph.nodes()]
-        else:
-            # For large graphs greedy_modularity_communities is O(n log^2 n) and can
-            # take minutes at 50k+ nodes.  label_propagation is O(n+e) and finishes
-            # in seconds; we use it automatically above the threshold.
-            COMMUNITY_LARGE_GRAPH_THRESHOLD = 15_000
-            use_fast = graph.number_of_nodes() > COMMUNITY_LARGE_GRAPH_THRESHOLD
-
-            if use_fast:
-                algo_name = "label_propagation_communities"
-                logger.info(
-                    "[community] large graph (%d nodes > %d threshold) — using %s (fast O(n+e))",
-                    graph.number_of_nodes(), COMMUNITY_LARGE_GRAPH_THRESHOLD, algo_name,
-                )
-            else:
-                algo_name = "greedy_modularity_communities"
-                logger.info(
-                    "[community] small graph (%d nodes) — using %s",
-                    graph.number_of_nodes(), algo_name,
-                )
-
-            t0 = time.perf_counter()
-            done_event = threading.Event()
-
-            def _heartbeat() -> None:
-                while not done_event.wait(10.0):
-                    logger.info(
-                        "[community] %s still running... %.0fs elapsed",
-                        algo_name, time.perf_counter() - t0,
-                    )
-
-            hb = threading.Thread(target=_heartbeat, daemon=True, name="community-heartbeat")
-            hb.start()
-            try:
-                if use_fast:
-                    raw_communities = [
-                        set(community)
-                        for community in nx.algorithms.community.label_propagation_communities(graph)
-                    ]
-                else:
-                    raw_communities = [
-                        set(community)
-                        for community in nx.algorithms.community.greedy_modularity_communities(graph)
-                    ]
-            finally:
-                done_event.set()
-
-            logger.info(
-                "[community] %s done: %d communities (%.2fs)",
-                algo_name, len(raw_communities), time.perf_counter() - t0,
-            )
-
-        community_map = {}
-        community_payload: List[Dict[str, Any]] = []
-        for idx, node_keys in enumerate(sorted(raw_communities, key=len, reverse=True)):
-            community_id = idx + 1
-            for node_key in node_keys:
-                community_map[node_key] = community_id
-
-            subgraph = graph.subgraph(node_keys)
-            top_nodes = sorted(
-                node_keys,
-                key=lambda node_key: (
-                    -graph.degree(node_key),
-                    -centrality.get(node_key, 0.0),
-                    graph.nodes[node_key].get("label", node_key),
-                ),
-            )[:5]
-            article_ids: Set[int] = set()
-            for node_key in node_keys:
-                article_ids.update(article_ids_per_node.get(node_key, set()))
-            community_payload.append(
-                {
-                    "community_id": community_id,
-                    "label": ", ".join(graph.nodes[node_key].get("label", node_key) for node_key in top_nodes[:3]),
-                    "node_count": subgraph.number_of_nodes(),
-                    "edge_count": subgraph.number_of_edges(),
-                    "article_count": len(article_ids),
-                    "top_nodes": [
-                        {
-                            "node_key": node_key,
-                            "label": graph.nodes[node_key].get("label", node_key),
-                            "node_type": graph.nodes[node_key].get("node_type", "unknown"),
-                            "aliases": graph.nodes[node_key].get("aliases", []) or [],
-                            "metadata": graph.nodes[node_key].get("metadata", {}) or {},
-                            "degree": int(graph.degree(node_key)),
-                            "article_count": len(article_ids_per_node.get(node_key, set())),
-                            "community_id": community_id,
-                            "centrality": round(float(centrality.get(node_key, 0.0)), 6),
-                        }
-                        for node_key in top_nodes
-                    ],
-                    "node_keys": sorted(node_keys),
-                    "article_ids": sorted(article_ids),
-                }
-            )
-        return community_payload, community_map
-
-    def _build_community_payload(
-        self,
-        graph: nx.Graph,
-        community_map: Dict[str, int],
-        article_ids_per_node: Dict[str, Set[int]],
-        centrality: Dict[str, float],
-    ) -> List[Dict[str, Any]]:
-        """Rebuild the community summary payload from a pre-computed community_map."""
-        groups: Dict[int, Set[str]] = defaultdict(set)
-        for node_key, community_id in community_map.items():
-            groups[community_id].add(node_key)
-
-        community_payload: List[Dict[str, Any]] = []
-        for community_id, node_keys in sorted(groups.items(), key=lambda item: (-len(item[1]), item[0])):
-            subgraph = graph.subgraph(node_keys)
-            top_nodes = sorted(
-                node_keys,
-                key=lambda k: (
-                    -graph.degree(k),
-                    -centrality.get(k, 0.0),
-                    graph.nodes[k].get("label", k),
-                ),
-            )[:5]
-            article_ids: Set[int] = set()
-            for node_key in node_keys:
-                article_ids.update(article_ids_per_node.get(node_key, set()))
-            community_payload.append(
-                {
-                    "community_id": community_id,
-                    "label": ", ".join(graph.nodes[k].get("label", k) for k in top_nodes[:3]),
-                    "node_count": subgraph.number_of_nodes(),
-                    "edge_count": subgraph.number_of_edges(),
-                    "article_count": len(article_ids),
-                    "top_nodes": [
-                        {
-                            "node_key": k,
-                            "label": graph.nodes[k].get("label", k),
-                            "node_type": graph.nodes[k].get("node_type", "unknown"),
-                            "aliases": graph.nodes[k].get("aliases", []) or [],
-                            "metadata": graph.nodes[k].get("metadata", {}) or {},
-                            "degree": int(graph.degree(k)),
-                            "article_count": len(article_ids_per_node.get(k, set())),
-                            "community_id": community_id,
-                            "centrality": round(float(centrality.get(k, 0.0)), 6),
-                        }
-                        for k in top_nodes
-                    ],
-                    "node_keys": sorted(node_keys),
-                    "article_ids": sorted(article_ids),
-                }
-            )
-        return community_payload
-
-    def _build_question_context(
+    def _build_generic_graph_context(
         self,
         question: str,
         *,
@@ -2377,16 +2176,6 @@ class KnowledgeGraphService:
         subgraph_node_keys = self._expand_from_nodes(graph, matched_node_keys, max_depth=query_depth)
         subgraph = graph.subgraph(subgraph_node_keys)
 
-        community_ids = {
-            node.get("community_id")
-            for node in matched_nodes
-            if node.get("community_id") is not None
-        }
-        matched_communities = [
-            community
-            for community in snapshot.get("communities", [])
-            if community.get("community_id") in community_ids
-        ]
         related_articles = self._collect_related_articles(
             set(subgraph_node_keys),
             top_k=max(3, top_k),
@@ -2402,7 +2191,6 @@ class KnowledgeGraphService:
 
         return {
             "matched_nodes": matched_nodes,
-            "matched_communities": matched_communities,
             "related_articles": related_articles[: max(1, top_k)],
             "context_node_count": subgraph.number_of_nodes(),
             "context_edge_count": subgraph.number_of_edges(),
@@ -2486,11 +2274,6 @@ class KnowledgeGraphService:
         for node_key in node_keys:
             if not graph.has_node(node_key):
                 continue
-            attrs = graph.nodes[node_key]
-            if attrs.get("node_type") == "article":
-                article_id = attrs.get("metadata", {}).get("article_id")
-                if article_id:
-                    article_scores[int(article_id)] += 3
             for neighbor in graph.neighbors(node_key):
                 edge_data = graph.get_edge_data(node_key, neighbor) or {}
                 for article_id in edge_data.get("article_ids", set()):
@@ -2597,7 +2380,7 @@ class KnowledgeGraphService:
         conversation_history: Optional[Sequence[Dict[str, str]]],
     ) -> str:
         if not self.ai_analyzer:
-            return self._build_fallback_answer(
+            return self._build_generic_graph_fallback_answer(
                 question=question,
                 resolved_mode=resolved_mode,
                 graph_context=graph_context,
@@ -2621,7 +2404,7 @@ class KnowledgeGraphService:
             answer = self._extract_chat_message_content(response, operation="question answering")
         except Exception as exc:
             logger.warning("Knowledge graph LLM answer failed, using fallback answer: %s", exc)
-            return self._build_fallback_answer(
+            return self._build_generic_graph_fallback_answer(
                 question=question,
                 resolved_mode=resolved_mode,
                 graph_context=graph_context,
@@ -2630,7 +2413,7 @@ class KnowledgeGraphService:
         if answer:
             return answer
         logger.warning("Knowledge graph LLM answer was empty, using fallback answer")
-        return self._build_fallback_answer(
+        return self._build_generic_graph_fallback_answer(
             question=question,
             resolved_mode=resolved_mode,
             graph_context=graph_context,
@@ -2649,7 +2432,7 @@ class KnowledgeGraphService:
         graph_lines = []
         for node in graph_context["matched_nodes"]:
             graph_lines.append(
-                f"- Node: {node['label']} ({node['node_type']}, degree={node['degree']}, community={node.get('community_id')})"
+                f"- Node: {node['label']} ({node['node_type']}, degree={node['degree']})"
             )
         for edge_text in graph_context["subgraph_edges"][:40]:
             graph_lines.append(f"- Edge: {edge_text}")
@@ -2668,12 +2451,11 @@ class KnowledgeGraphService:
             f"Graph context summary:\n"
             f"- Matched node count: {graph_context['context_node_count']}\n"
             f"- Matched edge count: {graph_context['context_edge_count']}\n"
-            f"- Communities: {', '.join(item['label'] for item in graph_context['matched_communities']) or 'None'}\n"
             f"{chr(10).join(graph_lines) if graph_lines else '- No graph matches'}\n\n"
             f"Related articles:\n"
             f"{chr(10).join(article_lines) if article_lines else '- No related articles'}\n\n"
             "Write the answer in Chinese. "
-            "Focus on entities, relations, cross-article structure and communities. "
+            "Focus on entities, relations and cross-article structure. "
             "If article evidence is available, cite it with [1], [2] style markers. "
             "If the graph context is weak, say so explicitly."
         )
@@ -2697,7 +2479,7 @@ class KnowledgeGraphService:
         messages.append({"role": "user", "content": prompt})
         return messages
 
-    def _build_fallback_answer(
+    def _build_generic_graph_fallback_answer(
         self,
         *,
         question: str,
@@ -2710,16 +2492,12 @@ class KnowledgeGraphService:
             return f"当前知识图谱没有找到与“{question}”直接匹配的节点。"
 
         node_labels = "、".join(node["label"] for node in matched_nodes[:5])
-        community_labels = "、".join(
-            community["label"] for community in graph_context["matched_communities"][:3]
-        ) or "暂无明显社区"
         article_titles = "；".join(
             (article.get("title_zh") or article.get("title") or "")[:60]
             for article in related_articles[:3]
         ) or "暂无相关文章"
         return (
             f"图谱模式({resolved_mode})命中了这些核心节点：{node_labels}。"
-            f"相关社区包括：{community_labels}。"
             f"可继续参考的文章有：{article_titles}。"
         )
 
@@ -2734,7 +2512,6 @@ class KnowledgeGraphService:
 
     def _render_report(self, snapshot: Dict[str, Any]) -> str:
         stats = snapshot.get("stats", {})
-        communities = snapshot.get("communities", [])[:8]
         nodes = snapshot.get("god_nodes", [])[:10]
 
         lines = [
@@ -2751,16 +2528,7 @@ class KnowledgeGraphService:
         for node in nodes:
             lines.append(
                 f"- {node['label']} ({node['node_type']}): degree={node['degree']}, "
-                f"articles={node['article_count']}, community={node.get('community_id')}"
-            )
-
-        lines.append("")
-        lines.append("## Communities")
-        for community in communities:
-            lines.append(
-                f"- Community {community['community_id']}: {community['label']} "
-                f"(nodes={community['node_count']}, edges={community['edge_count']}, "
-                f"articles={community['article_count']})"
+                f"articles={node['article_count']}"
             )
         lines.append("")
         lines.append("## Node Types")
@@ -2829,32 +2597,49 @@ class KnowledgeGraphService:
             summary_parts.append(f"Content excerpt: {article.content[:3000]}")
         summary_parts.append(
             """
-Return JSON with this shape:
+你是 AI 领域知识图谱提取专家。请从 AI 新闻文章中提取结构化知识图谱。
+
+实体类型只能使用：Product, Organization, Platform, Technology, Concept, Feature。
+关系类型只能使用：DEVELOPED, BASED_ON, USES, SUPPORTS, HAS_FEATURE, SOLVES。
+
+规则：
+1. 同一实体多种叫法只输出一个实体，其他名称放入 aliases。
+2. 同名实体如果上下文含义或实体类型不同，不要合并。
+3. URL、时间、指标、组件数量不要提取成节点，放入 properties。
+4. 只输出高价值实体和明确关系。
+5. 返回 JSON only。
+
+输出格式：
 {
   "entities": [
     {
-      "label": "OpenAI",
-      "node_type": "org",
-      "aliases": ["Open AI"],
-      "confidence": "EXTRACTED",
-      "confidence_score": 0.95
+      "id": "实体在文中的名称",
+      "canonical_name": "标准名称",
+      "label": "Product | Organization | Platform | Technology | Concept | Feature",
+      "aliases": ["别名1", "别名2"],
+      "description": "一句话说明实体是什么",
+      "properties": {
+        "url": null,
+        "github_url": null,
+        "official_site": null,
+        "paper_url": null,
+        "model_url": null
+      }
     }
   ],
-  "relations": [
+  "relationships": [
     {
-      "source_label": "OpenAI",
-      "source_type": "org",
-      "target_label": "GPT-4.1",
-      "target_type": "model",
-      "relation_type": "develops",
-      "confidence": "EXTRACTED",
-      "confidence_score": 0.93,
-      "evidence_snippet": "OpenAI released GPT-4.1"
+      "source": "源实体 canonical_name",
+      "source_label": "源实体类型",
+      "target": "目标实体 canonical_name",
+      "target_label": "目标实体类型",
+      "type": "DEVELOPED | BASED_ON | USES | SUPPORTS | HAS_FEATURE | SOLVES",
+      "evidence_snippet": "原文证据片段",
+      "confidence": "EXTRACTED | INFERRED | AMBIGUOUS",
+      "confidence_score": 0.0
     }
   ]
 }
-Allowed node_type values: org, model, person, concept, dataset, benchmark, company, product, paper, topic.
-Use only 3-8 high-value entities and up to 8 relations.
 """
         )
         return "\n\n".join(summary_parts)
@@ -2925,13 +2710,302 @@ Use only 3-8 high-value entities and up to 8 relations.
             return "org" if safe == "organization" else safe
         return "concept"
 
+    def _normalize_domain_node_type(self, value: Any) -> str:
+        safe = self._normalize_node_type(str(value or "concept"))
+        return DOMAIN_NODE_TYPE_ALIASES.get(safe, "concept")
+
+    def _normalize_domain_relation_type(self, value: Any) -> Optional[str]:
+        raw = str(value or "").strip()
+        if not raw:
+            return None
+        normalized = self._normalize_text(raw).replace("-", "_").replace(" ", "_")
+        alias_map = {
+            "developed": "DEVELOPED",
+            "develops": "DEVELOPED",
+            "released": "DEVELOPED",
+            "launched": "DEVELOPED",
+            "built": "DEVELOPED",
+            "created": "DEVELOPED",
+            "based_on": "BASED_ON",
+            "basedon": "BASED_ON",
+            "follows": "BASED_ON",
+            "uses": "USES",
+            "use": "USES",
+            "integrates": "USES",
+            "supports": "SUPPORTS",
+            "support": "SUPPORTS",
+            "compatible_with": "SUPPORTS",
+            "has_feature": "HAS_FEATURE",
+            "feature": "HAS_FEATURE",
+            "provides": "HAS_FEATURE",
+            "solves": "SOLVES",
+            "addresses": "SOLVES",
+            "targets": "SOLVES",
+        }
+        if raw.upper() in DOMAIN_RELATION_TYPES:
+            return raw.upper()
+        return alias_map.get(normalized)
+
+    def _canonicalize_entity_name(self, name: str, node_type: str) -> str:
+        normalized = self._normalize_text(name)
+        canonical = CANONICAL_NAME_ALIAS_MAP.get(normalized, name.strip())
+        return canonical[:500]
+
+    def _merge_aliases(self, existing_aliases: Sequence[str], new_names: Sequence[str], canonical_name: str) -> List[str]:
+        aliases: List[str] = []
+        seen: Set[str] = set()
+        canonical_norm = self._normalize_text(canonical_name)
+        for raw_name in [*(existing_aliases or []), *(new_names or [])]:
+            name = str(raw_name or "").strip()
+            if not name:
+                continue
+            if self._normalize_text(name) == canonical_norm:
+                continue
+            key = self._normalize_text(name)
+            if key in seen:
+                continue
+            seen.add(key)
+            aliases.append(name[:500])
+        return aliases
+
+    def _description_meaning_matches(self, left: str, right: str) -> bool:
+        left_tokens = self._question_tokens(left)
+        right_tokens = self._question_tokens(right)
+        if not left_tokens or not right_tokens:
+            return False
+        overlap = len(left_tokens & right_tokens)
+        minimum = min(len(left_tokens), len(right_tokens))
+        return overlap >= max(2, minimum)
+
+    def _resolve_existing_entity_node(self, spec: NodeSpec) -> Optional[KnowledgeGraphNode]:
+        metadata = spec.get("metadata") or {}
+        node_type = spec["node_type"]
+        for field in STRONG_IDENTITY_FIELDS:
+            value = metadata.get(field)
+            if not value:
+                continue
+            row = (
+                self.db.query(KnowledgeGraphNode)
+                .filter(KnowledgeGraphNode.node_type == node_type)
+                .filter(func.json_extract(KnowledgeGraphNode.metadata_json, f'$.{field}') == value)
+                .first()
+            )
+            if row:
+                return row
+
+        canonical_name = self._normalize_text(str(metadata.get("canonical_name") or spec["label"]))
+        candidates = self.db.query(KnowledgeGraphNode).filter(KnowledgeGraphNode.node_type == node_type).all()
+        for row in candidates:
+            row_canonical = self._normalize_text(str((row.metadata_json or {}).get("canonical_name") or row.label))
+            if row_canonical == canonical_name:
+                return row
+
+        spec_aliases = {self._normalize_text(alias) for alias in self._coerce_string_list(spec.get("aliases"))}
+        spec_aliases.add(canonical_name)
+        for row in candidates:
+            row_aliases = {self._normalize_text(alias) for alias in (row.aliases or [])}
+            row_aliases.add(self._normalize_text(row.label))
+            row_aliases.add(self._normalize_text(str((row.metadata_json or {}).get("canonical_name") or row.label)))
+            if spec_aliases & row_aliases:
+                return row
+
+        spec_description = str(metadata.get("description") or "").strip()
+        if spec_description:
+            for row in candidates:
+                row_description = str((row.metadata_json or {}).get("description") or "").strip()
+                if row_description and self._description_meaning_matches(spec_description, row_description):
+                    return row
+        return None
+
+    def _extract_structured_graph_query(self, question: str) -> Dict[str, Any]:
+        normalized = self._normalize_text(question)
+        target_type = "product"
+        if any(token in normalized for token in ["应用", "产品", "项目", "框架", "工具", "模型"]):
+            target_type = "product"
+
+        conditions: List[Dict[str, Any]] = []
+        if any(token in normalized for token in ["agent-to-ui", "a2ui", "agent to ui"]):
+            conditions.append(
+                {
+                    "relation_type": "BASED_ON",
+                    "target_type": "concept",
+                    "target_terms": ["Agent-to-UI", "A2UI"],
+                }
+            )
+        if any(token in normalized for token in ["跨平台", "多端", "多端ui适配", "ui 适配", "ui适配"]):
+            conditions.append(
+                {
+                    "relation_type": "SOLVES",
+                    "target_type": "feature",
+                    "target_terms": ["跨平台", "多端 UI 适配", "多端UI适配"],
+                }
+            )
+        return {
+            "target_type": target_type,
+            "conditions": conditions,
+        }
+
+    def _edge_is_allowed_for_structured_query(self, edge: KnowledgeGraphEdge) -> bool:
+        if float(edge.confidence_score or 0.0) < 0.6:
+            return False
+        if edge.confidence == "AMBIGUOUS":
+            return False
+        if edge.confidence == "INFERRED" and float(edge.confidence_score or 0.0) < 0.75:
+            return False
+        return True
+
+    def _node_matches_terms(self, node: KnowledgeGraphNode, terms: Sequence[str]) -> bool:
+        haystacks = {
+            self._normalize_text(node.label),
+            self._normalize_text(str((node.metadata_json or {}).get("canonical_name") or "")),
+            *[self._normalize_text(alias) for alias in (node.aliases or [])],
+        }
+        for term in terms:
+            normalized_term = self._normalize_text(term)
+            if any(normalized_term and normalized_term in hay for hay in haystacks):
+                return True
+        return False
+
+    def _execute_structured_graph_query(self, parsed_query: Dict[str, Any], *, limit: int) -> List[Dict[str, Any]]:
+        target_type = parsed_query.get("target_type") or "product"
+        candidates = self.db.query(KnowledgeGraphNode).filter(KnowledgeGraphNode.node_type == target_type).all()
+        results: List[Dict[str, Any]] = []
+        for candidate in candidates:
+            matched_edges: List[Dict[str, Any]] = []
+            matched_article_ids: Set[int] = set()
+            all_conditions_passed = True
+            for condition in parsed_query.get("conditions", []):
+                relation_type = condition.get("relation_type")
+                condition_target_type = condition.get("target_type")
+                condition_terms = condition.get("target_terms") or []
+                condition_matched = False
+                edges = (
+                    self.db.query(KnowledgeGraphEdge, KnowledgeGraphNode)
+                    .join(KnowledgeGraphNode, KnowledgeGraphEdge.target_node_id == KnowledgeGraphNode.id)
+                    .filter(KnowledgeGraphEdge.source_node_id == candidate.id)
+                    .filter(KnowledgeGraphEdge.relation_type == relation_type)
+                    .filter(KnowledgeGraphNode.node_type == condition_target_type)
+                    .all()
+                )
+                for edge, target_node in edges:
+                    if not self._edge_is_allowed_for_structured_query(edge):
+                        continue
+                    if not self._node_matches_terms(target_node, condition_terms):
+                        continue
+                    condition_matched = True
+                    if edge.source_article_id:
+                        matched_article_ids.add(int(edge.source_article_id))
+                    matched_edges.append(
+                        {
+                            "source_node_key": candidate.node_key,
+                            "target_node_key": target_node.node_key,
+                            "relation_type": edge.relation_type,
+                            "confidence": edge.confidence,
+                            "confidence_score": float(edge.confidence_score or 0.0),
+                            "weight": float(edge.weight or 1.0),
+                            "source_article_id": edge.source_article_id,
+                            "source_label": candidate.label,
+                            "target_label": target_node.label,
+                            "evidence_snippet": edge.evidence_snippet,
+                            "metadata": edge.metadata_json or {},
+                        }
+                    )
+                if not condition_matched:
+                    all_conditions_passed = False
+                    break
+            if not all_conditions_passed:
+                continue
+            related_articles = [
+                article
+                for article in (
+                    self._serialize_article_reference(article_id, relation_count=len(matched_edges))
+                    for article_id in sorted(matched_article_ids)
+                )
+                if article
+            ]
+            results.append(
+                {
+                    "node": self._serialize_node_summary(candidate),
+                    "matched_edges": matched_edges,
+                    "related_articles": related_articles,
+                }
+            )
+        results.sort(
+            key=lambda item: (
+                -len(item.get("matched_edges", [])),
+                -(item.get("node", {}).get("article_count") or 0),
+                item.get("node", {}).get("label", ""),
+            )
+        )
+        return results[:limit]
+
+    def _serialize_node_summary(self, node: KnowledgeGraphNode) -> Dict[str, Any]:
+        article_count = int(
+            self.db.query(func.count(KnowledgeGraphEdge.id))
+            .filter(
+                or_(
+                    KnowledgeGraphEdge.source_node_id == node.id,
+                    KnowledgeGraphEdge.target_node_id == node.id,
+                )
+            )
+            .filter(KnowledgeGraphEdge.source_article_id.isnot(None))
+            .scalar()
+            or 0
+        )
+        return {
+            "node_key": node.node_key,
+            "label": node.label,
+            "node_type": node.node_type,
+            "aliases": node.aliases or [],
+            "metadata": node.metadata_json or {},
+            "degree": int(
+                self.db.query(func.count(KnowledgeGraphEdge.id))
+                .filter(
+                    or_(
+                        KnowledgeGraphEdge.source_node_id == node.id,
+                        KnowledgeGraphEdge.target_node_id == node.id,
+                    )
+                )
+                .scalar()
+                or 0
+            ),
+            "article_count": article_count,
+            "centrality": 0.0,
+            "layout_x": None,
+            "layout_y": None,
+        }
+
+    def _build_structured_query_answer(
+        self,
+        question: str,
+        parsed_query: Dict[str, Any],
+        results: Sequence[Dict[str, Any]],
+    ) -> str:
+        if not results:
+            return f"当前知识图谱没有找到满足“{question}”条件的结果。"
+        top = results[0]
+        node = top.get("node") or {}
+        edge_summaries = []
+        for edge in top.get("matched_edges", [])[:4]:
+            edge_summaries.append(f"{edge['relation_type']} -> {edge.get('target_label') or edge['target_node_key'].split(':', 1)[-1]}")
+        summary_text = "；".join(edge_summaries) or "无关系摘要"
+        return f"根据知识图谱检索，命中结果：{node.get('label')}。满足条件的关系包括：{summary_text}。"
+
     def _normalize_run_mode(self, run_mode: str) -> str:
         normalized = str(run_mode or "auto").strip().lower()
+        if normalized in REMOVED_RUN_MODES:
+            return normalized
         return normalized if normalized in ALLOWED_RUN_MODES else "auto"
 
     def _resolve_run_mode(self, run_mode: str) -> str:
         if run_mode == "auto":
-            return "agent" if self.ai_analyzer else "deterministic"
+            if not self.ai_analyzer:
+                raise ValueError("Strict ontology extraction requires a configured knowledge-graph AI provider")
+            return "agent"
+        if run_mode == "deterministic":
+            raise ValueError("Deterministic graph extraction has been removed; please use agent mode")
+        if run_mode == "agent" and not self.ai_analyzer:
+            raise ValueError("Strict ontology extraction requires a configured knowledge-graph AI provider")
         return run_mode
 
     def _normalize_query_mode(self, mode: str) -> str:

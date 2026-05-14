@@ -35,6 +35,8 @@ const canvasContextMock = {
   beginPath: vi.fn(),
   moveTo: vi.fn(),
   lineTo: vi.fn(),
+  quadraticCurveTo: vi.fn(),
+  closePath: vi.fn(),
   stroke: vi.fn(),
   save: vi.fn(),
   translate: vi.fn(),
@@ -44,9 +46,16 @@ const canvasContextMock = {
   fill: vi.fn(),
   strokeText: vi.fn(),
   fillText: vi.fn(),
+  measureText: vi.fn((text: string) => ({ width: String(text || '').length * 8 })),
 };
 
 Object.defineProperty(window.HTMLCanvasElement.prototype, 'getContext', {
   writable: true,
   value: vi.fn(() => canvasContextMock),
+});
+
+const originalGetComputedStyle = window.getComputedStyle.bind(window);
+Object.defineProperty(window, 'getComputedStyle', {
+  writable: true,
+  value: vi.fn((element: Element) => originalGetComputedStyle(element)),
 });

@@ -5,6 +5,7 @@ export type CollectionTaskStatusType = 'running' | 'completed' | 'error';
 export type NotificationPlatform = 'feishu' | 'dingtalk';
 export type MessageRole = 'user' | 'assistant';
 export type AIQueryEngine = 'auto' | 'rag' | 'graph' | 'hybrid';
+export type KnowledgeGraphQueryStrategy = 'structured' | 'generic_graph';
 
 export interface Article {
   id: number;
@@ -368,7 +369,7 @@ export interface ConversationArticleReference {
 export interface KnowledgeGraphSettings {
   enabled: boolean;
   auto_sync_enabled: boolean;
-  run_mode: 'auto' | 'agent' | 'deterministic';
+  run_mode: 'auto' | 'agent';
   max_articles_per_sync: number;
   query_depth: number;
 }
@@ -398,7 +399,6 @@ export interface KnowledgeGraphNodeSummary {
   metadata: Record<string, unknown>;
   degree: number;
   article_count: number;
-  community_id?: number | null;
   centrality: number;
   layout_x?: number | null;
   layout_y?: number | null;
@@ -412,6 +412,8 @@ export interface KnowledgeGraphEdgeSummary {
   confidence_score: number;
   weight: number;
   source_article_id?: number | null;
+  source_label?: string | null;
+  target_label?: string | null;
   evidence_snippet?: string | null;
   metadata?: Record<string, unknown> | null;
 }
@@ -419,15 +421,6 @@ export interface KnowledgeGraphEdgeSummary {
 export interface KnowledgeGraphArticleReference extends ConversationArticleReference {
   relation_count: number;
   distance?: number | null;
-}
-
-export interface KnowledgeGraphCommunitySummary {
-  community_id: number;
-  label: string;
-  node_count: number;
-  edge_count: number;
-  article_count: number;
-  top_nodes: KnowledgeGraphNodeSummary[];
 }
 
 export interface KnowledgeGraphLinkSummary {
@@ -442,7 +435,6 @@ export interface KnowledgeGraphStatsResponse {
   enabled: boolean;
   total_nodes: number;
   total_edges: number;
-  total_article_nodes: number;
   total_articles: number;
   synced_articles: number;
   failed_articles: number;
@@ -451,14 +443,13 @@ export interface KnowledgeGraphStatsResponse {
   node_type_counts: Record<string, number>;
   relation_type_counts: Record<string, number>;
   top_nodes: KnowledgeGraphNodeSummary[];
-  top_communities: KnowledgeGraphCommunitySummary[];
   last_build?: KnowledgeGraphBuildSummary | null;
 }
 
 export interface KnowledgeGraphSyncRequest {
   article_ids?: number[] | null;
   force_rebuild?: boolean;
-  sync_mode?: 'auto' | 'agent' | 'deterministic' | null;
+  sync_mode?: 'auto' | 'agent' | null;
   max_articles?: number | null;
   trigger_source?: string;
 }
@@ -494,7 +485,7 @@ export interface KnowledgeGraphIntegrityRepairRequest {
   resync_suspects?: boolean;
   keyword?: string | null;
   limit?: number;
-  sync_mode?: 'auto' | 'agent' | 'deterministic' | null;
+  sync_mode?: 'auto' | 'agent' | null;
 }
 
 export interface KnowledgeGraphIntegrityRepairResponse {
@@ -520,20 +511,6 @@ export interface KnowledgeGraphNodeDetail {
   neighbors: KnowledgeGraphNodeSummary[];
   edges: KnowledgeGraphEdgeSummary[];
   related_articles: KnowledgeGraphArticleReference[];
-  matched_communities: KnowledgeGraphCommunitySummary[];
-}
-
-export interface KnowledgeGraphCommunityListResponse {
-  items: KnowledgeGraphCommunitySummary[];
-  total: number;
-}
-
-export interface KnowledgeGraphCommunityDetail {
-  community: KnowledgeGraphCommunitySummary;
-  nodes: KnowledgeGraphNodeSummary[];
-  articles: KnowledgeGraphArticleReference[];
-  summary_text: string;
-  relation_types: string[];
 }
 
 export interface KnowledgeGraphPathRequest {
@@ -563,9 +540,9 @@ export interface KnowledgeGraphQueryResponse {
   question: string;
   mode: AIQueryEngine;
   resolved_mode: AIQueryEngine;
+  query_strategy: KnowledgeGraphQueryStrategy;
   answer: string;
   matched_nodes: KnowledgeGraphNodeSummary[];
-  matched_communities: KnowledgeGraphCommunitySummary[];
   related_articles: KnowledgeGraphArticleReference[];
   context_node_count: number;
   context_edge_count: number;
@@ -576,8 +553,8 @@ export interface KnowledgeGraphStreamChunk {
   data: {
     mode?: AIQueryEngine;
     resolved_mode?: AIQueryEngine;
+    query_strategy?: KnowledgeGraphQueryStrategy;
     matched_nodes?: KnowledgeGraphNodeSummary[];
-    matched_communities?: KnowledgeGraphCommunitySummary[];
     related_articles?: KnowledgeGraphArticleReference[];
     context_node_count?: number;
     context_edge_count?: number;
@@ -586,12 +563,41 @@ export interface KnowledgeGraphStreamChunk {
   };
 }
 
+export interface KnowledgeGraphStructuredCondition {
+  relation_type: string;
+  target_type: string;
+  target_terms: string[];
+}
+
+export interface KnowledgeGraphStructuredParsedQuery {
+  target_type: string;
+  conditions: KnowledgeGraphStructuredCondition[];
+}
+
+export interface KnowledgeGraphStructuredResult {
+  node: KnowledgeGraphNodeSummary;
+  matched_edges: KnowledgeGraphEdgeSummary[];
+  related_articles: KnowledgeGraphArticleReference[];
+}
+
+export interface KnowledgeGraphStructuredQueryRequest {
+  question: string;
+  top_k?: number;
+}
+
+export interface KnowledgeGraphStructuredQueryResponse {
+  question: string;
+  parsed_query: KnowledgeGraphStructuredParsedQuery;
+  results: KnowledgeGraphStructuredResult[];
+  related_articles: KnowledgeGraphArticleReference[];
+  answer: string;
+}
+
 export interface KnowledgeGraphArticleContextResponse {
   article_id: number;
   article?: KnowledgeGraphArticleReference | null;
   nodes: KnowledgeGraphNodeSummary[];
   edges: KnowledgeGraphEdgeSummary[];
-  communities: KnowledgeGraphCommunitySummary[];
   related_articles: KnowledgeGraphArticleReference[];
 }
 
@@ -600,7 +606,6 @@ export interface KnowledgeGraphSnapshotResponse {
   build?: KnowledgeGraphBuildSummary | null;
   nodes: KnowledgeGraphNodeSummary[];
   links: KnowledgeGraphLinkSummary[];
-  communities: KnowledgeGraphCommunitySummary[];
   total_nodes: number;
   total_links: number;
   available_node_types: string[];

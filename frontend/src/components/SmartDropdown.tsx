@@ -291,7 +291,6 @@ export default function SmartDropdown({
       window.addEventListener('keydown', handleKeyDown, true);
       return () => window.removeEventListener('keydown', handleKeyDown, true);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isZeroState, options.length, highlightedIndex, query, isUrlInput, isCollecting, handleCollectUrl, handleCreateIndex, onSelectAIQuery, onSelectArticle]);
 
   // 响应式：检测移动端

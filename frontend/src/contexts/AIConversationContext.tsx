@@ -4,7 +4,6 @@ import type {
   AIQueryEngine,
   ArticleSearchResult,
   KnowledgeGraphArticleReference,
-  KnowledgeGraphCommunitySummary,
   KnowledgeGraphNodeSummary,
 } from '@/types';
 
@@ -18,7 +17,6 @@ export interface Message {
   articles?: ArticleSearchResult[];
   sources?: string[];
   matchedNodes?: KnowledgeGraphNodeSummary[];
-  matchedCommunities?: KnowledgeGraphCommunitySummary[];
   relatedArticles?: KnowledgeGraphArticleReference[];
   contextNodeCount?: number;
   contextEdgeCount?: number;

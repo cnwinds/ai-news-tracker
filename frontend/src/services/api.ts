@@ -61,12 +61,12 @@ import type {
   KnowledgeGraphBuildSummary,
   KnowledgeGraphNodeListResponse,
   KnowledgeGraphNodeDetail,
-  KnowledgeGraphCommunityListResponse,
-  KnowledgeGraphCommunityDetail,
   KnowledgeGraphPathRequest,
   KnowledgeGraphPathResponse,
   KnowledgeGraphQueryRequest,
   KnowledgeGraphQueryResponse,
+  KnowledgeGraphStructuredQueryRequest,
+  KnowledgeGraphStructuredQueryResponse,
   KnowledgeGraphArticleContextResponse,
   KnowledgeGraphSnapshotResponse,
   RAGStreamChunk,
@@ -859,7 +859,6 @@ class ApiService {
   }
 
   async getKnowledgeGraphSnapshot(params?: {
-    community_id?: number;
     node_type?: string;
     q?: string;
     limit_nodes?: number;
@@ -867,7 +866,6 @@ class ApiService {
     expand_depth?: number;
   }): Promise<KnowledgeGraphSnapshotResponse> {
     const queryParams = new URLSearchParams();
-    if (params?.community_id !== undefined) queryParams.append('community_id', params.community_id.toString());
     if (params?.node_type) queryParams.append('node_type', params.node_type);
     if (params?.q) queryParams.append('q', params.q);
     if (params?.limit_nodes !== undefined) queryParams.append('limit_nodes', params.limit_nodes.toString());
@@ -935,18 +933,6 @@ class ApiService {
     );
   }
 
-  async getKnowledgeGraphCommunities(limit: number = 20): Promise<KnowledgeGraphCommunityListResponse> {
-    return this.handleRequest(
-      this.client.get<KnowledgeGraphCommunityListResponse>(`/knowledge-graph/communities?limit=${limit}`)
-    );
-  }
-
-  async getKnowledgeGraphCommunity(communityId: number): Promise<KnowledgeGraphCommunityDetail> {
-    return this.handleRequest(
-      this.client.get<KnowledgeGraphCommunityDetail>(`/knowledge-graph/communities/${communityId}`)
-    );
-  }
-
   async findKnowledgeGraphPath(request: KnowledgeGraphPathRequest): Promise<KnowledgeGraphPathResponse> {
     return this.handleRequest(
       this.client.post<KnowledgeGraphPathResponse>('/knowledge-graph/path', request)
@@ -956,6 +942,14 @@ class ApiService {
   async queryKnowledgeGraph(request: KnowledgeGraphQueryRequest): Promise<KnowledgeGraphQueryResponse> {
     return this.handleRequest(
       this.client.post<KnowledgeGraphQueryResponse>('/knowledge-graph/query', request)
+    );
+  }
+
+  async structuredQueryKnowledgeGraph(
+    request: KnowledgeGraphStructuredQueryRequest
+  ): Promise<KnowledgeGraphStructuredQueryResponse> {
+    return this.handleRequest(
+      this.client.post<KnowledgeGraphStructuredQueryResponse>('/knowledge-graph/structured-query', request)
     );
   }
 

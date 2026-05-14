@@ -21,10 +21,7 @@ import {
 } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 
-import KnowledgeGraphCanvas, {
-  COMMUNITY_PALETTE,
-  type KnowledgeGraphViewportState,
-} from '@/components/KnowledgeGraphCanvas';
+import KnowledgeGraphCanvas, { type KnowledgeGraphViewportState } from '@/components/KnowledgeGraphCanvas';
 import { apiService } from '@/services/api';
 import { useAIConversation } from '@/contexts/AIConversationContext';
 import { useKnowledgeGraphView } from '@/contexts/KnowledgeGraphViewContext';
@@ -36,12 +33,11 @@ import {
 } from '@/utils/knowledgeGraph';
 import type {
   AIQueryEngine,
-  KnowledgeGraphCommunitySummary,
   KnowledgeGraphNodeDetail,
   KnowledgeGraphSnapshotResponse,
 } from '@/types';
 
-const { Text, Title } = Typography;
+const { Paragraph, Text, Title } = Typography;
 
 const MIN_SCALE = 0.45;
 const MAX_SCALE = 3.2;
@@ -57,7 +53,6 @@ function getDefaultViewport(): KnowledgeGraphViewportState {
 export interface KnowledgeGraphExplorerProps {
   searchTerm: string;
   nodeTypeFilter?: string;
-  communityFilter?: number;
   limitNodes: number;
   onSnapshotChange?: (snapshot: KnowledgeGraphSnapshotResponse | undefined) => void;
 }
@@ -65,13 +60,12 @@ export interface KnowledgeGraphExplorerProps {
 export default function KnowledgeGraphExplorer({
   searchTerm,
   nodeTypeFilter,
-  communityFilter,
   limitNodes,
   onSnapshotChange,
 }: KnowledgeGraphExplorerProps) {
   const { theme } = useTheme();
   const { openModal, setSelectedEngine } = useAIConversation();
-  const { graphCommand, focusArticle, focusCommunity } = useKnowledgeGraphView();
+  const { graphCommand, focusArticle } = useKnowledgeGraphView();
 
   const [selectedNodeKey, setSelectedNodeKey] = useState<string>();
   const [focusNodeKeys, setFocusNodeKeys] = useState<string[]>([]);
@@ -99,7 +93,6 @@ export default function KnowledgeGraphExplorer({
       'knowledge-graph-snapshot',
       searchTerm,
       nodeTypeFilter,
-      communityFilter,
       limitNodes,
       focusNodeKeys.join('|'),
       expandDepth,
@@ -108,7 +101,6 @@ export default function KnowledgeGraphExplorer({
       apiService.getKnowledgeGraphSnapshot({
         q: searchTerm.trim() || undefined,
         node_type: nodeTypeFilter || undefined,
-        community_id: communityFilter,
         limit_nodes: limitNodes,
         focus_node_keys: focusNodeKeys.length > 0 ? focusNodeKeys : undefined,
         expand_depth: focusNodeKeys.length > 0 ? expandDepth : undefined,
@@ -127,7 +119,6 @@ export default function KnowledgeGraphExplorer({
 
   const nodes = snapshot?.nodes || [];
   const links = snapshot?.links || [];
-  const communities = snapshot?.communities || [];
 
   // Clear selection when node disappears from snapshot
   useEffect(() => {
@@ -183,11 +174,6 @@ export default function KnowledgeGraphExplorer({
     [focusNodeKeys, highlightedNodeKeys, nodes, selectedHopMap, selectedNeighborKeys, selectedNodeKey, viewport.scale]
   );
 
-  const selectedCommunity = useMemo(
-    () => communities.find((community) => community.community_id === communityFilter),
-    [communities, communityFilter]
-  );
-
   const clearExplorerState = useCallback(() => {
     setSelectedNodeKey(undefined);
     setFocusNodeKeys([]);
@@ -233,9 +219,8 @@ export default function KnowledgeGraphExplorer({
       if (expandDepth === 2) return `2跳邻域`;
       return '节点聚焦';
     }
-    if (communityFilter !== undefined) return `社区视图`;
     return '全局视图';
-  }, [communityFilter, expandDepth, focusNodeKeys.length, highlightedEdgeKeys.length]);
+  }, [expandDepth, focusNodeKeys.length, highlightedEdgeKeys.length]);
 
   const expandDepthLabel = expandDepth === 0 ? '聚焦' : `${expandDepth}跳邻域`;
 
@@ -286,7 +271,6 @@ export default function KnowledgeGraphExplorer({
             links={links}
             theme={theme}
             selectedNodeKey={selectedNodeKey}
-            selectedCommunity={selectedCommunity}
             focusNodeKeys={focusNodeKeys}
             highlightedNodeKeys={highlightedNodeKeys}
             highlightedEdgeKeys={highlightedEdgeKeySet}
@@ -356,7 +340,7 @@ export default function KnowledgeGraphExplorer({
             />
           </Tooltip>
           <div style={{ width: 24, height: 1, background: borderColor, margin: '2px auto' }} />
-          <Tooltip title={showLegend ? '关闭图例' : '显示社区图例'} placement="left">
+          <Tooltip title={showLegend ? '关闭图例' : '显示类型图例'} placement="left">
             <Button
               type={showLegend ? 'primary' : 'text'}
               size="small"
@@ -382,7 +366,7 @@ export default function KnowledgeGraphExplorer({
         </div>
 
         {/* Color legend overlay */}
-        {showLegend && communities.length > 0 && (
+        {showLegend && (snapshot?.available_node_types.length || 0) > 0 && (
           <div
             style={{
               position: 'absolute',
@@ -401,34 +385,17 @@ export default function KnowledgeGraphExplorer({
             }}
           >
             <Text style={{ fontSize: 11, color: textSecondary, display: 'block', marginBottom: 8, fontWeight: 600 }}>
-              社区图例
+              节点类型
             </Text>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-              {communities.slice(0, 12).map((community) => {
-                const color = COMMUNITY_PALETTE[Math.abs(community.community_id) % COMMUNITY_PALETTE.length];
-                return (
-                  <div key={community.community_id} style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                    <div
-                      style={{
-                        width: 10,
-                        height: 10,
-                        borderRadius: '50%',
-                        background: color,
-                        flexShrink: 0,
-                      }}
-                    />
-                    <Text style={{ fontSize: 11, color: textColor, lineHeight: '14px' }}>
-                      {community.label}
-                    </Text>
-                    <Text style={{ fontSize: 10, color: textSecondary, marginLeft: 'auto', flexShrink: 0 }}>
-                      {community.node_count}
-                    </Text>
-                  </div>
-                );
-              })}
-              {communities.length > 12 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {snapshot?.available_node_types.slice(0, 12).map((nodeType) => (
+                <Tag key={nodeType} color="blue" style={{ margin: 0 }}>
+                  {nodeType}
+                </Tag>
+              ))}
+              {(snapshot?.available_node_types.length || 0) > 12 && (
                 <Text style={{ fontSize: 10, color: textSecondary }}>
-                  +{communities.length - 12} 个社区...
+                  +{(snapshot?.available_node_types.length || 0) - 12} 个类型...
                 </Text>
               )}
             </div>
@@ -473,15 +440,7 @@ export default function KnowledgeGraphExplorer({
               </Tag>
             </>
           )}
-          {!focusNodeKeys.length && communityFilter !== undefined && (
-            <>
-              <Text style={{ fontSize: 11, color: textSecondary }}>·</Text>
-              <Tag color="purple" style={{ fontSize: 10, lineHeight: '16px', height: 18, padding: '0 6px' }}>
-                {viewStateLabel}
-              </Tag>
-            </>
-          )}
-          {!focusNodeKeys.length && communityFilter === undefined && (
+          {!focusNodeKeys.length && (
             <>
               <Text style={{ fontSize: 11, color: textSecondary }}>·</Text>
               <Text style={{ fontSize: 11, color: textSecondary }}>全局视图</Text>
@@ -534,7 +493,6 @@ export default function KnowledgeGraphExplorer({
                 detail={nodeDetail}
                 theme={theme}
                 onAsk={handleAskAboutNode}
-                onCommunityClick={(communityId) => focusCommunity(communityId)}
                 onFocusNeighborhood={(depth) => {
                   if (!selectedNodeKey) return;
                   setFocusNodeKeys([selectedNodeKey]);
@@ -557,7 +515,6 @@ function NodeDetailContent({
   detail,
   theme,
   onAsk,
-  onCommunityClick,
   onFocusNeighborhood,
   onNeighborClick,
   onArticleFocus,
@@ -565,34 +522,86 @@ function NodeDetailContent({
   detail?: KnowledgeGraphNodeDetail;
   theme: 'light' | 'dark';
   onAsk: (mode: AIQueryEngine) => void;
-  onCommunityClick: (communityId: number) => void;
   onFocusNeighborhood: (depth: number) => void;
   onNeighborClick: (nodeKey: string) => void;
   onArticleFocus: (articleId: number) => void;
 }) {
   const textColor = getThemeColor(theme, 'text');
+  const borderColor = getThemeColor(theme, 'border');
 
   if (!detail) {
     return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="节点详情不可用" />;
   }
 
+  const description = typeof detail.node.metadata?.description === 'string'
+    ? detail.node.metadata.description.trim()
+    : '';
+  const canonicalName = typeof detail.node.metadata?.canonical_name === 'string'
+    ? detail.node.metadata.canonical_name.trim()
+    : '';
+  const metadataEntries = Object.entries(detail.node.metadata || {})
+    .filter(([key]) => !['description', 'canonical_name', 'origin'].includes(key))
+    .filter(([, value]) => ['string', 'number', 'boolean'].includes(typeof value))
+    .filter(([, value]) => String(value).trim().length > 0)
+    .slice(0, 4);
+
   return (
     <Space direction="vertical" size="middle" style={{ width: '100%' }}>
       <div>
-        <Title level={5} style={{ margin: 0, color: textColor, wordBreak: 'break-word' }}>
-          {detail.node.label}
-        </Title>
+        <Space align="center" size={8} wrap style={{ marginBottom: 4 }}>
+          <Title level={5} style={{ margin: 0, color: textColor, wordBreak: 'break-word' }}>
+            {detail.node.label}
+          </Title>
+          <Tag color="blue" style={{ marginInlineEnd: 0 }}>
+            {detail.node.node_type}
+          </Tag>
+        </Space>
+        {description ? (
+          <Paragraph type="secondary" style={{ margin: '0 0 6px', fontSize: 12, lineHeight: 1.6 }}>
+            {description}
+          </Paragraph>
+        ) : null}
         <Text type="secondary" style={{ fontSize: 11 }}>{detail.node.node_key}</Text>
       </div>
 
       <Space wrap size={[6, 6]}>
-        <Tag color="blue">{detail.node.node_type}</Tag>
         <Tag>度 {detail.node.degree}</Tag>
         <Tag>文章 {detail.node.article_count}</Tag>
-        {detail.node.community_id != null && (
-          <Tag>社区 {detail.node.community_id}</Tag>
-        )}
+        <Tag>中心性 {detail.node.centrality.toFixed(2)}</Tag>
       </Space>
+
+      <div
+        style={{
+          border: `1px solid ${borderColor}`,
+          borderRadius: 10,
+          padding: 12,
+          background: theme === 'dark' ? 'rgba(15, 23, 42, 0.32)' : 'rgba(248, 250, 252, 0.92)',
+        }}
+      >
+        <Space direction="vertical" size={6} style={{ width: '100%' }}>
+          <Text strong style={{ fontSize: 12, color: textColor }}>节点数据</Text>
+          {canonicalName && canonicalName !== detail.node.label ? (
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              标准名: {canonicalName}
+            </Text>
+          ) : null}
+          {detail.node.aliases.length > 0 ? (
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              别名: {detail.node.aliases.join('、')}
+            </Text>
+          ) : null}
+          {metadataEntries.map(([key, value]) => (
+            <Text key={key} type="secondary" style={{ fontSize: 12, wordBreak: 'break-all' }}>
+              {key}: {String(value)}
+            </Text>
+          ))}
+          {!canonicalName && detail.node.aliases.length === 0 && metadataEntries.length === 0 ? (
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              暂无更多节点元数据
+            </Text>
+          ) : null}
+        </Space>
+      </div>
 
       <Space wrap size={[6, 6]}>
         <Button size="small" type="primary" icon={<CommentOutlined />} onClick={() => onAsk('graph')}>
@@ -604,24 +613,6 @@ function NodeDetailContent({
         </Button>
         <Button size="small" onClick={() => onFocusNeighborhood(2)}>2跳</Button>
       </Space>
-
-      {detail.matched_communities.length > 0 && (
-        <div>
-          <Text strong style={{ fontSize: 12, color: textColor }}>所在社区</Text>
-          <div style={{ marginTop: 6 }}>
-            {detail.matched_communities.map((community: KnowledgeGraphCommunitySummary) => (
-              <Tag
-                key={community.community_id}
-                color="purple"
-                style={{ cursor: 'pointer', marginBottom: 4 }}
-                onClick={() => onCommunityClick(community.community_id)}
-              >
-                {community.label}
-              </Tag>
-            ))}
-          </div>
-        </div>
-      )}
 
       <div>
         <Text strong style={{ fontSize: 12, color: textColor }}>邻居节点</Text>

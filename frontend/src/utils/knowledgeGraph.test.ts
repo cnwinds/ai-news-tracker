@@ -15,12 +15,11 @@ function makeNode(
   return {
     node_key: `node:${index}`,
     label: `Node ${index}`,
-    node_type: 'entity',
+    node_type: 'organization',
     aliases: [],
     metadata: {},
     degree: index,
     article_count: Math.max(1, index % 5),
-    community_id: 1,
     centrality: index / 100,
     ...overrides,
   };

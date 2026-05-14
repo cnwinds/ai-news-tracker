@@ -76,7 +76,7 @@ export default function AIConversationModal() {
     selectedEngine,
     setSelectedEngine,
   } = useAIConversation();
-  const { focusArticle, focusCommunity, focusNode } = useKnowledgeGraphView();
+  const { focusArticle, focusNode } = useKnowledgeGraphView();
 
   const [inputValue, setInputValue] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
@@ -145,7 +145,6 @@ export default function AIConversationModal() {
       articles: [],
       sources: [],
       matchedNodes: [],
-      matchedCommunities: [],
       relatedArticles: [],
       contextNodeCount: 0,
       contextEdgeCount: 0,
@@ -172,7 +171,6 @@ export default function AIConversationModal() {
     let receivedSources: string[] = [];
     let relatedArticles: KnowledgeGraphArticleReference[] = [];
     let matchedNodes = initialAssistantMessage.matchedNodes || [];
-    let matchedCommunities = initialAssistantMessage.matchedCommunities || [];
     let resolvedMode: AIQueryEngine = initialAssistantMessage.resolvedMode || engine;
     let contextNodeCount = 0;
     let contextEdgeCount = 0;
@@ -186,7 +184,6 @@ export default function AIConversationModal() {
         sources: receivedSources,
         relatedArticles,
         matchedNodes,
-        matchedCommunities,
         resolvedMode,
         contextNodeCount,
         contextEdgeCount,
@@ -203,7 +200,6 @@ export default function AIConversationModal() {
         sources: receivedSources,
         relatedArticles,
         matchedNodes,
-        matchedCommunities,
         resolvedMode,
         contextNodeCount,
         contextEdgeCount,
@@ -259,7 +255,6 @@ export default function AIConversationModal() {
       (chunk) => {
         if (chunk.type === 'graph_context') {
           matchedNodes = chunk.data.matched_nodes || [];
-          matchedCommunities = chunk.data.matched_communities || [];
           relatedArticles = chunk.data.related_articles || [];
           resolvedMode = chunk.data.resolved_mode || engine;
           contextNodeCount = chunk.data.context_node_count || 0;
@@ -267,7 +262,6 @@ export default function AIConversationModal() {
           updateAssistantMessage(assistantMessageId, (message) => ({
             ...message,
             matchedNodes,
-            matchedCommunities,
             relatedArticles,
             resolvedMode,
             contextNodeCount,
@@ -503,7 +497,7 @@ export default function AIConversationModal() {
                           </Space>
                         )}
 
-                        {!isUser && (message.matchedNodes?.length || message.matchedCommunities?.length) ? (
+                        {!isUser && message.matchedNodes?.length ? (
                           <div style={{ marginBottom: 8, width: '100%' }}>
                             <CardLike theme={theme}>
                               <Space direction="vertical" size="small" style={{ width: '100%' }}>
@@ -518,25 +512,6 @@ export default function AIConversationModal() {
                                             onClick={() => focusNode(node.node_key)}
                                           >
                                             {node.label} / {node.node_type}
-                                          </Tag>
-                                        ))
-                                    ) : (
-                                      <Text type="secondary">暂无</Text>
-                                    )}
-                                  </div>
-                                </div>
-                                <div>
-                                  <Text strong>命中社区</Text>
-                                    <div style={{ marginTop: 8 }}>
-                                      {message.matchedCommunities?.length ? (
-                                        message.matchedCommunities.map((community) => (
-                                          <Tag
-                                            key={community.community_id}
-                                            color="blue"
-                                            style={{ cursor: 'pointer' }}
-                                            onClick={() => focusCommunity(community.community_id)}
-                                          >
-                                            {community.label}
                                           </Tag>
                                         ))
                                     ) : (
