@@ -7,7 +7,15 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
 from backend.app.db import DatabaseManager
-from backend.app.db.models import AppSettings, Article, Base, LLMProvider, RSSSource
+from backend.app.db.models import (
+    AppSettings,
+    Article,
+    Base,
+    DailySummary,
+    IndustryGraphEntity,
+    LLMProvider,
+    RSSSource,
+)
 
 
 class LegacyDatabaseMigrationTests(unittest.TestCase):
@@ -73,6 +81,19 @@ class LegacyDatabaseMigrationTests(unittest.TestCase):
                         enabled=True,
                     )
                 )
+                session.add(
+                    DailySummary(
+                        summary_type="daily",
+                        summary_date=datetime(2026, 5, 1),
+                        start_date=datetime(2026, 5, 1),
+                        end_date=datetime(2026, 5, 2),
+                        total_articles=1,
+                        high_importance_count=1,
+                        medium_importance_count=0,
+                        summary_content="旧库内容总结",
+                        key_topics=["agent"],
+                    )
+                )
                 session.commit()
                 with legacy_engine.connect() as conn:
                     conn.execute(text("CREATE TABLE knowledge_graph_nodes (id INTEGER PRIMARY KEY, name TEXT)"))
@@ -91,6 +112,7 @@ class LegacyDatabaseMigrationTests(unittest.TestCase):
                     self.assertEqual(migrated.query(Article).count(), 1)
                     self.assertEqual(migrated.query(RSSSource).count(), 1)
                     self.assertEqual(migrated.query(LLMProvider).count(), 1)
+                    self.assertEqual(migrated.query(DailySummary).count(), 1)
                     self.assertIsNotNone(
                         migrated.query(AppSettings)
                         .filter(AppSettings.key == "legacy_ai_news_migration_completed_at")
@@ -112,6 +134,76 @@ class LegacyDatabaseMigrationTests(unittest.TestCase):
                         "SELECT name FROM sqlite_master WHERE type='table' AND name='knowledge_graph_nodes'"
                     ).fetchone()
                     self.assertIsNone(legacy_table)
+            finally:
+                manager.engine.dispose()
+
+    def test_backfills_daily_summaries_without_touching_existing_industry_graph(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            legacy_path = temp_path / "ai_news.db"
+            target_path = temp_path / "ai_news_v2.db"
+
+            legacy_engine = create_engine(f"sqlite:///{legacy_path.as_posix()}")
+            Base.metadata.create_all(bind=legacy_engine)
+            SessionLocal = sessionmaker(bind=legacy_engine, autoflush=False, autocommit=False)
+            legacy_session = SessionLocal()
+            try:
+                legacy_session.add(
+                    DailySummary(
+                        summary_type="daily",
+                        summary_date=datetime(2026, 5, 2),
+                        start_date=datetime(2026, 5, 2),
+                        end_date=datetime(2026, 5, 3),
+                        total_articles=2,
+                        high_importance_count=1,
+                        medium_importance_count=1,
+                        summary_content="需要补迁的内容总结",
+                        key_topics=["graph"],
+                    )
+                )
+                legacy_session.commit()
+            finally:
+                legacy_session.close()
+                legacy_engine.dispose()
+
+            target_engine = create_engine(f"sqlite:///{target_path.as_posix()}")
+            Base.metadata.create_all(bind=target_engine)
+            TargetSessionLocal = sessionmaker(bind=target_engine, autoflush=False, autocommit=False)
+            target_session = TargetSessionLocal()
+            try:
+                target_session.add(
+                    AppSettings(
+                        key="legacy_ai_news_migration_completed_at",
+                        value="2026-05-19T10:00:00",
+                        value_type="string",
+                    )
+                )
+                target_session.add(
+                    IndustryGraphEntity(
+                        entity_key="technology:existing",
+                        entity_type="Technology",
+                        canonical_name="Existing Graph Node",
+                        normalized_name="existing graph node",
+                    )
+                )
+                target_session.commit()
+            finally:
+                target_session.close()
+                target_engine.dispose()
+
+            manager = DatabaseManager(
+                database_url=f"sqlite:///{target_path.as_posix()}",
+                legacy_database_url=f"sqlite:///{legacy_path.as_posix()}",
+            )
+            try:
+                with manager.get_session() as migrated:
+                    self.assertEqual(migrated.query(DailySummary).count(), 1)
+                    self.assertEqual(migrated.query(IndustryGraphEntity).count(), 1)
+                    self.assertIsNotNone(
+                        migrated.query(AppSettings)
+                        .filter(AppSettings.key == "legacy_daily_summaries_migration_completed_at")
+                        .first()
+                    )
             finally:
                 manager.engine.dispose()
 

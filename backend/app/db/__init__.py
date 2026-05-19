@@ -237,56 +237,98 @@ class DatabaseManager:
             return
 
         marker_key = "legacy_ai_news_migration_completed_at"
+        daily_summary_marker_key = "legacy_daily_summaries_migration_completed_at"
+        source_conn = sqlite3.connect(str(legacy_path))
+        source_conn.row_factory = sqlite3.Row
         try:
-            with self.engine.connect() as conn:
-                existing_marker = conn.execute(
-                    text("SELECT value FROM app_settings WHERE key = :key"),
-                    {"key": marker_key},
-                ).fetchone()
-                if existing_marker:
+            existing_marker = self._migration_marker_exists(marker_key)
+            if existing_marker:
+                migrated_daily_summaries = self._copy_legacy_table_once(
+                    source_conn,
+                    "daily_summaries",
+                    daily_summary_marker_key,
+                    f"旧 ai_news.db 内容总结补迁完成，来源：{legacy_path}",
+                )
+                if migrated_daily_summaries:
+                    logger.info("✅ 已补迁内容总结记录: %s", migrated_daily_summaries)
+                else:
                     logger.info("ℹ️  旧库迁移已完成，跳过重复迁移")
-                    return
+                return
         except Exception as e:
             logger.warning("⚠️  检查旧库迁移标记失败，将尝试继续迁移: %s", e)
+        finally:
+            if 'existing_marker' in locals() and existing_marker:
+                source_conn.close()
 
         logger.info("🔄 检测到旧数据库，开始迁移文章和基础配置: %s -> %s", legacy_path, target_path)
         migrated_counts = {}
-        source_conn = sqlite3.connect(str(legacy_path))
-        source_conn.row_factory = sqlite3.Row
         try:
             for table_name in [
                 "rss_sources",
                 "articles",
+                "daily_summaries",
                 "app_settings",
                 "llm_providers",
                 "image_providers",
             ]:
                 migrated_counts[table_name] = self._copy_legacy_table(source_conn, table_name)
 
-            with self.engine.connect() as conn:
-                conn.execute(
-                    text(
-                        """
-                        INSERT OR REPLACE INTO app_settings
-                            (key, value, value_type, description, created_at, updated_at)
-                        VALUES
-                            (:key, :value, 'string', :description, :created_at, :updated_at)
-                        """
-                    ),
-                    {
-                        "key": marker_key,
-                        "value": datetime.now().isoformat(timespec="seconds"),
-                        "description": f"旧 ai_news.db 自动迁移完成，来源：{legacy_path}",
-                        "created_at": datetime.now(),
-                        "updated_at": datetime.now(),
-                    },
-                )
-                conn.commit()
+            self._write_migration_marker(
+                marker_key,
+                f"旧 ai_news.db 自动迁移完成，来源：{legacy_path}",
+            )
+            self._write_migration_marker(
+                daily_summary_marker_key,
+                f"旧 ai_news.db 内容总结迁移完成，来源：{legacy_path}",
+            )
             logger.info("✅ 旧库迁移完成: %s", migrated_counts)
         except Exception as e:
             logger.warning("⚠️  旧库自动迁移失败，应用会继续启动，请检查后手动迁移: %s", e, exc_info=True)
         finally:
             source_conn.close()
+
+    def _migration_marker_exists(self, marker_key: str) -> bool:
+        with self.engine.connect() as conn:
+            row = conn.execute(
+                text("SELECT value FROM app_settings WHERE key = :key"),
+                {"key": marker_key},
+            ).fetchone()
+            return row is not None
+
+    def _write_migration_marker(self, marker_key: str, description: str) -> None:
+        with self.engine.connect() as conn:
+            now = datetime.now()
+            conn.execute(
+                text(
+                    """
+                    INSERT OR REPLACE INTO app_settings
+                        (key, value, value_type, description, created_at, updated_at)
+                    VALUES
+                        (:key, :value, 'string', :description, :created_at, :updated_at)
+                    """
+                ),
+                {
+                    "key": marker_key,
+                    "value": now.isoformat(timespec="seconds"),
+                    "description": description,
+                    "created_at": now,
+                    "updated_at": now,
+                },
+            )
+            conn.commit()
+
+    def _copy_legacy_table_once(
+        self,
+        source_conn: sqlite3.Connection,
+        table_name: str,
+        marker_key: str,
+        description: str,
+    ) -> int:
+        if self._migration_marker_exists(marker_key):
+            return 0
+        copied = self._copy_legacy_table(source_conn, table_name)
+        self._write_migration_marker(marker_key, description)
+        return copied
 
     def _copy_legacy_table(self, source_conn: sqlite3.Connection, table_name: str) -> int:
         """按目标库已有结构拷贝旧表交集字段。"""
