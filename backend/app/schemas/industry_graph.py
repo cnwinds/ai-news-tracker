@@ -239,6 +239,12 @@ class IndustryGraphConversationCreateRequest(BaseModel):
     primary_scenario: str = "technology_evolution"
 
 
+class IndustryGraphConversationRenameRequest(BaseModel):
+    """Rename conversation request."""
+
+    title: str = Field(..., min_length=1, max_length=500)
+
+
 class IndustryGraphConversationListResponse(BaseModel):
     """Conversation list response."""
 

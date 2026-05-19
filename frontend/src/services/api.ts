@@ -881,9 +881,9 @@ class ApiService {
     );
   }
 
-  async listIndustryGraphConversations(limit: number = 20): Promise<IndustryGraphConversationListResponse> {
+  async listIndustryGraphConversations(limit: number = 20, offset: number = 0): Promise<IndustryGraphConversationListResponse> {
     return this.handleRequest(
-      this.client.get<IndustryGraphConversationListResponse>(`/industry-graph/conversations?limit=${limit}`)
+      this.client.get<IndustryGraphConversationListResponse>(`/industry-graph/conversations?limit=${limit}&offset=${offset}`)
     );
   }
 
@@ -898,6 +898,21 @@ class ApiService {
   async getIndustryGraphConversation(conversationId: number): Promise<IndustryGraphConversation> {
     return this.handleRequest(
       this.client.get<IndustryGraphConversation>(`/industry-graph/conversations/${conversationId}`)
+    );
+  }
+
+  async renameIndustryGraphConversation(
+    conversationId: number,
+    title: string
+  ): Promise<IndustryGraphConversation> {
+    return this.handleRequest(
+      this.client.patch<IndustryGraphConversation>(`/industry-graph/conversations/${conversationId}`, { title })
+    );
+  }
+
+  async deleteIndustryGraphConversation(conversationId: number): Promise<{ deleted_messages: number; deleted_conversation: number }> {
+    return this.handleRequest(
+      this.client.delete<{ deleted_messages: number; deleted_conversation: number }>(`/industry-graph/conversations/${conversationId}`)
     );
   }
 

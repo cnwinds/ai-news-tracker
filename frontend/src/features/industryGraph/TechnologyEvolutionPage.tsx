@@ -15,6 +15,7 @@ import {
   Button,
   Input,
   InputNumber,
+  Popconfirm,
   Popover,
   Space,
   Spin,
@@ -28,6 +29,8 @@ import {
   BulbOutlined,
   ClockCircleOutlined,
   DatabaseOutlined,
+  DeleteOutlined,
+  EditOutlined,
   FileSearchOutlined,
   HistoryOutlined,
   LineChartOutlined,
@@ -1171,12 +1174,113 @@ export default function TechnologyEvolutionPage() {
     staleTime: 5 * 60 * 1000,
   });
 
-  const { data: conversationList, isLoading: conversationsLoading } = useQuery({
-    queryKey: ['industry-graph-conversations'],
-    queryFn: () => apiService.listIndustryGraphConversations(5),
-    staleTime: 30000,
-    enabled: isAuthenticated,
+  const PAGE_SIZE = 5;
+  const [conversationItems, setConversationItems] = useState<IndustryGraphConversation[]>([]);
+  const [conversationLoaded, setConversationLoaded] = useState(false);
+  const [conversationLoading, setConversationLoading] = useState(false);
+  const [hasMoreConversations, setHasMoreConversations] = useState(true);
+  const [renamingId, setRenamingId] = useState<number | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+
+  const loadConversations = useCallback(async (append: boolean = false) => {
+    if (conversationLoading) return;
+    setConversationLoading(true);
+    try {
+      const offset = append ? conversationItems.length : 0;
+      const result = await apiService.listIndustryGraphConversations(PAGE_SIZE, offset);
+      const newItems = result.items || [];
+      if (append) {
+        setConversationItems((prev) => {
+          const existing = new Set(prev.map((c) => c.id));
+          const unique = newItems.filter((c) => !existing.has(c.id));
+          return [...prev, ...unique];
+        });
+      } else {
+        setConversationItems(newItems);
+      }
+      setHasMoreConversations(newItems.length >= PAGE_SIZE);
+      setConversationLoaded(true);
+    } catch {
+      if (!append) setConversationLoaded(true);
+    } finally {
+      setConversationLoading(false);
+    }
+  }, [conversationLoading, conversationItems.length]);
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      loadConversations();
+    } else {
+      setConversationItems([]);
+      setConversationLoaded(false);
+      setHasMoreConversations(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated]);
+
+  const renameMutation = useMutation({
+    mutationFn: ({ id, title }: { id: number; title: string }) =>
+      apiService.renameIndustryGraphConversation(id, title),
+    onSuccess: (_result, { id, title }) => {
+      setConversationItems((prev) =>
+        prev.map((c) => (c.id === id ? { ...c, title } : c))
+      );
+      setRenamingId(null);
+      setRenameValue('');
+      message.success('已重命名');
+    },
+    onError: (error: unknown) => {
+      const msg = error instanceof Error ? error.message : (error as { message?: string })?.message || '重命名失败';
+      message.error(msg);
+    },
   });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => apiService.deleteIndustryGraphConversation(id),
+    onSuccess: (_result, deletedId) => {
+      setConversationItems((prev) => prev.filter((c) => c.id !== deletedId));
+      if (conversationId === deletedId) {
+        setConversationId(null);
+        setMessages([]);
+      }
+      message.success('已删除');
+    },
+    onError: (error: unknown) => {
+      const msg = error instanceof Error ? error.message : (error as { message?: string })?.message || '删除失败';
+      message.error(msg);
+    },
+  });
+
+  const conversationGroups = useMemo(() => {
+    const items = conversationItems;
+    if (!items.length) return [];
+    const now = dayjs();
+    const todayStart = now.startOf('day');
+    const weekStart = now.startOf('week');
+    const monthStart = now.startOf('month');
+    const groups: { label: string; items: typeof items }[] = [];
+    const todayItems: typeof items = [];
+    const weekItems: typeof items = [];
+    const monthItems: typeof items = [];
+    const olderItems: typeof items = [];
+    for (const item of items) {
+      const updatedAt = dayjs(item.updated_at);
+      if (updatedAt.isAfter(todayStart)) {
+        todayItems.push(item);
+      } else if (updatedAt.isAfter(weekStart)) {
+        weekItems.push(item);
+      } else if (updatedAt.isAfter(monthStart)) {
+        monthItems.push(item);
+      } else {
+        olderItems.push(item);
+      }
+    }
+    if (todayItems.length) groups.push({ label: '今天', items: todayItems });
+    if (weekItems.length) groups.push({ label: '本周', items: weekItems });
+    if (monthItems.length) groups.push({ label: '本月', items: monthItems });
+    if (olderItems.length) groups.push({ label: '更早', items: olderItems });
+    return groups;
+  }, [conversationItems]);
 
   const refreshGraphData = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ['industry-graph-stats'] });
@@ -1326,7 +1430,8 @@ export default function TechnologyEvolutionPage() {
           if (nextConversationId) {
             setConversationId(nextConversationId);
           }
-          queryClient.invalidateQueries({ queryKey: ['industry-graph-conversations'] });
+          queryClient.invalidateQueries({ queryKey: ['industry-graph-stats'] });
+          loadConversations();
           updateAssistantMessage(assistantMessageId, (message) => ({
             ...message,
             isStreaming: false,
@@ -1525,47 +1630,182 @@ export default function TechnologyEvolutionPage() {
               </Space>
             </div>
             {!isAuthenticated ? (
-              <Text type="secondary">登录后显示最近 5 个历史会话</Text>
-            ) : conversationsLoading ? (
+              <Text type="secondary">登录后显示历史会话</Text>
+            ) : conversationLoading && !conversationLoaded ? (
               <Spin size="small" />
-            ) : (conversationList?.items || []).length > 0 ? (
-              <Space
-                direction="vertical"
-                size={8}
-                style={{ width: '100%', overflowY: 'auto', paddingRight: 2 }}
+            ) : conversationGroups.length > 0 ? (
+              <div
+                style={{
+                  width: '100%',
+                  overflowY: 'auto',
+                  flex: 1,
+                  minHeight: 0,
+                  paddingRight: 2,
+                }}
               >
-                {(conversationList?.items || []).map((conversation) => {
-                  const active = conversation.id === conversationId;
-                  return (
-                    <button
-                      key={conversation.id}
-                      type="button"
-                      onClick={() => handleLoadConversation(conversation.id)}
-                      disabled={isStreaming}
-                      style={{
-                        width: '100%',
-                        cursor: isStreaming ? 'not-allowed' : 'pointer',
-                        border: `1px solid ${active ? getThemeColor(theme, 'primary') : getThemeColor(theme, 'borderSecondary')}`,
-                        borderRadius: 8,
-                        background: active
-                          ? (theme === 'dark' ? '#0f355f' : '#e6f4ff')
-                          : getThemeColor(theme, 'bgContainer'),
-                        color: getThemeColor(theme, 'text'),
-                        padding: '9px 10px',
-                        textAlign: 'left',
-                      }}
-                    >
-                      <div style={{ fontWeight: 700, lineHeight: 1.4 }}>
-                        {shortText(conversation.title, 32)}
+                <Space
+                  direction="vertical"
+                  size={10}
+                  style={{ width: '100%' }}
+                >
+                  {conversationGroups.map((group) => (
+                    <div key={group.label}>
+                      <div
+                        style={{
+                          color: getThemeColor(theme, 'textSecondary'),
+                          fontSize: 12,
+                          fontWeight: 700,
+                          marginBottom: 6,
+                          paddingLeft: 2,
+                        }}
+                      >
+                        {group.label}
                       </div>
-                      <div style={{ color: getThemeColor(theme, 'textSecondary'), fontSize: 12, marginTop: 3 }}>
-                        {dayjs(conversation.updated_at).format('MM-DD HH:mm')}
-                        {conversation.messages.length > 0 ? ` · ${conversation.messages.length} 条` : ''}
-                      </div>
-                    </button>
-                  );
-                })}
-              </Space>
+                      <Space direction="vertical" size={6} style={{ width: '100%' }}>
+                        {group.items.map((conversation) => {
+                          const active = conversation.id === conversationId;
+                          const isRenaming = renamingId === conversation.id;
+                          return (
+                            <div
+                              key={conversation.id}
+                              style={{
+                                position: 'relative',
+                                border: `1px solid ${active ? getThemeColor(theme, 'primary') : getThemeColor(theme, 'borderSecondary')}`,
+                                borderRadius: 8,
+                                background: active
+                                  ? (theme === 'dark' ? '#0f355f' : '#e6f4ff')
+                                  : getThemeColor(theme, 'bgContainer'),
+                                overflow: 'hidden',
+                              }}
+                            >
+                              {isRenaming ? (
+                                <div style={{ padding: '6px 8px', display: 'flex', gap: 4 }}>
+                                  <Input
+                                    size="small"
+                                    value={renameValue}
+                                    onChange={(e) => setRenameValue(e.target.value)}
+                                    onPressEnter={() => {
+                                      if (renameValue.trim()) {
+                                        renameMutation.mutate({ id: conversation.id, title: renameValue.trim() });
+                                      }
+                                    }}
+                                    style={{ flex: 1, fontSize: 13 }}
+                                    autoFocus
+                                  />
+                                  <Button
+                                    size="small"
+                                    type="primary"
+                                    disabled={!renameValue.trim()}
+                                    loading={renameMutation.isPending}
+                                    onClick={() => {
+                                      if (renameValue.trim()) {
+                                        renameMutation.mutate({ id: conversation.id, title: renameValue.trim() });
+                                      }
+                                    }}
+                                  >
+                                    确定
+                                  </Button>
+                                  <Button
+                                    size="small"
+                                    onClick={() => { setRenamingId(null); setRenameValue(''); }}
+                                  >
+                                    取消
+                                  </Button>
+                                </div>
+                              ) : (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleLoadConversation(conversation.id)}
+                                    disabled={isStreaming}
+                                    style={{
+                                      width: '100%',
+                                      cursor: isStreaming ? 'not-allowed' : 'pointer',
+                                      border: 'none',
+                                      background: 'transparent',
+                                      color: getThemeColor(theme, 'text'),
+                                      padding: '9px 10px',
+                                      textAlign: 'left',
+                                      display: 'block',
+                                    }}
+                                  >
+                                    <div style={{ fontWeight: 700, lineHeight: 1.4, paddingRight: 48 }}>
+                                      {shortText(conversation.title, 32)}
+                                    </div>
+                                    <div style={{ color: getThemeColor(theme, 'textSecondary'), fontSize: 12, marginTop: 3 }}>
+                                      {dayjs(conversation.updated_at).format('MM-DD HH:mm')}
+                                      {conversation.messages.length > 0 ? ` · ${conversation.messages.length} 条` : ''}
+                                    </div>
+                                  </button>
+                                  <div
+                                    style={{
+                                      position: 'absolute',
+                                      top: 6,
+                                      right: 6,
+                                      display: 'flex',
+                                      gap: 2,
+                                      opacity: 0.5,
+                                      transition: 'opacity 0.15s',
+                                    }}
+                                    onMouseEnter={(e) => { e.currentTarget.style.opacity = '1'; }}
+                                    onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.5'; }}
+                                  >
+                                    <Tooltip title="重命名">
+                                      <Button
+                                        type="text"
+                                        size="small"
+                                        icon={<EditOutlined />}
+                                        style={{ color: getThemeColor(theme, 'textSecondary'), fontSize: 12 }}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setRenamingId(conversation.id);
+                                          setRenameValue(conversation.title);
+                                        }}
+                                      />
+                                    </Tooltip>
+                                    <Popconfirm
+                                      title="确定删除该会话？"
+                                      description="删除后不可恢复"
+                                      onConfirm={() => deleteMutation.mutate(conversation.id)}
+                                      okText="删除"
+                                      cancelText="取消"
+                                      okButtonProps={{ danger: true }}
+                                    >
+                                      <Tooltip title="删除">
+                                        <Button
+                                          type="text"
+                                          size="small"
+                                          icon={<DeleteOutlined />}
+                                          style={{ color: getThemeColor(theme, 'textSecondary'), fontSize: 12 }}
+                                          onClick={(e) => e.stopPropagation()}
+                                          loading={deleteMutation.isPending && deleteMutation.variables === conversation.id}
+                                        />
+                                      </Tooltip>
+                                    </Popconfirm>
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </Space>
+                    </div>
+                  ))}
+                  {hasMoreConversations && (
+                    <div style={{ textAlign: 'center', padding: '4px 0' }}>
+                      <Button
+                        type="link"
+                        size="small"
+                        loading={conversationLoading}
+                        onClick={() => loadConversations(true)}
+                        style={{ fontSize: 13 }}
+                      >
+                        显示更多会话
+                      </Button>
+                    </div>
+                  )}
+                </Space>
+              </div>
             ) : (
               <Text type="secondary">暂无历史会话</Text>
             )}

@@ -935,19 +935,60 @@ class IndustryGraphService:
 
     def get_conversation(self, conversation_id: int, *, user_id: Optional[str] = None) -> Dict[str, Any]:
         row = self.db.query(IndustryGraphConversation).filter(IndustryGraphConversation.id == conversation_id).first()
-        if not row or (user_id is not None and row.user_id != user_id):
+        if not row or (user_id is not None and row.user_id is not None and row.user_id != user_id):
             raise ValueError("Conversation not found")
         return self._serialize_conversation(row, include_messages=True)
 
-    def list_conversations(self, *, limit: int = 20, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    def list_conversations(self, *, limit: int = 20, offset: int = 0, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
         query = self.db.query(IndustryGraphConversation)
         if user_id is not None:
-            query = query.filter(IndustryGraphConversation.user_id == user_id)
+            query = query.filter(
+                or_(
+                    IndustryGraphConversation.user_id == user_id,
+                    IndustryGraphConversation.user_id.is_(None),
+                )
+            )
         rows = query.order_by(
             IndustryGraphConversation.updated_at.desc(),
             IndustryGraphConversation.id.desc(),
-        ).limit(max(1, min(limit, 100))).all()
+        ).offset(max(0, int(offset))).limit(max(1, min(limit, 100))).all()
         return [self._serialize_conversation(row, include_messages=False) for row in rows]
+
+    def rename_conversation(
+        self,
+        conversation_id: int,
+        *,
+        title: str,
+        user_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        safe_title = (title or "").strip()[:500]
+        if not safe_title:
+            raise ValueError("title is required")
+        row = self.db.query(IndustryGraphConversation).filter(IndustryGraphConversation.id == conversation_id).first()
+        if not row or (user_id is not None and row.user_id is not None and row.user_id != user_id):
+            raise ValueError("Conversation not found")
+        row.title = safe_title
+        row.updated_at = datetime.now()
+        self.db.commit()
+        return self._serialize_conversation(row, include_messages=False)
+
+    def delete_conversation(
+        self,
+        conversation_id: int,
+        *,
+        user_id: Optional[str] = None,
+    ) -> Dict[str, int]:
+        row = self.db.query(IndustryGraphConversation).filter(IndustryGraphConversation.id == conversation_id).first()
+        if not row or (user_id is not None and row.user_id is not None and row.user_id != user_id):
+            raise ValueError("Conversation not found")
+        deleted_messages = (
+            self.db.query(IndustryGraphMessage)
+            .filter(IndustryGraphMessage.conversation_id == conversation_id)
+            .delete(synchronize_session=False)
+        )
+        self.db.delete(row)
+        self.db.commit()
+        return {"deleted_messages": deleted_messages, "deleted_conversation": 1}
 
     def answer_question(
         self,
@@ -1556,7 +1597,7 @@ class IndustryGraphService:
     ) -> IndustryGraphConversation:
         if conversation_id:
             row = self.db.query(IndustryGraphConversation).filter(IndustryGraphConversation.id == conversation_id).first()
-            if not row or (user_id is not None and row.user_id != user_id):
+            if not row or (user_id is not None and row.user_id is not None and row.user_id != user_id):
                 raise ValueError("Conversation not found")
             return row
         title = question.strip()[:80] or "行业趋势分析"

@@ -16,6 +16,7 @@ from backend.app.schemas.industry_graph import (
     IndustryGraphConversation,
     IndustryGraphConversationCreateRequest,
     IndustryGraphConversationListResponse,
+    IndustryGraphConversationRenameRequest,
     IndustryGraphProcessRequest,
     IndustryGraphProcessResponse,
     IndustryGraphQueryRequest,
@@ -133,11 +134,12 @@ async def get_technology_trends(
 @router.get("/conversations", response_model=IndustryGraphConversationListResponse)
 async def list_conversations(
     limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
     current_user: str = Depends(require_auth),
     service: IndustryGraphService = Depends(get_industry_graph_service),
 ):
     return IndustryGraphConversationListResponse(
-        items=service.list_conversations(limit=limit, user_id=current_user)
+        items=service.list_conversations(limit=limit, offset=offset, user_id=current_user)
     )
 
 
@@ -164,6 +166,33 @@ async def get_conversation(
 ):
     try:
         return IndustryGraphConversation(**service.get_conversation(conversation_id, user_id=current_user))
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.patch("/conversations/{conversation_id}", response_model=IndustryGraphConversation)
+async def rename_conversation(
+    conversation_id: int,
+    request: IndustryGraphConversationRenameRequest,
+    current_user: str = Depends(require_auth),
+    service: IndustryGraphService = Depends(get_industry_graph_service),
+):
+    try:
+        return IndustryGraphConversation(
+            **service.rename_conversation(conversation_id, title=request.title, user_id=current_user)
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.delete("/conversations/{conversation_id}")
+async def delete_conversation(
+    conversation_id: int,
+    current_user: str = Depends(require_auth),
+    service: IndustryGraphService = Depends(get_industry_graph_service),
+):
+    try:
+        return service.delete_conversation(conversation_id, user_id=current_user)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

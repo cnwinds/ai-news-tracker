@@ -262,7 +262,7 @@ describe('TechnologyEvolutionPage', () => {
     const overviewButton = screen.getByRole('button', { name: '技术演进概览' });
     expect(overviewButton).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '数据准备设置' })).toBeInTheDocument();
-    expect(apiMocks.listIndustryGraphConversations).toHaveBeenCalledWith(5);
+    expect(apiMocks.listIndustryGraphConversations).toHaveBeenCalledWith(5, 0);
     await userEvent.hover(overviewButton);
     expect(await screen.findByText('技术演进分析')).toBeInTheDocument();
     expect(screen.getByText('38')).toBeInTheDocument();
@@ -482,6 +482,6 @@ describe('TechnologyEvolutionPage', () => {
 
     expect(apiMocks.listIndustryGraphConversations).not.toHaveBeenCalled();
     expect(apiMocks.queryIndustryGraphStream).not.toHaveBeenCalled();
-    expect(screen.getByText('登录后显示最近 5 个历史会话')).toBeInTheDocument();
+    expect(screen.getByText('登录后显示历史会话')).toBeInTheDocument();
   });
 });
