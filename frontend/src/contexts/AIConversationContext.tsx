@@ -3,8 +3,6 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
 import type {
   AIQueryEngine,
   ArticleSearchResult,
-  KnowledgeGraphArticleReference,
-  KnowledgeGraphNodeSummary,
 } from '@/types';
 
 export interface Message {
@@ -16,8 +14,6 @@ export interface Message {
   resolvedMode?: AIQueryEngine;
   articles?: ArticleSearchResult[];
   sources?: string[];
-  matchedNodes?: KnowledgeGraphNodeSummary[];
-  relatedArticles?: KnowledgeGraphArticleReference[];
   contextNodeCount?: number;
   contextEdgeCount?: number;
 }
@@ -85,7 +81,7 @@ export function AIConversationProvider({ children }: { children: ReactNode }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedEngine, setSelectedEngineState] = useState<AIQueryEngine>(() => {
     const saved = localStorage.getItem(ENGINE_STORAGE_KEY);
-    if (saved === 'auto' || saved === 'rag' || saved === 'graph' || saved === 'hybrid') {
+    if (saved === 'auto' || saved === 'rag') {
       return saved;
     }
     return 'auto';

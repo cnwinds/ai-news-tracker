@@ -4,8 +4,7 @@ export type SourceFilterMode = 'include' | 'exclude';
 export type CollectionTaskStatusType = 'running' | 'completed' | 'error';
 export type NotificationPlatform = 'feishu' | 'dingtalk';
 export type MessageRole = 'user' | 'assistant';
-export type AIQueryEngine = 'auto' | 'rag' | 'graph' | 'hybrid';
-export type KnowledgeGraphQueryStrategy = 'structured' | 'generic_graph';
+export type AIQueryEngine = 'auto' | 'rag';
 
 export interface Article {
   id: number;
@@ -220,9 +219,6 @@ export interface LLMSettings {
   exploration_use_independent_provider?: boolean;
   selected_exploration_provider_id?: number | null;
   selected_exploration_models?: string[] | null;
-  knowledge_graph_use_independent_provider?: boolean;
-  selected_knowledge_graph_provider_id?: number | null;
-  selected_knowledge_graph_models?: string[] | null;
 }
 
 export interface ImageProvider {
@@ -350,6 +346,232 @@ export interface RAGBatchIndexResponse {
   message: string;
 }
 
+export type IndustryScenarioKey = 'auto' | 'technology_evolution';
+
+export interface IndustryGraphTimeRange {
+  preset?: 'last_3_months' | 'last_30_days' | string;
+  start?: string;
+  end?: string;
+}
+
+export interface IndustryGraphQueryRequest {
+  question: string;
+  conversation_id?: number | null;
+  scenario?: IndustryScenarioKey;
+  time_range?: IndustryGraphTimeRange | null;
+  top_k?: number;
+}
+
+export interface IndustryGraphQueryPlan {
+  primary_scenario: string;
+  secondary_scenarios: string[];
+  time_range: IndustryGraphTimeRange;
+  analysis_tasks: string[];
+  entities: Array<Record<string, unknown>>;
+  output: string[];
+}
+
+export interface IndustryGraphNode {
+  id: number;
+  entity_key: string;
+  entity_type: string;
+  label: string;
+  description?: string | null;
+  properties: Record<string, unknown>;
+}
+
+export interface IndustryGraphEdge {
+  id: number;
+  source_id: number;
+  target_id: number;
+  relation_type: string;
+  confidence: string;
+  confidence_score: number;
+  evidence_count: number;
+}
+
+export interface IndustryGraphSubgraph {
+  nodes: IndustryGraphNode[];
+  edges: IndustryGraphEdge[];
+}
+
+export interface IndustryGraphEvidence {
+  id: number;
+  relation_id: number;
+  relation_type?: string | null;
+  source_entity?: string | null;
+  target_entity?: string | null;
+  document_id: number;
+  title: string;
+  title_zh?: string | null;
+  url?: string | null;
+  source?: string | null;
+  published_at?: string | null;
+  evidence_snippet?: string | null;
+  confidence: string;
+  confidence_score: number;
+}
+
+export interface IndustryGraphTrend {
+  technology_id: number;
+  technology: string;
+  trend_score: number;
+  growth_rate: number;
+  document_count: number;
+  paper_count: number;
+  product_count: number;
+  company_count: number;
+  benchmark_count: number;
+  evidence_count: number;
+  summary: string;
+}
+
+export type IndustryGraphContentBlock =
+  | { type: 'text'; data: { text?: string } }
+  | { type: 'report_section'; data: { title?: string; summary?: string } }
+  | { type: 'trend_card'; data: IndustryGraphTrend }
+  | { type: 'evidence_card'; data: IndustryGraphEvidence }
+  | { type: 'local_graph'; data: IndustryGraphSubgraph }
+  | { type: 'followup_questions'; data: { questions?: string[] } }
+  | { type: string; data: Record<string, unknown> };
+
+export interface IndustryGraphSuggestedQuestion {
+  id: number;
+  question: string;
+  scenario_key: string;
+  reason?: string | null;
+  hot_entities: Array<Record<string, unknown>>;
+  priority: number;
+  generated_for_date: string;
+}
+
+export interface IndustryGraphSuggestedQuestionListResponse {
+  items: IndustryGraphSuggestedQuestion[];
+}
+
+export interface IndustryGraphProcessRequest {
+  limit?: number;
+  article_ids?: number[] | null;
+  force?: boolean;
+  import_first?: boolean;
+}
+
+export interface IndustryGraphProcessedDocument {
+  document_id: number;
+  article_id?: number | null;
+  title: string;
+  title_zh?: string | null;
+  entities: number;
+  relations: number;
+}
+
+export interface IndustryGraphProcessError {
+  document_id: number;
+  article_id?: number | null;
+  title: string;
+  error: string;
+}
+
+export interface IndustryGraphProcessResponse {
+  imported: number;
+  import_skipped: number;
+  processed: number;
+  skipped: number;
+  failed: number;
+  entities_upserted: number;
+  relations_upserted: number;
+  evidence_upserted: number;
+  processed_documents: IndustryGraphProcessedDocument[];
+  errors: IndustryGraphProcessError[];
+}
+
+export interface IndustryGraphRebuildRequest {
+  batch_size?: number;
+  max_documents?: number | null;
+  clear_existing_graph?: boolean;
+}
+
+export interface IndustryGraphRebuildResponse {
+  imported: number;
+  import_skipped: number;
+  processed: number;
+  skipped: number;
+  failed: number;
+  entities_upserted: number;
+  relations_upserted: number;
+  evidence_upserted: number;
+  batches: number;
+  cleared: Record<string, number>;
+  errors: IndustryGraphProcessError[];
+  stats: IndustryGraphStatsResponse;
+}
+
+export interface IndustryGraphConversationMessage {
+  id: number;
+  role: 'user' | 'assistant' | string;
+  content_text?: string | null;
+  content_blocks: IndustryGraphContentBlock[];
+  query_plan?: IndustryGraphQueryPlan | null;
+  created_at: string;
+}
+
+export interface IndustryGraphConversation {
+  id: number;
+  title: string;
+  primary_scenario: string;
+  created_at: string;
+  updated_at: string;
+  messages: IndustryGraphConversationMessage[];
+}
+
+export interface IndustryGraphConversationCreateRequest {
+  title?: string | null;
+  primary_scenario?: string;
+}
+
+export interface IndustryGraphConversationListResponse {
+  items: IndustryGraphConversation[];
+}
+
+export interface IndustryGraphQueryResponse {
+  question: string;
+  conversation_id: number;
+  query_plan: IndustryGraphQueryPlan;
+  content_blocks: IndustryGraphContentBlock[];
+  trends: IndustryGraphTrend[];
+  evidence: IndustryGraphEvidence[];
+  subgraph: IndustryGraphSubgraph;
+  followup_questions: string[];
+}
+
+export interface IndustryGraphStatsResponse {
+  total_documents: number;
+  processed_documents: number;
+  pending_documents: number;
+  failed_documents: number;
+  total_entities: number;
+  total_relations: number;
+  total_evidence: number;
+  total_conversations: number;
+  latest_metric_generated_at?: string | null;
+}
+
+export interface IndustryGraphStreamChunk {
+  type:
+    | 'query_plan'
+    | 'text_delta'
+    | 'report_section'
+    | 'trend_card'
+    | 'metric_card'
+    | 'evidence_card'
+    | 'local_graph'
+    | 'entity_card'
+    | 'followup_questions'
+    | 'done'
+    | 'error';
+  data: Record<string, unknown>;
+}
+
 export interface ConversationArticleReference {
   id: number;
   title: string;
@@ -364,252 +586,6 @@ export interface ConversationArticleReference {
   similarity?: number;
   relation_count?: number;
   distance?: number | null;
-}
-
-export interface KnowledgeGraphSettings {
-  enabled: boolean;
-  auto_sync_enabled: boolean;
-  run_mode: 'auto' | 'agent';
-  max_articles_per_sync: number;
-  query_depth: number;
-}
-
-export interface KnowledgeGraphBuildSummary {
-  build_id: string;
-  status: 'pending' | 'running' | 'completed' | 'failed';
-  trigger_source: string;
-  sync_mode: string;
-  total_articles: number;
-  processed_articles: number;
-  skipped_articles: number;
-  failed_articles: number;
-  nodes_upserted: number;
-  edges_upserted: number;
-  error_message?: string | null;
-  started_at: string;
-  completed_at?: string | null;
-  extra_data?: Record<string, unknown> | null;
-}
-
-export interface KnowledgeGraphNodeSummary {
-  node_key: string;
-  label: string;
-  node_type: string;
-  aliases: string[];
-  metadata: Record<string, unknown>;
-  degree: number;
-  article_count: number;
-  centrality: number;
-  layout_x?: number | null;
-  layout_y?: number | null;
-}
-
-export interface KnowledgeGraphEdgeSummary {
-  source_node_key: string;
-  target_node_key: string;
-  relation_type: string;
-  confidence: 'EXTRACTED' | 'INFERRED' | 'AMBIGUOUS';
-  confidence_score: number;
-  weight: number;
-  source_article_id?: number | null;
-  source_label?: string | null;
-  target_label?: string | null;
-  evidence_snippet?: string | null;
-  metadata?: Record<string, unknown> | null;
-}
-
-export interface KnowledgeGraphArticleReference extends ConversationArticleReference {
-  relation_count: number;
-  distance?: number | null;
-}
-
-export interface KnowledgeGraphLinkSummary {
-  source: string;
-  target: string;
-  weight: number;
-  relation_types: string[];
-  article_count: number;
-}
-
-export interface KnowledgeGraphStatsResponse {
-  enabled: boolean;
-  total_nodes: number;
-  total_edges: number;
-  total_articles: number;
-  synced_articles: number;
-  failed_articles: number;
-  coverage: number;
-  snapshot_updated_at?: string | null;
-  node_type_counts: Record<string, number>;
-  relation_type_counts: Record<string, number>;
-  top_nodes: KnowledgeGraphNodeSummary[];
-  last_build?: KnowledgeGraphBuildSummary | null;
-}
-
-export interface KnowledgeGraphSyncRequest {
-  article_ids?: number[] | null;
-  force_rebuild?: boolean;
-  sync_mode?: 'auto' | 'agent' | null;
-  max_articles?: number | null;
-  trigger_source?: string;
-}
-
-export interface KnowledgeGraphSyncResponse {
-  build: KnowledgeGraphBuildSummary;
-  stats?: KnowledgeGraphStatsResponse | null;
-}
-
-export interface KnowledgeGraphIntegrityIssue {
-  code: string;
-  severity: 'info' | 'warning' | 'error';
-  message: string;
-  count: number;
-  samples: unknown[];
-}
-
-export interface KnowledgeGraphIntegrityReport {
-  healthy: boolean;
-  checked_at: string;
-  db_counts: Record<string, unknown>;
-  snapshot_counts: Record<string, unknown>;
-  issues: KnowledgeGraphIntegrityIssue[];
-  suspect_article_ids: number[];
-  keyword_article_ids: number[];
-  recommendations: string[];
-}
-
-export interface KnowledgeGraphIntegrityRepairRequest {
-  dry_run?: boolean;
-  cleanup_orphans?: boolean;
-  rebuild_snapshot?: boolean;
-  resync_suspects?: boolean;
-  keyword?: string | null;
-  limit?: number;
-  sync_mode?: 'auto' | 'agent' | null;
-}
-
-export interface KnowledgeGraphIntegrityRepairResponse {
-  dry_run: boolean;
-  repaired: boolean;
-  actions: string[];
-  deleted_dangling_edges: number;
-  deleted_orphan_nodes: number;
-  deleted_missing_article_states: number;
-  resynced_article_ids: number[];
-  resync_result?: KnowledgeGraphSyncResponse | null;
-  before: KnowledgeGraphIntegrityReport;
-  after?: KnowledgeGraphIntegrityReport | null;
-}
-
-export interface KnowledgeGraphNodeListResponse {
-  items: KnowledgeGraphNodeSummary[];
-  total: number;
-}
-
-export interface KnowledgeGraphNodeDetail {
-  node: KnowledgeGraphNodeSummary;
-  neighbors: KnowledgeGraphNodeSummary[];
-  edges: KnowledgeGraphEdgeSummary[];
-  related_articles: KnowledgeGraphArticleReference[];
-}
-
-export interface KnowledgeGraphPathRequest {
-  source_node_key: string;
-  target_node_key: string;
-}
-
-export interface KnowledgeGraphPathResponse {
-  found: boolean;
-  source_node_key: string;
-  target_node_key: string;
-  distance?: number | null;
-  nodes: KnowledgeGraphNodeSummary[];
-  edges: KnowledgeGraphEdgeSummary[];
-  message?: string | null;
-}
-
-export interface KnowledgeGraphQueryRequest {
-  question: string;
-  mode?: AIQueryEngine;
-  top_k?: number;
-  query_depth?: number;
-  conversation_history?: ConversationMessage[];
-}
-
-export interface KnowledgeGraphQueryResponse {
-  question: string;
-  mode: AIQueryEngine;
-  resolved_mode: AIQueryEngine;
-  query_strategy: KnowledgeGraphQueryStrategy;
-  answer: string;
-  matched_nodes: KnowledgeGraphNodeSummary[];
-  related_articles: KnowledgeGraphArticleReference[];
-  context_node_count: number;
-  context_edge_count: number;
-}
-
-export interface KnowledgeGraphStreamChunk {
-  type: 'graph_context' | 'content' | 'done' | 'error';
-  data: {
-    mode?: AIQueryEngine;
-    resolved_mode?: AIQueryEngine;
-    query_strategy?: KnowledgeGraphQueryStrategy;
-    matched_nodes?: KnowledgeGraphNodeSummary[];
-    related_articles?: KnowledgeGraphArticleReference[];
-    context_node_count?: number;
-    context_edge_count?: number;
-    content?: string;
-    message?: string;
-  };
-}
-
-export interface KnowledgeGraphStructuredCondition {
-  relation_type: string;
-  target_type: string;
-  target_terms: string[];
-}
-
-export interface KnowledgeGraphStructuredParsedQuery {
-  target_type: string;
-  conditions: KnowledgeGraphStructuredCondition[];
-}
-
-export interface KnowledgeGraphStructuredResult {
-  node: KnowledgeGraphNodeSummary;
-  matched_edges: KnowledgeGraphEdgeSummary[];
-  related_articles: KnowledgeGraphArticleReference[];
-}
-
-export interface KnowledgeGraphStructuredQueryRequest {
-  question: string;
-  top_k?: number;
-}
-
-export interface KnowledgeGraphStructuredQueryResponse {
-  question: string;
-  parsed_query: KnowledgeGraphStructuredParsedQuery;
-  results: KnowledgeGraphStructuredResult[];
-  related_articles: KnowledgeGraphArticleReference[];
-  answer: string;
-}
-
-export interface KnowledgeGraphArticleContextResponse {
-  article_id: number;
-  article?: KnowledgeGraphArticleReference | null;
-  nodes: KnowledgeGraphNodeSummary[];
-  edges: KnowledgeGraphEdgeSummary[];
-  related_articles: KnowledgeGraphArticleReference[];
-}
-
-export interface KnowledgeGraphSnapshotResponse {
-  generated_at?: string | null;
-  build?: KnowledgeGraphBuildSummary | null;
-  nodes: KnowledgeGraphNodeSummary[];
-  links: KnowledgeGraphLinkSummary[];
-  total_nodes: number;
-  total_links: number;
-  available_node_types: string[];
-  layout_mode?: string | null;
 }
 
 // 社交平台相关类型定义

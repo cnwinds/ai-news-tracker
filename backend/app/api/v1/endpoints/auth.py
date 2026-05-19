@@ -2,6 +2,7 @@
 认证相关 API 端点
 """
 from datetime import datetime, timedelta
+import os
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -28,7 +29,7 @@ security = HTTPBearer()
 pwd_context = None  # 标记为使用直接 bcrypt
 
 # JWT配置
-SECRET_KEY = settings.DATABASE_URL  # 使用数据库URL作为密钥（实际项目中应使用更安全的密钥）
+SECRET_KEY = os.getenv("JWT_SECRET_KEY") or os.getenv("SECRET_KEY") or settings.DATABASE_URL
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7天
 
@@ -135,7 +136,7 @@ def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)) 
 # 默认管理员账号（首次使用时需要设置）
 # 实际项目中应该从数据库或环境变量读取
 DEFAULT_ADMIN_USERNAME = "admin"
-DEFAULT_ADMIN_PASSWORD = "admin123"  # 首次登录后应修改
+DEFAULT_ADMIN_PASSWORD = os.getenv("DEFAULT_ADMIN_PASSWORD", "admin123")  # 首次登录后应修改
 
 # AppSettings中的键名
 ADMIN_USERNAME_KEY = "admin_username"

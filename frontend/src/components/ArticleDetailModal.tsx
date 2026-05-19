@@ -3,7 +3,6 @@ import {
   Button,
   Divider,
   Empty,
-  List,
   Modal,
   Popconfirm,
   Space,
@@ -12,7 +11,6 @@ import {
   Typography,
 } from 'antd';
 import {
-  ApartmentOutlined,
   CloseOutlined,
   DeleteOutlined,
   DownOutlined,
@@ -29,7 +27,6 @@ import dayjs from 'dayjs';
 import { apiService } from '@/services/api';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
-import { useKnowledgeGraphView } from '@/contexts/KnowledgeGraphViewContext';
 import { useDeleteArticle } from '@/hooks/useArticles';
 import { getThemeColor } from '@/utils/theme';
 import { createMarkdownComponents, normalizeMarkdownImageContent, remarkGfm } from '@/utils/markdown';
@@ -48,7 +45,6 @@ interface ArticleDetailModalProps {
 export default function ArticleDetailModal({ articleId, open, onClose }: ArticleDetailModalProps) {
   const { theme } = useTheme();
   const { isAuthenticated, username } = useAuth();
-  const { focusArticle, focusNode } = useKnowledgeGraphView();
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [isContentExpanded, setIsContentExpanded] = useState(false);
   const queryClient = useQueryClient();
@@ -63,13 +59,6 @@ export default function ArticleDetailModal({ articleId, open, onClose }: Article
   const { data: article, isLoading, error } = useQuery({
     queryKey: ['article', articleId],
     queryFn: () => apiService.getArticle(articleId!),
-    enabled: open && articleId !== null,
-    staleTime: 30000,
-  });
-
-  const { data: graphContext, isLoading: graphContextLoading } = useQuery({
-    queryKey: ['knowledge-graph-article-context', articleId],
-    queryFn: () => apiService.getKnowledgeGraphArticleContext(articleId!),
     enabled: open && articleId !== null,
     staleTime: 30000,
   });
@@ -306,87 +295,10 @@ export default function ArticleDetailModal({ articleId, open, onClose }: Article
               </section>
             )}
 
-            <section style={{ marginBottom: 24 }}>
-              <Title level={4} style={{ marginTop: 0, color: getThemeColor(theme, 'text') }}>
-                图谱上下文
-              </Title>
-              {graphContextLoading ? (
-                <Spin size="small" />
-              ) : graphContext && (
-                <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-                  <Space wrap>
-                    <Button
-                      icon={<ApartmentOutlined />}
-                      onClick={() => focusArticle(article.id)}
-                    >
-                      在图谱中查看这篇文章
-                    </Button>
-                  </Space>
-                  <div>
-                    <Text strong>关联实体</Text>
-                    <div style={{ marginTop: 8 }}>
-                      {graphContext.nodes.length > 0 ? (
-                        graphContext.nodes.map((node) => (
-                          <Tag
-                            key={node.node_key}
-                            style={{ cursor: 'pointer' }}
-                            onClick={() => focusNode(node.node_key)}
-                          >
-                            {node.label} / {node.node_type}
-                          </Tag>
-                        ))
-                      ) : (
-                        <Text type="secondary">当前文章还没有同步出可展示的图谱实体。</Text>
-                      )}
-                    </div>
-                  </div>
-
-                  <div>
-                    <Text strong>相关文章</Text>
-                    <List
-                      size="small"
-                      locale={{ emptyText: '暂无相关文章' }}
-                      dataSource={graphContext.related_articles}
-                      renderItem={(relatedArticle) => (
-                        <List.Item
-                          style={{ paddingInline: 0 }}
-                          actions={[
-                            <Button
-                              key="focus-related-article"
-                              type="link"
-                              size="small"
-                              onClick={() => focusArticle(relatedArticle.id)}
-                            >
-                              图谱定位
-                            </Button>,
-                          ]}
-                        >
-                          <Space direction="vertical" size={0} style={{ width: '100%' }}>
-                            <a href={relatedArticle.url} target="_blank" rel="noreferrer">
-                              {relatedArticle.title_zh || relatedArticle.title}
-                            </a>
-                            <Text type="secondary">
-                              {relatedArticle.source} · 关系数 {relatedArticle.relation_count}
-                            </Text>
-                          </Space>
-                        </List.Item>
-                      )}
-                    />
-                  </div>
-                </Space>
-              )}
-            </section>
-
             <Divider />
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
               <Space wrap>
-                <Button
-                  icon={<ApartmentOutlined />}
-                  onClick={() => focusArticle(article.id)}
-                >
-                  图谱定位
-                </Button>
                 <Button
                   type="primary"
                   icon={<LinkOutlined />}

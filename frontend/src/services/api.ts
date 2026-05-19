@@ -51,26 +51,20 @@ import type {
   ExplorationStatistics,
   ExplorationModelMarkRequest,
   ExplorationGenerateReportResponse,
-  KnowledgeGraphSettings,
-  KnowledgeGraphStatsResponse,
-  KnowledgeGraphSyncRequest,
-  KnowledgeGraphSyncResponse,
-  KnowledgeGraphIntegrityReport,
-  KnowledgeGraphIntegrityRepairRequest,
-  KnowledgeGraphIntegrityRepairResponse,
-  KnowledgeGraphBuildSummary,
-  KnowledgeGraphNodeListResponse,
-  KnowledgeGraphNodeDetail,
-  KnowledgeGraphPathRequest,
-  KnowledgeGraphPathResponse,
-  KnowledgeGraphQueryRequest,
-  KnowledgeGraphQueryResponse,
-  KnowledgeGraphStructuredQueryRequest,
-  KnowledgeGraphStructuredQueryResponse,
-  KnowledgeGraphArticleContextResponse,
-  KnowledgeGraphSnapshotResponse,
   RAGStreamChunk,
-  KnowledgeGraphStreamChunk,
+  IndustryGraphConversation,
+  IndustryGraphConversationCreateRequest,
+  IndustryGraphConversationListResponse,
+  IndustryGraphProcessRequest,
+  IndustryGraphProcessResponse,
+  IndustryGraphQueryRequest,
+  IndustryGraphQueryResponse,
+  IndustryGraphRebuildRequest,
+  IndustryGraphRebuildResponse,
+  IndustryGraphStatsResponse,
+  IndustryGraphStreamChunk,
+  IndustryGraphSuggestedQuestionListResponse,
+  IndustryGraphTrend,
 } from '@/types';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
@@ -239,7 +233,7 @@ class ApiService {
             onChunk(chunk);
           } catch (e) {
             if (import.meta.env.DEV) {
-              console.error('瑙ｆ瀽SSE鏁版嵁澶辫触:', e, line);
+              console.error('解析 SSE 数据失败:', e, line);
             }
           }
         }
@@ -257,19 +251,19 @@ class ApiService {
             onChunk(chunk);
           } catch (e) {
             if (import.meta.env.DEV) {
-              console.error('瑙ｆ瀽SSE鏁版嵁澶辫触:', e, line);
+              console.error('解析 SSE 数据失败:', e, line);
             }
           }
         }
       }
     } catch (error) {
       if (import.meta.env.DEV) {
-        console.error('娴佸紡鏌ヨ澶辫触:', error);
+        console.error('流式查询失败:', error);
       }
       onChunk(({
         type: 'error',
         data: {
-          message: error instanceof Error ? error.message : '鏈煡閿欒',
+          message: error instanceof Error ? error.message : '未知错误',
         },
       } as unknown) as T);
       throw error;
@@ -839,131 +833,85 @@ class ApiService {
     );
   }
 
-  // 认证相关
-  async getKnowledgeGraphSettings(): Promise<KnowledgeGraphSettings> {
+  // 行业趋势图谱相关
+  async getIndustryGraphStats(): Promise<IndustryGraphStatsResponse> {
     return this.handleRequest(
-      this.client.get<KnowledgeGraphSettings>('/settings/knowledge-graph')
+      this.client.get<IndustryGraphStatsResponse>('/industry-graph/stats')
     );
   }
 
-  async updateKnowledgeGraphSettings(data: KnowledgeGraphSettings): Promise<KnowledgeGraphSettings> {
+  async importArticlesToIndustryGraph(limit?: number): Promise<{ imported: number; skipped: number }> {
+    const suffix = limit ? `?limit=${limit}` : '';
     return this.handleRequest(
-      this.client.put<KnowledgeGraphSettings>('/settings/knowledge-graph', data)
+      this.client.post<{ imported: number; skipped: number }>(`/industry-graph/documents/import-articles${suffix}`)
     );
   }
 
-  async getKnowledgeGraphStats(): Promise<KnowledgeGraphStatsResponse> {
+  async processIndustryGraphArticles(request: IndustryGraphProcessRequest): Promise<IndustryGraphProcessResponse> {
     return this.handleRequest(
-      this.client.get<KnowledgeGraphStatsResponse>('/knowledge-graph/stats')
+      this.client.post<IndustryGraphProcessResponse>('/industry-graph/documents/process-articles', request)
     );
   }
 
-  async getKnowledgeGraphSnapshot(params?: {
-    node_type?: string;
-    q?: string;
-    limit_nodes?: number;
-    focus_node_keys?: string[];
-    expand_depth?: number;
-  }): Promise<KnowledgeGraphSnapshotResponse> {
-    const queryParams = new URLSearchParams();
-    if (params?.node_type) queryParams.append('node_type', params.node_type);
-    if (params?.q) queryParams.append('q', params.q);
-    if (params?.limit_nodes !== undefined) queryParams.append('limit_nodes', params.limit_nodes.toString());
-    if (params?.focus_node_keys?.length) {
-      params.focus_node_keys.forEach((nodeKey) => queryParams.append('focus_node_keys', nodeKey));
-    }
-    if (params?.expand_depth !== undefined) queryParams.append('expand_depth', params.expand_depth.toString());
-    const suffix = queryParams.toString() ? `?${queryParams.toString()}` : '';
+  async rebuildIndustryGraph(request: IndustryGraphRebuildRequest): Promise<IndustryGraphRebuildResponse> {
     return this.handleRequest(
-      this.client.get<KnowledgeGraphSnapshotResponse>(`/knowledge-graph/snapshot${suffix}`)
+      this.client.post<IndustryGraphRebuildResponse>('/industry-graph/documents/rebuild', request)
     );
   }
 
-  async syncKnowledgeGraph(request: KnowledgeGraphSyncRequest): Promise<KnowledgeGraphSyncResponse> {
+  async getIndustryGraphSuggestedQuestions(limit: number = 6): Promise<IndustryGraphSuggestedQuestionListResponse> {
     return this.handleRequest(
-      this.client.post<KnowledgeGraphSyncResponse>('/knowledge-graph/sync', request)
+      this.client.get<IndustryGraphSuggestedQuestionListResponse>(
+        `/industry-graph/suggested-questions?limit=${limit}`
+      )
     );
   }
 
-  async diagnoseKnowledgeGraphIntegrity(params?: {
-    keyword?: string;
-    limit?: number;
-  }): Promise<KnowledgeGraphIntegrityReport> {
-    const queryParams = new URLSearchParams();
-    if (params?.keyword) queryParams.append('keyword', params.keyword);
-    if (params?.limit !== undefined) queryParams.append('limit', params.limit.toString());
-    const suffix = queryParams.toString() ? `?${queryParams.toString()}` : '';
+  async generateIndustryGraphSuggestedQuestions(limit: number = 6): Promise<IndustryGraphSuggestedQuestionListResponse> {
     return this.handleRequest(
-      this.client.get<KnowledgeGraphIntegrityReport>(`/knowledge-graph/integrity${suffix}`)
+      this.client.post<IndustryGraphSuggestedQuestionListResponse>(
+        `/industry-graph/suggested-questions/generate?limit=${limit}`
+      )
     );
   }
 
-  async repairKnowledgeGraphIntegrity(
-    request: KnowledgeGraphIntegrityRepairRequest
-  ): Promise<KnowledgeGraphIntegrityRepairResponse> {
+  async getIndustryGraphTrends(limit: number = 10): Promise<IndustryGraphTrend[]> {
     return this.handleRequest(
-      this.client.post<KnowledgeGraphIntegrityRepairResponse>('/knowledge-graph/integrity/repair', request)
+      this.client.get<IndustryGraphTrend[]>(`/industry-graph/trends?limit=${limit}`)
     );
   }
 
-  async getKnowledgeGraphBuilds(limit: number = 20): Promise<KnowledgeGraphBuildSummary[]> {
+  async listIndustryGraphConversations(limit: number = 20): Promise<IndustryGraphConversationListResponse> {
     return this.handleRequest(
-      this.client.get<KnowledgeGraphBuildSummary[]>(`/knowledge-graph/builds?limit=${limit}`)
+      this.client.get<IndustryGraphConversationListResponse>(`/industry-graph/conversations?limit=${limit}`)
     );
   }
 
-  async getKnowledgeGraphNodes(params?: {
-    q?: string;
-    node_type?: string;
-    limit?: number;
-  }): Promise<KnowledgeGraphNodeListResponse> {
-    const queryParams = new URLSearchParams();
-    if (params?.q) queryParams.append('q', params.q);
-    if (params?.node_type) queryParams.append('node_type', params.node_type);
-    if (params?.limit !== undefined) queryParams.append('limit', params.limit.toString());
-    const suffix = queryParams.toString() ? `?${queryParams.toString()}` : '';
+  async createIndustryGraphConversation(
+    request: IndustryGraphConversationCreateRequest
+  ): Promise<IndustryGraphConversation> {
     return this.handleRequest(
-      this.client.get<KnowledgeGraphNodeListResponse>(`/knowledge-graph/nodes${suffix}`)
+      this.client.post<IndustryGraphConversation>('/industry-graph/conversations', request)
     );
   }
 
-  async getKnowledgeGraphNode(nodeKey: string): Promise<KnowledgeGraphNodeDetail> {
+  async getIndustryGraphConversation(conversationId: number): Promise<IndustryGraphConversation> {
     return this.handleRequest(
-      this.client.get<KnowledgeGraphNodeDetail>(`/knowledge-graph/nodes/${encodeURIComponent(nodeKey)}`)
+      this.client.get<IndustryGraphConversation>(`/industry-graph/conversations/${conversationId}`)
     );
   }
 
-  async findKnowledgeGraphPath(request: KnowledgeGraphPathRequest): Promise<KnowledgeGraphPathResponse> {
+  async queryIndustryGraph(request: IndustryGraphQueryRequest): Promise<IndustryGraphQueryResponse> {
     return this.handleRequest(
-      this.client.post<KnowledgeGraphPathResponse>('/knowledge-graph/path', request)
+      this.client.post<IndustryGraphQueryResponse>('/industry-graph/query', request)
     );
   }
 
-  async queryKnowledgeGraph(request: KnowledgeGraphQueryRequest): Promise<KnowledgeGraphQueryResponse> {
-    return this.handleRequest(
-      this.client.post<KnowledgeGraphQueryResponse>('/knowledge-graph/query', request)
-    );
-  }
-
-  async structuredQueryKnowledgeGraph(
-    request: KnowledgeGraphStructuredQueryRequest
-  ): Promise<KnowledgeGraphStructuredQueryResponse> {
-    return this.handleRequest(
-      this.client.post<KnowledgeGraphStructuredQueryResponse>('/knowledge-graph/structured-query', request)
-    );
-  }
-
-  async queryKnowledgeGraphStream(
-    request: KnowledgeGraphQueryRequest,
-    onChunk: (chunk: KnowledgeGraphStreamChunk) => void
+  async queryIndustryGraphStream(
+    request: IndustryGraphQueryRequest,
+    onChunk: (chunk: IndustryGraphStreamChunk) => void
   ): Promise<void> {
-    return this.streamRequest<KnowledgeGraphStreamChunk>('/knowledge-graph/query/stream', request, onChunk);
-  }
-
-  async getKnowledgeGraphArticleContext(articleId: number): Promise<KnowledgeGraphArticleContextResponse> {
-    return this.handleRequest(
-      this.client.get<KnowledgeGraphArticleContextResponse>(`/knowledge-graph/articles/${articleId}/context`)
-    );
+    return this.streamRequest<IndustryGraphStreamChunk>('/industry-graph/query/stream', request, onChunk);
   }
 
   async login(username: string, password: string): Promise<{ access_token: string; token_type: string }> {

@@ -53,9 +53,17 @@ class Settings:
         # 兼容旧配置（飞书机器人配置）
         self.FEISHU_BOT_WEBHOOK: str = os.getenv("FEISHU_BOT_WEBHOOK", "")
 
-        # 数据库配置（默认使用 backend/app/data/ai_news.db）
-        default_db_path = str(self.DATA_DIR / "ai_news.db")
+        # 数据库配置：新版本默认使用独立的新库；旧 ai_news.db 仅作为一次性迁移源
+        default_db_path = str(self.DATA_DIR / "ai_news_v2.db")
         self.DATABASE_URL: str = os.getenv("DATABASE_URL", f"sqlite:///{default_db_path}")
+        legacy_db_path = str(self.DATA_DIR / "ai_news.db")
+        self.LEGACY_DATABASE_URL: str = os.getenv("LEGACY_DATABASE_URL", f"sqlite:///{legacy_db_path}")
+        self.AUTO_MIGRATE_LEGACY_DATABASE: bool = os.getenv("AUTO_MIGRATE_LEGACY_DATABASE", "true").lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
 
         # 定时任务配置（从数据库加载，这里只设置默认值）
         self.COLLECTION_CRON: str = "0 */1 * * *"
@@ -85,7 +93,6 @@ class Settings:
         self._collector_settings_loaded = False
         self._notification_settings_loaded = False
         self._social_media_settings_loaded = False
-        self._knowledge_graph_settings_loaded = False
         
         # 设置默认值（如果数据库中没有配置，将使用这些值）
         self.MAX_ARTICLE_AGE_DAYS: int = int(os.getenv("MAX_ARTICLE_AGE_DAYS", "30"))
@@ -107,9 +114,6 @@ class Settings:
         self.EXPLORATION_USE_INDEPENDENT_PROVIDER: bool = False
         self.SELECTED_EXPLORATION_PROVIDER_ID: Optional[int] = None
         self.SELECTED_EXPLORATION_MODELS: List[str] = []
-        self.KNOWLEDGE_GRAPH_USE_INDEPENDENT_PROVIDER: bool = False
-        self.SELECTED_KNOWLEDGE_GRAPH_PROVIDER_ID: Optional[int] = None
-        self.SELECTED_KNOWLEDGE_GRAPH_MODELS: List[str] = []
         
         # 图片生成提供商选择配置（从数据库加载）
         self.SELECTED_IMAGE_PROVIDER_ID: Optional[int] = None
@@ -126,13 +130,6 @@ class Settings:
         # 社交平台定时任务配置（从数据库加载）
         self.SOCIAL_MEDIA_AUTO_REPORT_ENABLED: bool = False
         self.SOCIAL_MEDIA_AUTO_REPORT_TIME: str = "09:00"
-
-        # 知识图谱配置（从数据库加载）
-        self.KNOWLEDGE_GRAPH_ENABLED: bool = True
-        self.KNOWLEDGE_GRAPH_AUTO_SYNC_ENABLED: bool = True
-        self.KNOWLEDGE_GRAPH_RUN_MODE: str = "auto"  # auto/agent
-        self.KNOWLEDGE_GRAPH_MAX_ARTICLES_PER_SYNC: int = 100
-        self.KNOWLEDGE_GRAPH_QUERY_DEPTH: int = 2
 
         # 自主探索定时任务配置（环境变量）
         self.AUTO_EXPLORATION_ENABLED: bool = os.getenv("AUTO_EXPLORATION_ENABLED", "false").lower() == "true"
@@ -165,7 +162,6 @@ class Settings:
             self._collector_settings_loaded = False
             self._notification_settings_loaded = False
             self._social_media_settings_loaded = False
-            self._knowledge_graph_settings_loaded = False
         
         self._load_collection_settings()
         self._load_summary_settings()
@@ -174,7 +170,6 @@ class Settings:
         self._load_collector_settings()
         self._load_notification_settings()
         self._load_social_media_settings()
-        self._load_knowledge_graph_settings()
     
     def _get_db_session(self):
         """获取数据库会话（如果数据库已初始化）
@@ -662,24 +657,9 @@ class Settings:
                 selected_exploration_models_str = AppSettingsRepository.get_setting(
                     session, "selected_exploration_models", ""
                 )
-                self.KNOWLEDGE_GRAPH_USE_INDEPENDENT_PROVIDER = bool(
-                    AppSettingsRepository.get_setting(
-                        session,
-                        "knowledge_graph_use_independent_provider",
-                        self.KNOWLEDGE_GRAPH_USE_INDEPENDENT_PROVIDER,
-                    )
-                )
-                self.SELECTED_KNOWLEDGE_GRAPH_PROVIDER_ID = AppSettingsRepository.get_setting(
-                    session, "selected_knowledge_graph_provider_id", None
-                )
-                selected_knowledge_graph_models_str = AppSettingsRepository.get_setting(
-                    session, "selected_knowledge_graph_models", ""
-                )
-
                 self.SELECTED_LLM_MODELS = self._parse_models(selected_llm_models_str)
                 self.SELECTED_EMBEDDING_MODELS = self._parse_models(selected_embedding_models_str)
                 self.SELECTED_EXPLORATION_MODELS = self._parse_models(selected_exploration_models_str)
-                self.SELECTED_KNOWLEDGE_GRAPH_MODELS = self._parse_models(selected_knowledge_graph_models_str)
 
                 self.SELECTED_LLM_PROVIDER_ID = selected_llm_provider_id
                 self.SELECTED_EMBEDDING_PROVIDER_ID = selected_embedding_provider_id
@@ -728,26 +708,15 @@ class Settings:
                         )
                         self.SELECTED_EXPLORATION_PROVIDER_ID = None
 
-                if self.SELECTED_KNOWLEDGE_GRAPH_PROVIDER_ID:
-                    provider = LLMProviderRepository.get_by_id(session, self.SELECTED_KNOWLEDGE_GRAPH_PROVIDER_ID)
-                    if not provider or not provider.enabled:
-                        logger.warning(
-                            f"选定的知识图谱独立提供商 {self.SELECTED_KNOWLEDGE_GRAPH_PROVIDER_ID} 不存在或未启用"
-                        )
-                        self.SELECTED_KNOWLEDGE_GRAPH_PROVIDER_ID = None
-
             logger.debug(
                 "LLM配置加载完成: MODE=%s, GLOBAL_PROVIDER=%s, EMBEDDING_PROVIDER=%s, "
-                "EXPLORATION_MODE=%s, EXPLORATION_INDEPENDENT=%s, EXPLORATION_PROVIDER=%s, "
-                "KG_INDEPENDENT=%s, KG_PROVIDER=%s",
+                "EXPLORATION_MODE=%s, EXPLORATION_INDEPENDENT=%s, EXPLORATION_PROVIDER=%s",
                 self.OPENAI_MODEL,
                 self.SELECTED_LLM_PROVIDER_ID,
                 self.SELECTED_EMBEDDING_PROVIDER_ID,
                 self.EXPLORATION_EXECUTION_MODE,
                 self.EXPLORATION_USE_INDEPENDENT_PROVIDER,
                 self.SELECTED_EXPLORATION_PROVIDER_ID,
-                self.KNOWLEDGE_GRAPH_USE_INDEPENDENT_PROVIDER,
-                self.SELECTED_KNOWLEDGE_GRAPH_PROVIDER_ID,
             )
             self._llm_settings_loaded = True
         except Exception as e:
@@ -768,11 +737,8 @@ class Settings:
         exploration_use_independent_provider: Optional[bool] = None,
         selected_exploration_provider_id: Optional[int] = None,
         selected_exploration_models: Optional[List[str]] = None,
-        knowledge_graph_use_independent_provider: Optional[bool] = None,
-        selected_knowledge_graph_provider_id: Optional[int] = None,
-        selected_knowledge_graph_models: Optional[List[str]] = None,
     ):
-        """保存LLM配置到数据库（支持探索 Agent 和知识图谱独立模型）"""
+        """保存LLM配置到数据库（支持探索 Agent 独立模型）"""
         try:
             from backend.app.db import get_db
             from backend.app.db.repositories import AppSettingsRepository
@@ -868,51 +834,6 @@ class Settings:
                         "自主探索独立模型列表（逗号分隔）",
                     )
                     self.SELECTED_EXPLORATION_MODELS = exploration_models
-
-                if (
-                    knowledge_graph_use_independent_provider is not None
-                    or selected_knowledge_graph_provider_id is not None
-                    or selected_knowledge_graph_models is not None
-                ):
-                    if knowledge_graph_use_independent_provider is not None:
-                        AppSettingsRepository.set_setting(
-                            session,
-                            "knowledge_graph_use_independent_provider",
-                            knowledge_graph_use_independent_provider,
-                            "bool",
-                            "知识图谱是否使用独立模型提供商",
-                        )
-                        self.KNOWLEDGE_GRAPH_USE_INDEPENDENT_PROVIDER = (
-                            knowledge_graph_use_independent_provider
-                        )
-
-                    provider_id_to_save = (
-                        selected_knowledge_graph_provider_id
-                        if selected_knowledge_graph_provider_id is not None
-                        else 0
-                    )
-                    AppSettingsRepository.set_setting(
-                        session,
-                        "selected_knowledge_graph_provider_id",
-                        provider_id_to_save,
-                        "int",
-                        "知识图谱独立提供商ID",
-                    )
-                    self.SELECTED_KNOWLEDGE_GRAPH_PROVIDER_ID = (
-                        selected_knowledge_graph_provider_id
-                        if selected_knowledge_graph_provider_id
-                        else None
-                    )
-
-                    knowledge_graph_models = selected_knowledge_graph_models or []
-                    AppSettingsRepository.set_setting(
-                        session,
-                        "selected_knowledge_graph_models",
-                        ",".join(knowledge_graph_models),
-                        "string",
-                        "知识图谱独立模型列表（逗号分隔）",
-                    )
-                    self.SELECTED_KNOWLEDGE_GRAPH_MODELS = knowledge_graph_models
 
             self.load_llm_settings()
             return True
@@ -1035,59 +956,6 @@ class Settings:
                     }
         except Exception as e:
             logger.error(f"获取自主探索提供商配置失败: {e}")
-
-        return None
-
-    def get_knowledge_graph_provider_config(self) -> Optional[dict]:
-        """获取知识图谱任务使用的LLM提供商配置（可独立于全局配置）"""
-        if not self._llm_settings_loaded:
-            self._load_llm_settings()
-
-        provider_id: Optional[int] = None
-        selected_models: List[str] = []
-        if (
-            self.KNOWLEDGE_GRAPH_USE_INDEPENDENT_PROVIDER
-            and self.SELECTED_KNOWLEDGE_GRAPH_PROVIDER_ID
-        ):
-            provider_id = self.SELECTED_KNOWLEDGE_GRAPH_PROVIDER_ID
-            selected_models = self.SELECTED_KNOWLEDGE_GRAPH_MODELS
-        else:
-            provider_id = self.SELECTED_LLM_PROVIDER_ID
-            selected_models = self.SELECTED_LLM_MODELS
-
-        if not provider_id:
-            return None
-
-        try:
-            from backend.app.db import get_db
-            from backend.app.db.repositories import LLMProviderRepository
-
-            db = get_db()
-            if not hasattr(db, "engine"):
-                return None
-
-            with db.get_session() as session:
-                provider = LLMProviderRepository.get_by_id(session, provider_id)
-                if provider and provider.enabled:
-                    llm_models = self._parse_models(provider.llm_model)
-                    selected_model = (
-                        selected_models[0]
-                        if selected_models
-                        else (llm_models[0] if llm_models else provider.llm_model)
-                    )
-                    return {
-                        "id": provider.id,
-                        "name": provider.name,
-                        "provider_type": provider.provider_type,
-                        "protocol": self._resolve_llm_protocol(provider.provider_type),
-                        "api_key": provider.api_key,
-                        "api_base": provider.api_base,
-                        "llm_model": provider.llm_model,
-                        "llm_models": llm_models,
-                        "selected_model": selected_model,
-                    }
-        except Exception as e:
-            logger.error(f"获取知识图谱提供商配置失败: {e}")
 
         return None
 
@@ -1534,144 +1402,6 @@ class Settings:
             logger.error(f"保存社交平台配置失败: {e}", exc_info=True)
             return False
 
-    def _load_knowledge_graph_settings(self):
-        """加载知识图谱配置（从数据库读取，支持运行时修改）"""
-        if self._knowledge_graph_settings_loaded:
-            return
-
-        session = self._get_db_session()
-        if session is None:
-            return
-
-        try:
-            with session as s:
-                self.KNOWLEDGE_GRAPH_ENABLED = self._load_setting(
-                    s,
-                    "knowledge_graph_enabled",
-                    self.KNOWLEDGE_GRAPH_ENABLED,
-                    "bool",
-                )
-                self.KNOWLEDGE_GRAPH_AUTO_SYNC_ENABLED = self._load_setting(
-                    s,
-                    "knowledge_graph_auto_sync_enabled",
-                    self.KNOWLEDGE_GRAPH_AUTO_SYNC_ENABLED,
-                    "bool",
-                )
-                run_mode = str(
-                    self._load_setting(
-                        s,
-                        "knowledge_graph_run_mode",
-                        self.KNOWLEDGE_GRAPH_RUN_MODE,
-                        "string",
-                    )
-                    or "auto"
-                ).strip().lower()
-                if run_mode not in {"auto", "agent"}:
-                    run_mode = "auto"
-                self.KNOWLEDGE_GRAPH_RUN_MODE = run_mode
-                self.KNOWLEDGE_GRAPH_MAX_ARTICLES_PER_SYNC = self._load_setting(
-                    s,
-                    "knowledge_graph_max_articles_per_sync",
-                    self.KNOWLEDGE_GRAPH_MAX_ARTICLES_PER_SYNC,
-                    "int",
-                )
-                self.KNOWLEDGE_GRAPH_QUERY_DEPTH = self._load_setting(
-                    s,
-                    "knowledge_graph_query_depth",
-                    self.KNOWLEDGE_GRAPH_QUERY_DEPTH,
-                    "int",
-                )
-
-            self._knowledge_graph_settings_loaded = True
-        except Exception as e:
-            logger.debug(f"从数据库加载知识图谱配置失败: {e}")
-
-    def save_knowledge_graph_settings(
-        self,
-        *,
-        enabled: bool,
-        auto_sync_enabled: bool,
-        run_mode: str,
-        max_articles_per_sync: int,
-        query_depth: int,
-    ) -> bool:
-        """保存知识图谱配置到数据库"""
-        normalized_mode = str(run_mode or "auto").strip().lower()
-        if normalized_mode not in {"auto", "agent"}:
-            normalized_mode = "auto"
-
-        max_articles_value = max(1, min(1000, int(max_articles_per_sync)))
-        query_depth_value = max(1, min(6, int(query_depth)))
-
-        try:
-            from backend.app.db import get_db
-
-            db = get_db()
-            with db.get_session() as session:
-                self._save_setting(
-                    session,
-                    "knowledge_graph_enabled",
-                    enabled,
-                    "bool",
-                    "是否启用知识图谱功能",
-                )
-                self._save_setting(
-                    session,
-                    "knowledge_graph_auto_sync_enabled",
-                    auto_sync_enabled,
-                    "bool",
-                    "是否在采集后自动同步知识图谱",
-                )
-                self._save_setting(
-                    session,
-                    "knowledge_graph_run_mode",
-                    normalized_mode,
-                    "string",
-                    "知识图谱执行模式（auto/agent）",
-                )
-                self._save_setting(
-                    session,
-                    "knowledge_graph_max_articles_per_sync",
-                    max_articles_value,
-                    "int",
-                    "知识图谱单次同步的最大文章数",
-                )
-                self._save_setting(
-                    session,
-                    "knowledge_graph_query_depth",
-                    query_depth_value,
-                    "int",
-                    "知识图谱问答默认查询深度",
-                )
-
-            self.KNOWLEDGE_GRAPH_ENABLED = bool(enabled)
-            self.KNOWLEDGE_GRAPH_AUTO_SYNC_ENABLED = bool(auto_sync_enabled)
-            self.KNOWLEDGE_GRAPH_RUN_MODE = normalized_mode
-            self.KNOWLEDGE_GRAPH_MAX_ARTICLES_PER_SYNC = max_articles_value
-            self.KNOWLEDGE_GRAPH_QUERY_DEPTH = query_depth_value
-            self._knowledge_graph_settings_loaded = True
-            return True
-        except Exception as e:
-            logger.error(f"保存知识图谱配置失败: {e}", exc_info=True)
-            return False
-
-    def get_knowledge_graph_snapshot_dir(self) -> Path:
-        """获取知识图谱快照目录"""
-        snapshot_dir = self.DATA_DIR / "knowledge_graph"
-        snapshot_dir.mkdir(parents=True, exist_ok=True)
-        return snapshot_dir
-
-    def get_knowledge_graph_run_mode(self) -> str:
-        """获取知识图谱执行模式"""
-        mode = str(self.KNOWLEDGE_GRAPH_RUN_MODE or "auto").strip().lower()
-        if mode not in {"auto", "agent"}:
-            mode = "auto"
-        return mode
-
-    def is_knowledge_graph_enabled(self) -> bool:
-        """检查知识图谱是否启用"""
-        return bool(self.KNOWLEDGE_GRAPH_ENABLED)
-    
     def get_social_media_auto_report_cron(self) -> Optional[str]:
         """根据定时生成时间生成cron表达式"""
         if not self.SOCIAL_MEDIA_AUTO_REPORT_ENABLED:

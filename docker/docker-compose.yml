@@ -16,7 +16,12 @@ services:
       - ./logs:/app/logs
     environment:
       - PYTHONPATH=/app
-      - DATABASE_URL=sqlite:////app/backend/app/data/ai_news.db
+      - DATABASE_URL=sqlite:////app/backend/app/data/ai_news_v2.db
+      - LEGACY_DATABASE_URL=sqlite:////app/backend/app/data/ai_news.db
+      - AUTO_MIGRATE_LEGACY_DATABASE=true
+      # 生产环境必须在部署机或 .env 中设置以下值
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:?JWT_SECRET_KEY is required}
+      - DEFAULT_ADMIN_PASSWORD=${DEFAULT_ADMIN_PASSWORD:?DEFAULT_ADMIN_PASSWORD is required}
       - TZ=Asia/Shanghai
       - http_proxy=http://172.17.0.1:7890
       - https_proxy=http://172.17.0.1:7890

@@ -16,7 +16,6 @@ logger = logging.getLogger(__name__)
 from backend.app.core.settings import settings
 from backend.app.db import get_db
 from backend.app.db.repositories import LLMProviderRepository, ImageProviderRepository
-from backend.app.schemas.knowledge_graph import KnowledgeGraphSettings
 from backend.app.schemas.settings import (
     CollectionSettings, 
     AutoCollectionSettings, 
@@ -284,9 +283,6 @@ async def get_llm_settings():
         exploration_use_independent_provider=settings.EXPLORATION_USE_INDEPENDENT_PROVIDER,
         selected_exploration_provider_id=settings.SELECTED_EXPLORATION_PROVIDER_ID,
         selected_exploration_models=settings.SELECTED_EXPLORATION_MODELS,
-        knowledge_graph_use_independent_provider=settings.KNOWLEDGE_GRAPH_USE_INDEPENDENT_PROVIDER,
-        selected_knowledge_graph_provider_id=settings.SELECTED_KNOWLEDGE_GRAPH_PROVIDER_ID,
-        selected_knowledge_graph_models=settings.SELECTED_KNOWLEDGE_GRAPH_MODELS,
     )
 
 
@@ -305,9 +301,6 @@ async def update_llm_settings(
         exploration_use_independent_provider=new_settings.exploration_use_independent_provider,
         selected_exploration_provider_id=new_settings.selected_exploration_provider_id,
         selected_exploration_models=new_settings.selected_exploration_models,
-        knowledge_graph_use_independent_provider=new_settings.knowledge_graph_use_independent_provider,
-        selected_knowledge_graph_provider_id=new_settings.selected_knowledge_graph_provider_id,
-        selected_knowledge_graph_models=new_settings.selected_knowledge_graph_models,
     )
     if not success:
         raise HTTPException(status_code=500, detail="保存LLM配置失败")
@@ -323,9 +316,6 @@ async def update_llm_settings(
         exploration_use_independent_provider=settings.EXPLORATION_USE_INDEPENDENT_PROVIDER,
         selected_exploration_provider_id=settings.SELECTED_EXPLORATION_PROVIDER_ID,
         selected_exploration_models=settings.SELECTED_EXPLORATION_MODELS,
-        knowledge_graph_use_independent_provider=settings.KNOWLEDGE_GRAPH_USE_INDEPENDENT_PROVIDER,
-        selected_knowledge_graph_provider_id=settings.SELECTED_KNOWLEDGE_GRAPH_PROVIDER_ID,
-        selected_knowledge_graph_models=settings.SELECTED_KNOWLEDGE_GRAPH_MODELS,
     )
 
 
@@ -986,43 +976,4 @@ async def update_social_media_settings(
         auto_report_time=settings.SOCIAL_MEDIA_AUTO_REPORT_TIME,
     )
 
-
-@router.get("/knowledge-graph", response_model=KnowledgeGraphSettings)
-async def get_knowledge_graph_settings():
-    """Get knowledge graph settings."""
-    settings.load_settings_from_db(force_reload=True)
-    return KnowledgeGraphSettings(
-        enabled=settings.KNOWLEDGE_GRAPH_ENABLED,
-        auto_sync_enabled=settings.KNOWLEDGE_GRAPH_AUTO_SYNC_ENABLED,
-        run_mode=settings.get_knowledge_graph_run_mode(),
-        max_articles_per_sync=settings.KNOWLEDGE_GRAPH_MAX_ARTICLES_PER_SYNC,
-        query_depth=settings.KNOWLEDGE_GRAPH_QUERY_DEPTH,
-    )
-
-
-@router.put("/knowledge-graph", response_model=KnowledgeGraphSettings)
-async def update_knowledge_graph_settings(
-    new_settings: KnowledgeGraphSettings,
-    current_user: str = Depends(require_auth),
-):
-    """Update knowledge graph settings."""
-    del current_user
-    success = settings.save_knowledge_graph_settings(
-        enabled=new_settings.enabled,
-        auto_sync_enabled=new_settings.auto_sync_enabled,
-        run_mode=new_settings.run_mode,
-        max_articles_per_sync=new_settings.max_articles_per_sync,
-        query_depth=new_settings.query_depth,
-    )
-    if not success:
-        raise HTTPException(status_code=500, detail="保存知识图谱配置失败")
-
-    settings.load_settings_from_db(force_reload=True)
-    return KnowledgeGraphSettings(
-        enabled=settings.KNOWLEDGE_GRAPH_ENABLED,
-        auto_sync_enabled=settings.KNOWLEDGE_GRAPH_AUTO_SYNC_ENABLED,
-        run_mode=settings.get_knowledge_graph_run_mode(),
-        max_articles_per_sync=settings.KNOWLEDGE_GRAPH_MAX_ARTICLES_PER_SYNC,
-        query_depth=settings.KNOWLEDGE_GRAPH_QUERY_DEPTH,
-    )
 

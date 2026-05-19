@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Avatar,
@@ -30,14 +30,12 @@ import relativeTime from 'dayjs/plugin/relativeTime';
 
 import { apiService } from '@/services/api';
 import { useAIConversation, type Message } from '@/contexts/AIConversationContext';
-import { useKnowledgeGraphView } from '@/contexts/KnowledgeGraphViewContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getThemeColor, getMessageBubbleStyle } from '@/utils/theme';
 import { createMarkdownComponents, remarkGfm } from '@/utils/markdown';
 import type {
   AIQueryEngine,
   ArticleSearchResult,
-  KnowledgeGraphArticleReference,
   RAGQueryRequest,
 } from '@/types';
 
@@ -46,16 +44,13 @@ dayjs.extend(relativeTime);
 const { TextArea } = Input;
 const { Text } = Typography;
 
-type ReferenceArticle = ArticleSearchResult | KnowledgeGraphArticleReference;
+type ReferenceArticle = ArticleSearchResult;
 
 function buildErrorText(message: string) {
   return `抱歉，处理当前问题时出现错误：${message}`;
 }
 
 function getReferenceArticles(message: Message): ReferenceArticle[] {
-  if (message.relatedArticles && message.relatedArticles.length > 0) {
-    return message.relatedArticles;
-  }
   return message.articles || [];
 }
 
@@ -76,7 +71,6 @@ export default function AIConversationModal() {
     selectedEngine,
     setSelectedEngine,
   } = useAIConversation();
-  const { focusArticle, focusNode } = useKnowledgeGraphView();
 
   const [inputValue, setInputValue] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
@@ -141,11 +135,9 @@ export default function AIConversationModal() {
       content: '',
       timestamp: new Date(),
       engine,
-      resolvedMode: engine === 'rag' ? 'rag' : undefined,
+      resolvedMode: engine === 'rag' || engine === 'auto' ? 'rag' : undefined,
       articles: [],
       sources: [],
-      matchedNodes: [],
-      relatedArticles: [],
       contextNodeCount: 0,
       contextEdgeCount: 0,
     };
@@ -169,8 +161,6 @@ export default function AIConversationModal() {
     let accumulatedContent = '';
     let receivedArticles: ArticleSearchResult[] = [];
     let receivedSources: string[] = [];
-    let relatedArticles: KnowledgeGraphArticleReference[] = [];
-    let matchedNodes = initialAssistantMessage.matchedNodes || [];
     let resolvedMode: AIQueryEngine = initialAssistantMessage.resolvedMode || engine;
     let contextNodeCount = 0;
     let contextEdgeCount = 0;
@@ -182,8 +172,6 @@ export default function AIConversationModal() {
         content: accumulatedContent,
         articles: receivedArticles,
         sources: receivedSources,
-        relatedArticles,
-        matchedNodes,
         resolvedMode,
         contextNodeCount,
         contextEdgeCount,
@@ -198,8 +186,6 @@ export default function AIConversationModal() {
         content: errorText,
         articles: receivedArticles,
         sources: receivedSources,
-        relatedArticles,
-        matchedNodes,
         resolvedMode,
         contextNodeCount,
         contextEdgeCount,
@@ -208,87 +194,38 @@ export default function AIConversationModal() {
       finishAssistantMessage(chatId!, existingMessages, finalAssistantMessage);
     };
 
-    if (engine === 'rag') {
-      apiService.queryArticlesStream(request, (chunk) => {
-        if (chunk.type === 'articles') {
-          receivedArticles = chunk.data.articles || [];
-          receivedSources = chunk.data.sources || [];
-          updateAssistantMessage(assistantMessageId, (message) => ({
-            ...message,
-            articles: receivedArticles,
-            sources: receivedSources,
-          }));
-          return;
-        }
-
-        if (chunk.type === 'content') {
-          accumulatedContent += chunk.data.content || '';
-          updateAssistantMessage(assistantMessageId, (message) => ({
-            ...message,
-            content: accumulatedContent,
-          }));
-          return;
-        }
-
-        if (chunk.type === 'done') {
-          finalizeSuccess();
-          return;
-        }
-
-        if (chunk.type === 'error') {
-          finalizeError(chunk.data.message || '未知错误');
-        }
-      }).catch((error) => {
-        finalizeError(error instanceof Error ? error.message : '未知错误');
-      });
-      return;
-    }
-
-    apiService.queryKnowledgeGraphStream(
-      {
-        question: question.trim(),
-        mode: engine,
-        top_k: topK,
-        query_depth: undefined,
-        conversation_history: conversationHistory.length > 0 ? conversationHistory : undefined,
-      },
-      (chunk) => {
-        if (chunk.type === 'graph_context') {
-          matchedNodes = chunk.data.matched_nodes || [];
-          relatedArticles = chunk.data.related_articles || [];
-          resolvedMode = chunk.data.resolved_mode || engine;
-          contextNodeCount = chunk.data.context_node_count || 0;
-          contextEdgeCount = chunk.data.context_edge_count || 0;
-          updateAssistantMessage(assistantMessageId, (message) => ({
-            ...message,
-            matchedNodes,
-            relatedArticles,
-            resolvedMode,
-            contextNodeCount,
-            contextEdgeCount,
-          }));
-          return;
-        }
-
-        if (chunk.type === 'content') {
-          accumulatedContent += chunk.data.content || '';
-          updateAssistantMessage(assistantMessageId, (message) => ({
-            ...message,
-            content: accumulatedContent,
-          }));
-          return;
-        }
-
-        if (chunk.type === 'done') {
-          finalizeSuccess();
-          return;
-        }
-
-        if (chunk.type === 'error') {
-          finalizeError(chunk.data.message || '未知错误');
-        }
+    apiService.queryArticlesStream(request, (chunk) => {
+      if (chunk.type === 'articles') {
+        receivedArticles = chunk.data.articles || [];
+        receivedSources = chunk.data.sources || [];
+        resolvedMode = 'rag';
+        updateAssistantMessage(assistantMessageId, (message) => ({
+          ...message,
+          articles: receivedArticles,
+          sources: receivedSources,
+          resolvedMode,
+        }));
+        return;
       }
-    ).catch((error) => {
+
+      if (chunk.type === 'content') {
+        accumulatedContent += chunk.data.content || '';
+        updateAssistantMessage(assistantMessageId, (message) => ({
+          ...message,
+          content: accumulatedContent,
+        }));
+        return;
+      }
+
+      if (chunk.type === 'done') {
+        finalizeSuccess();
+        return;
+      }
+
+      if (chunk.type === 'error') {
+        finalizeError(chunk.data.message || '未知错误');
+      }
+    }).catch((error) => {
       finalizeError(error instanceof Error ? error.message : '未知错误');
     });
   }, [
@@ -497,33 +434,6 @@ export default function AIConversationModal() {
                           </Space>
                         )}
 
-                        {!isUser && message.matchedNodes?.length ? (
-                          <div style={{ marginBottom: 8, width: '100%' }}>
-                            <CardLike theme={theme}>
-                              <Space direction="vertical" size="small" style={{ width: '100%' }}>
-                                <div>
-                                  <Text strong>命中节点</Text>
-                                    <div style={{ marginTop: 8 }}>
-                                      {message.matchedNodes?.length ? (
-                                        message.matchedNodes.map((node) => (
-                                          <Tag
-                                            key={node.node_key}
-                                            style={{ cursor: 'pointer' }}
-                                            onClick={() => focusNode(node.node_key)}
-                                          >
-                                            {node.label} / {node.node_type}
-                                          </Tag>
-                                        ))
-                                    ) : (
-                                      <Text type="secondary">暂无</Text>
-                                    )}
-                                  </div>
-                                </div>
-                              </Space>
-                            </CardLike>
-                          </div>
-                        ) : null}
-
                         {!isUser && referenceArticles.length > 0 && (
                           <div style={{ marginBottom: 8, width: '100%' }}>
                             <Collapse
@@ -557,19 +467,7 @@ export default function AIConversationModal() {
                                         const hasRelationCount = 'relation_count' in article;
                                         const hasSimilarity = 'similarity' in article;
                                         return (
-                                          <List.Item
-                                            style={{ paddingInline: 0 }}
-                                            actions={[
-                                              <Button
-                                                key="focus-reference-article"
-                                                type="link"
-                                                size="small"
-                                                onClick={() => focusArticle(article.id)}
-                                              >
-                                                图谱定位
-                                              </Button>,
-                                            ]}
-                                          >
+                                          <List.Item style={{ paddingInline: 0 }}>
                                             <Space direction="vertical" size={0} style={{ width: '100%' }}>
                                               <a href={article.url} target="_blank" rel="noreferrer">
                                                 {article.title_zh || article.title}
@@ -810,8 +708,6 @@ export default function AIConversationModal() {
                 options={[
                   { label: '自动', value: 'auto' },
                   { label: 'RAG', value: 'rag' },
-                  { label: 'Graph', value: 'graph' },
-                  { label: 'Hybrid', value: 'hybrid' },
                 ]}
               />
             </Space>
@@ -870,20 +766,5 @@ export default function AIConversationModal() {
       `}</style>
       {createPortal(modalContent, document.body)}
     </>
-  );
-}
-
-function CardLike({ children, theme }: { children: ReactNode; theme: 'light' | 'dark' }) {
-  return (
-    <div
-      style={{
-        padding: 12,
-        borderRadius: 10,
-        border: `1px solid ${getThemeColor(theme, 'border')}`,
-        background: getThemeColor(theme, 'bgSecondary'),
-      }}
-    >
-      {children}
-    </div>
   );
 }

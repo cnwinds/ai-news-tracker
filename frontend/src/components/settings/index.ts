@@ -9,4 +9,3 @@ export { default as PasswordSettingsTab } from './PasswordSettingsTab';
 export { default as SocialMediaSettingsTab } from './SocialMediaSettingsTab';
 export { default as RAGSettingsTab } from './RAGSettingsTab';
 export { default as DatabaseSettingsTab } from './DatabaseSettingsTab';
-export { default as KnowledgeGraphSettingsTab } from './KnowledgeGraphSettingsTab';

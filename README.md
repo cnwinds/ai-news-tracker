@@ -221,7 +221,14 @@ npm install
 
 ```env
 # 数据库（默认SQLite，可选）
-DATABASE_URL=sqlite:///./backend/app/data/ai_news.db
+# 新版本主库。首次启动会从旧 ai_news.db 自动迁移文章和基础配置。
+DATABASE_URL=sqlite:///./backend/app/data/ai_news_v2.db
+LEGACY_DATABASE_URL=sqlite:///./backend/app/data/ai_news.db
+AUTO_MIGRATE_LEGACY_DATABASE=true
+
+# 生产环境必须设置为高强度随机字符串
+JWT_SECRET_KEY=replace-with-a-strong-random-secret
+DEFAULT_ADMIN_PASSWORD=replace-before-first-login
 
 # Web服务器配置（可选）
 WEB_HOST=0.0.0.0
@@ -234,7 +241,7 @@ LOG_FILE=logs/app.log
 
 **注意**：LLM API 配置（API地址、密钥、模型等）和通知配置（飞书/钉钉Webhook）现在通过 Web 界面的"系统设置"页面进行配置，存储在数据库中。启动服务后，访问系统设置页面进行配置。
 
-**注意**：数据库会在首次启动时自动初始化，无需手动初始化。
+**注意**：数据库会在首次启动时自动初始化。若存在旧版 `ai_news.db`、`ai_news.db-wal`、`ai_news.db-shm`，请一起放在 `LEGACY_DATABASE_URL` 指向的位置；系统会自动把文章和基础配置迁入新库，旧知识图谱数据不会迁移。
 
 ### 4. 启动服务
 

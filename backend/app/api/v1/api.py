@@ -10,7 +10,7 @@ from backend.app.api.v1.endpoints import (
     cleanup,
     collection,
     exploration,
-    knowledge_graph,
+    industry_graph,
     rag,
     settings,
     social_media,
@@ -37,7 +37,7 @@ _ROUTES = [
     (social_media, "/social-media", ["social-media"]),
     (analytics, "/analytics", ["analytics"]),
     (exploration, "/exploration", ["exploration"]),
-    (knowledge_graph, "/knowledge-graph", ["knowledge-graph"]),
+    (industry_graph, "/industry-graph", ["industry-graph"]),
 ]
 
 # 注册所有路由

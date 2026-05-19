@@ -64,12 +64,34 @@ docker compose -f docker/docker-compose.yml down -v
 
 ### 环境变量
 
-可以通过修改 `docker-compose.yml` 中的 `environment` 部分来配置环境变量：
+生产部署前先在 `docker/.env` 中设置密钥和首次登录密码：
+
+```env
+JWT_SECRET_KEY=请替换为足够长的随机字符串
+DEFAULT_ADMIN_PASSWORD=请替换为首次登录密码
+```
+
+也可以通过修改 `docker-compose.yml` 中的 `environment` 部分来配置环境变量：
 
 ```yaml
 environment:
-  - DATABASE_URL=sqlite:////app/backend/app/data/ai_news.db
+  - DATABASE_URL=sqlite:////app/backend/app/data/ai_news_v2.db
+  - LEGACY_DATABASE_URL=sqlite:////app/backend/app/data/ai_news.db
+  - AUTO_MIGRATE_LEGACY_DATABASE=true
+  - JWT_SECRET_KEY=请替换为生产随机密钥
+  - DEFAULT_ADMIN_PASSWORD=请替换为首次登录密码
   - LOG_LEVEL=INFO
+```
+
+### 旧数据库自动迁移
+
+升级旧版本时，把 `ai_news.db`、`ai_news.db-wal`、`ai_news.db-shm` 一起放到 `docker/data/`。新版本启动后会把文章、订阅源和基础配置迁移到 `ai_news_v2.db`，旧知识图谱数据不会迁移。确认新库工作正常后，旧 `ai_news.db*` 文件即可归档或废弃。
+
+批量重建行业图谱可以在后端容器执行：
+
+```bash
+docker exec -it ai-news-tracker-backend \
+  python -m backend.app.scripts.rebuild_industry_graph --clear-existing-graph --batch-size 50
 ```
 
 ### WebSocket 配置

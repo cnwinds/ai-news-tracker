@@ -8,7 +8,6 @@ import AccessAnalytics from '@/components/AccessAnalytics';
 import {
   DatabaseSettingsTab,
   ImageSettingsTab,
-  KnowledgeGraphSettingsTab,
   LLMSettingsTab,
   NotificationSettingsTab,
   PasswordSettingsTab,
@@ -65,11 +64,6 @@ export default function SystemSettings() {
       key: 'rag-index',
       label: 'RAG 索引管理',
       children: <RAGSettingsTab />,
-    },
-    {
-      key: 'knowledge-graph',
-      label: '知识图谱',
-      children: <KnowledgeGraphSettingsTab />,
     },
     {
       key: 'password',

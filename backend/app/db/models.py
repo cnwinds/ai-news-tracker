@@ -494,102 +494,357 @@ class ExplorationReport(Base):
         return f"<ExplorationReport(id={self.id}, report_id='{self.report_id}', model_id={self.model_id})>"
 
 
-class KnowledgeGraphNode(Base):
-    """知识图谱节点表"""
-    __tablename__ = "knowledge_graph_nodes"
+class IndustryDocument(Base):
+    """行业图谱文档事实表"""
+    __tablename__ = "industry_documents"
 
     __table_args__ = (
-        Index("idx_kg_node_key_unique", "node_key", unique=True),
-        Index("idx_kg_node_type_label", "node_type", "label"),
+        Index("idx_ind_doc_source_published", "source_type", "published_at"),
+        Index("idx_ind_doc_hash", "content_hash"),
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    node_key = Column(String(255), nullable=False, index=True)
-    label = Column(String(500), nullable=False, index=True)
-    node_type = Column(String(50), nullable=False, index=True)
-    aliases = Column(JSON, nullable=True)
+    source_type = Column(String(50), nullable=False, default="news", index=True)
+    source_ref_id = Column(Integer, nullable=True, index=True)
+    title = Column(String(1000), nullable=False, index=True)
+    title_zh = Column(String(1000), nullable=True, index=True)
+    url = Column(String(1500), nullable=True, unique=True, index=True)
+    source = Column(String(200), nullable=True, index=True)
+    author = Column(String(200), nullable=True)
+    published_at = Column(DateTime, nullable=True, index=True)
+    collected_at = Column(DateTime, nullable=True)
+    language = Column(String(20), nullable=True)
+    content_hash = Column(String(128), nullable=False, index=True)
+    content_text = Column(Text, nullable=True)
     metadata_json = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=datetime.now, nullable=False)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
     def __repr__(self):
-        return f"<KnowledgeGraphNode(id={self.id}, key='{self.node_key}', type='{self.node_type}')>"
+        return f"<IndustryDocument(id={self.id}, type='{self.source_type}', title='{self.title[:50]}')>"
 
 
-class KnowledgeGraphEdge(Base):
-    """知识图谱边表"""
-    __tablename__ = "knowledge_graph_edges"
+class IndustryDocumentChunk(Base):
+    """行业图谱文档分片表"""
+    __tablename__ = "industry_document_chunks"
 
     __table_args__ = (
-        Index("idx_kg_edge_article", "source_article_id"),
-        Index("idx_kg_edge_relation", "relation_type", "confidence"),
-        Index("idx_kg_edge_nodes", "source_node_id", "target_node_id"),
+        Index("idx_ind_chunk_document", "document_id", "chunk_index"),
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    source_node_id = Column(Integer, ForeignKey("knowledge_graph_nodes.id"), nullable=False, index=True)
-    target_node_id = Column(Integer, ForeignKey("knowledge_graph_nodes.id"), nullable=False, index=True)
+    document_id = Column(Integer, ForeignKey("industry_documents.id"), nullable=False, index=True)
+    chunk_index = Column(Integer, nullable=False)
+    chunk_text = Column(Text, nullable=False)
+    token_count = Column(Integer, nullable=False, default=0)
+    embedding_id = Column(Integer, nullable=True)
+    metadata_json = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+
+    document = relationship("IndustryDocument", backref="chunks")
+
+    def __repr__(self):
+        return f"<IndustryDocumentChunk(document_id={self.document_id}, index={self.chunk_index})>"
+
+
+class IndustryDocumentScenarioState(Base):
+    """行业图谱场景级文档抽取状态"""
+    __tablename__ = "industry_document_scenario_states"
+
+    __table_args__ = (
+        Index(
+            "idx_ind_doc_scenario_unique",
+            "document_id",
+            "scenario_key",
+            "extractor_version",
+            unique=True,
+        ),
+        Index("idx_ind_doc_scenario_status", "scenario_key", "status"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    document_id = Column(Integer, ForeignKey("industry_documents.id"), nullable=False, index=True)
+    scenario_key = Column(String(100), nullable=False, index=True)
+    extractor_version = Column(String(50), nullable=False, default="v1")
+    content_hash = Column(String(128), nullable=False)
+    status = Column(String(20), nullable=False, default="pending", index=True)
+    last_extracted_at = Column(DateTime, nullable=True)
+    last_error = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    document = relationship("IndustryDocument", backref="scenario_states")
+
+    def __repr__(self):
+        return f"<IndustryDocumentScenarioState(document_id={self.document_id}, scenario='{self.scenario_key}')>"
+
+
+class IndustryGraphEntity(Base):
+    """行业图谱标准实体"""
+    __tablename__ = "industry_graph_entities"
+
+    __table_args__ = (
+        Index("idx_ind_entity_key_unique", "entity_key", unique=True),
+        Index("idx_ind_entity_type_name", "entity_type", "normalized_name"),
+        Index("idx_ind_entity_type_canonical", "entity_type", "canonical_name"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    entity_key = Column(String(300), nullable=False, index=True)
+    entity_type = Column(String(80), nullable=False, index=True)
+    canonical_name = Column(String(500), nullable=False, index=True)
+    normalized_name = Column(String(500), nullable=False, index=True)
+    description = Column(Text, nullable=True)
+    properties_json = Column(JSON, nullable=True)
+    degree = Column(Integer, nullable=False, default=0)
+    article_count = Column(Integer, nullable=False, default=0)
+    first_seen_at = Column(DateTime, nullable=True, index=True)
+    last_seen_at = Column(DateTime, nullable=True, index=True)
+    graph_version = Column(Integer, nullable=False, default=1, index=True)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    def __repr__(self):
+        return f"<IndustryGraphEntity(id={self.id}, type='{self.entity_type}', name='{self.canonical_name}')>"
+
+
+class IndustryGraphEntityName(Base):
+    """行业图谱实体名称、别名和原文提及"""
+    __tablename__ = "industry_graph_entity_names"
+
+    __table_args__ = (
+        Index("idx_ind_entity_name_lookup", "entity_type", "normalized_name"),
+        Index("idx_ind_entity_name_entity", "entity_id"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    entity_id = Column(Integer, ForeignKey("industry_graph_entities.id"), nullable=False, index=True)
+    entity_type = Column(String(80), nullable=False, index=True)
+    name = Column(String(500), nullable=False)
+    normalized_name = Column(String(500), nullable=False, index=True)
+    name_kind = Column(String(30), nullable=False, default="alias")
+    source_document_id = Column(Integer, ForeignKey("industry_documents.id"), nullable=True, index=True)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+
+    entity = relationship("IndustryGraphEntity", backref="names")
+
+    def __repr__(self):
+        return f"<IndustryGraphEntityName(entity_id={self.entity_id}, name='{self.name}')>"
+
+
+class IndustryGraphEntityIdentity(Base):
+    """行业图谱实体强标识"""
+    __tablename__ = "industry_graph_entity_identities"
+
+    __table_args__ = (
+        Index("idx_ind_identity_unique", "identity_type", "normalized_value", unique=True),
+        Index("idx_ind_identity_entity", "entity_id"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    entity_id = Column(Integer, ForeignKey("industry_graph_entities.id"), nullable=False, index=True)
+    identity_type = Column(String(80), nullable=False, index=True)
+    identity_value = Column(String(1500), nullable=False)
+    normalized_value = Column(String(1500), nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+
+    entity = relationship("IndustryGraphEntity", backref="identities")
+
+    def __repr__(self):
+        return f"<IndustryGraphEntityIdentity(type='{self.identity_type}', entity_id={self.entity_id})>"
+
+
+class IndustryGraphRelation(Base):
+    """行业图谱聚合关系"""
+    __tablename__ = "industry_graph_relations"
+
+    __table_args__ = (
+        Index(
+            "idx_ind_relation_unique",
+            "source_entity_id",
+            "target_entity_id",
+            "relation_type",
+            unique=True,
+        ),
+        Index("idx_ind_relation_source", "source_entity_id", "relation_type", "target_entity_id"),
+        Index("idx_ind_relation_target", "target_entity_id", "relation_type", "source_entity_id"),
+        Index("idx_ind_relation_type_conf", "relation_type", "confidence"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    source_entity_id = Column(Integer, ForeignKey("industry_graph_entities.id"), nullable=False, index=True)
+    target_entity_id = Column(Integer, ForeignKey("industry_graph_entities.id"), nullable=False, index=True)
     relation_type = Column(String(100), nullable=False, index=True)
     confidence = Column(String(20), nullable=False, default="EXTRACTED", index=True)
     confidence_score = Column(Float, nullable=False, default=1.0)
     weight = Column(Float, nullable=False, default=1.0)
-    source_article_id = Column(Integer, ForeignKey("articles.id"), nullable=True, index=True)
+    evidence_count = Column(Integer, nullable=False, default=0)
+    first_seen_at = Column(DateTime, nullable=True, index=True)
+    last_seen_at = Column(DateTime, nullable=True, index=True)
+    properties_json = Column(JSON, nullable=True)
+    graph_version = Column(Integer, nullable=False, default=1, index=True)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    source_entity = relationship("IndustryGraphEntity", foreign_keys=[source_entity_id])
+    target_entity = relationship("IndustryGraphEntity", foreign_keys=[target_entity_id])
+
+    def __repr__(self):
+        return f"<IndustryGraphRelation(id={self.id}, type='{self.relation_type}')>"
+
+
+class IndustryGraphRelationEvidence(Base):
+    """行业图谱关系证据"""
+    __tablename__ = "industry_graph_relation_evidence"
+
+    __table_args__ = (
+        Index("idx_ind_evidence_relation", "relation_id"),
+        Index("idx_ind_evidence_document", "document_id"),
+        Index("idx_ind_evidence_scenario", "scenario_key", "document_id"),
+        Index("idx_ind_evidence_unique", "relation_id", "document_id", "snippet_hash", unique=True),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    relation_id = Column(Integer, ForeignKey("industry_graph_relations.id"), nullable=False, index=True)
+    document_id = Column(Integer, ForeignKey("industry_documents.id"), nullable=False, index=True)
+    chunk_id = Column(Integer, ForeignKey("industry_document_chunks.id"), nullable=True, index=True)
     evidence_snippet = Column(Text, nullable=True)
+    confidence = Column(String(20), nullable=False, default="EXTRACTED")
+    confidence_score = Column(Float, nullable=False, default=1.0)
+    extraction_run_id = Column(String(100), nullable=True, index=True)
+    snippet_hash = Column(String(128), nullable=False, index=True)
+    scenario_key = Column(String(100), nullable=False, default="technology_evolution", index=True)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+
+    relation = relationship("IndustryGraphRelation", backref="evidence_items")
+    document = relationship("IndustryDocument", backref="relation_evidence")
+
+    def __repr__(self):
+        return f"<IndustryGraphRelationEvidence(relation_id={self.relation_id}, document_id={self.document_id})>"
+
+
+class IndustryGraphBuild(Base):
+    """行业图谱构建任务记录"""
+    __tablename__ = "industry_graph_builds"
+
+    __table_args__ = (
+        Index("idx_ind_build_status_started", "status", "started_at"),
+        Index("idx_ind_build_version", "graph_version"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    graph_version = Column(Integer, nullable=False, default=1, index=True)
+    status = Column(String(20), nullable=False, default="pending", index=True)
+    trigger_source = Column(String(50), nullable=False, default="manual")
+    scenario_keys = Column(JSON, nullable=True)
+    total_documents = Column(Integer, nullable=False, default=0)
+    processed_documents = Column(Integer, nullable=False, default=0)
+    failed_documents = Column(Integer, nullable=False, default=0)
+    entity_count = Column(Integer, nullable=False, default=0)
+    relation_count = Column(Integer, nullable=False, default=0)
+    evidence_count = Column(Integer, nullable=False, default=0)
+    started_at = Column(DateTime, default=datetime.now, nullable=False, index=True)
+    completed_at = Column(DateTime, nullable=True)
+    error_message = Column(Text, nullable=True)
     metadata_json = Column(JSON, nullable=True)
+
+    def __repr__(self):
+        return f"<IndustryGraphBuild(version={self.graph_version}, status='{self.status}')>"
+
+
+class IndustryGraphSuggestedQuestion(Base):
+    """行业图谱每日推荐问题"""
+    __tablename__ = "industry_graph_suggested_questions"
+
+    __table_args__ = (
+        Index("idx_ind_question_date_priority", "generated_for_date", "priority"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    question = Column(String(1000), nullable=False)
+    scenario_key = Column(String(100), nullable=False, default="technology_evolution", index=True)
+    reason = Column(Text, nullable=True)
+    source_period_start = Column(DateTime, nullable=True)
+    source_period_end = Column(DateTime, nullable=True)
+    hot_entities_json = Column(JSON, nullable=True)
+    priority = Column(Integer, nullable=False, default=100, index=True)
+    generated_for_date = Column(DateTime, nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+
+    def __repr__(self):
+        return f"<IndustryGraphSuggestedQuestion(id={self.id}, question='{self.question[:50]}')>"
+
+
+class IndustryGraphConversation(Base):
+    """行业图谱聊天会话"""
+    __tablename__ = "industry_graph_conversations"
+
+    __table_args__ = (
+        Index("idx_ind_conversation_user_updated", "user_id", "updated_at"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String(200), nullable=True, index=True)
+    title = Column(String(500), nullable=False, default="行业趋势分析")
+    primary_scenario = Column(String(100), nullable=False, default="technology_evolution", index=True)
     created_at = Column(DateTime, default=datetime.now, nullable=False)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
     def __repr__(self):
-        return (
-            f"<KnowledgeGraphEdge(id={self.id}, relation='{self.relation_type}', "
-            f"source_node_id={self.source_node_id}, target_node_id={self.target_node_id})>"
-        )
+        return f"<IndustryGraphConversation(id={self.id}, title='{self.title}')>"
 
 
-class KnowledgeGraphArticleState(Base):
-    """知识图谱文章同步状态表"""
-    __tablename__ = "knowledge_graph_article_states"
+class IndustryGraphMessage(Base):
+    """行业图谱聊天消息"""
+    __tablename__ = "industry_graph_messages"
 
     __table_args__ = (
-        Index("idx_kg_article_state_status", "status", "last_synced_at"),
-    )
-
-    article_id = Column(Integer, ForeignKey("articles.id"), primary_key=True)
-    content_hash = Column(String(128), nullable=True, index=True)
-    status = Column(String(20), nullable=False, default="pending", index=True)
-    sync_mode = Column(String(20), nullable=False, default="deterministic")
-    last_synced_at = Column(DateTime, nullable=True, index=True)
-    last_error = Column(Text, nullable=True)
-    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
-
-    def __repr__(self):
-        return (
-            f"<KnowledgeGraphArticleState(article_id={self.article_id}, "
-            f"status='{self.status}', sync_mode='{self.sync_mode}')>"
-        )
-
-
-class KnowledgeGraphBuild(Base):
-    """知识图谱构建任务记录表"""
-    __tablename__ = "knowledge_graph_builds"
-
-    __table_args__ = (
-        Index("idx_kg_build_status_started", "status", "started_at"),
+        Index("idx_ind_message_conversation_created", "conversation_id", "created_at"),
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    build_id = Column(String(64), nullable=False, unique=True, index=True)
-    status = Column(String(20), nullable=False, default="pending", index=True)
-    trigger_source = Column(String(50), nullable=False, default="manual")
-    sync_mode = Column(String(20), nullable=False, default="deterministic")
-    total_articles = Column(Integer, nullable=False, default=0)
-    processed_articles = Column(Integer, nullable=False, default=0)
-    nodes_upserted = Column(Integer, nullable=False, default=0)
-    edges_upserted = Column(Integer, nullable=False, default=0)
-    error_message = Column(Text, nullable=True)
-    extra_data = Column(JSON, nullable=True)
-    started_at = Column(DateTime, default=datetime.now, nullable=False, index=True)
-    completed_at = Column(DateTime, nullable=True)
+    conversation_id = Column(Integer, ForeignKey("industry_graph_conversations.id"), nullable=False, index=True)
+    role = Column(String(20), nullable=False, index=True)
+    content_text = Column(Text, nullable=True)
+    content_blocks_json = Column(JSON, nullable=True)
+    query_plan_json = Column(JSON, nullable=True)
+    metadata_json = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+
+    conversation = relationship("IndustryGraphConversation", backref="messages")
 
     def __repr__(self):
-        return f"<KnowledgeGraphBuild(build_id='{self.build_id}', status='{self.status}')>"
+        return f"<IndustryGraphMessage(conversation_id={self.conversation_id}, role='{self.role}')>"
+
+
+class TechnologyTrendMetric(Base):
+    """技术演进趋势指标"""
+    __tablename__ = "technology_trend_metrics"
+
+    __table_args__ = (
+        Index("idx_tech_trend_period_score", "period_start", "period_end", "trend_score"),
+        Index("idx_tech_trend_entity_period", "technology_id", "period_start", "period_end", unique=True),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    technology_id = Column(Integer, ForeignKey("industry_graph_entities.id"), nullable=False, index=True)
+    period_start = Column(DateTime, nullable=False, index=True)
+    period_end = Column(DateTime, nullable=False, index=True)
+    document_count = Column(Integer, nullable=False, default=0)
+    paper_count = Column(Integer, nullable=False, default=0)
+    product_count = Column(Integer, nullable=False, default=0)
+    company_count = Column(Integer, nullable=False, default=0)
+    benchmark_count = Column(Integer, nullable=False, default=0)
+    new_relation_count = Column(Integer, nullable=False, default=0)
+    adoption_count = Column(Integer, nullable=False, default=0)
+    growth_rate = Column(Float, nullable=False, default=0.0)
+    novelty_score = Column(Float, nullable=False, default=0.0)
+    convergence_score = Column(Float, nullable=False, default=0.0)
+    evidence_count = Column(Integer, nullable=False, default=0)
+    trend_score = Column(Float, nullable=False, default=0.0, index=True)
+    generated_at = Column(DateTime, default=datetime.now, nullable=False)
+
+    technology = relationship("IndustryGraphEntity")
+
+    def __repr__(self):
+        return f"<TechnologyTrendMetric(technology_id={self.technology_id}, score={self.trend_score})>"

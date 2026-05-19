@@ -174,13 +174,8 @@ export default function LLMSettingsTab() {
           llmSettings.selected_exploration_provider_id,
           llmSettings.selected_exploration_models,
         ),
-        selected_knowledge_graph_provider_id: toProviderAndModel(
-          llmSettings.selected_knowledge_graph_provider_id,
-          llmSettings.selected_knowledge_graph_models,
-        ),
         exploration_execution_mode: llmSettings.exploration_execution_mode || 'auto',
         exploration_use_independent_provider: llmSettings.exploration_use_independent_provider || false,
-        knowledge_graph_use_independent_provider: llmSettings.knowledge_graph_use_independent_provider || false,
       });
     }
   }, [llmSettings, llmForm]);
@@ -195,9 +190,6 @@ export default function LLMSettingsTab() {
     const { providerId: selected_exploration_provider_id, models: selected_exploration_models } = parseProviderAndModel(
       values.selected_exploration_provider_id,
     );
-    const { providerId: selected_knowledge_graph_provider_id, models: selected_knowledge_graph_models } = parseProviderAndModel(
-      values.selected_knowledge_graph_provider_id,
-    );
     
     updateLLMMutation.mutate({
       selected_llm_provider_id,
@@ -208,9 +200,6 @@ export default function LLMSettingsTab() {
       exploration_use_independent_provider: values.exploration_use_independent_provider || false,
       selected_exploration_provider_id,
       selected_exploration_models,
-      knowledge_graph_use_independent_provider: values.knowledge_graph_use_independent_provider || false,
-      selected_knowledge_graph_provider_id,
-      selected_knowledge_graph_models,
     });
   };
 
@@ -242,7 +231,6 @@ export default function LLMSettingsTab() {
   const enabledProviders = providers.filter(p => p.enabled);
   const embeddingProviders = providers.filter(p => p.enabled && p.embedding_model);
   const explorationUseIndependentProvider = Form.useWatch('exploration_use_independent_provider', llmForm) || false;
-  const knowledgeGraphUseIndependentProvider = Form.useWatch('knowledge_graph_use_independent_provider', llmForm) || false;
   const llmProviderOptions = buildProviderOptions(enabledProviders, 'llm_model');
   const embeddingProviderOptions = buildProviderOptions(embeddingProviders, 'embedding_model');
 
@@ -455,33 +443,6 @@ export default function LLMSettingsTab() {
               )}
             </Card>
 
-            <Card size="small" title="知识图谱模式" style={{ marginBottom: 24 }}>
-              <Form.Item
-                name="knowledge_graph_use_independent_provider"
-                label="使用独立模型"
-                valuePropName="checked"
-                tooltip="开启后，知识图谱构建和问答可使用不同于全局 LLM 的独立模型配置"
-              >
-                <Switch disabled={!isAuthenticated} />
-              </Form.Item>
-
-              {knowledgeGraphUseIndependentProvider && (
-                <Form.Item
-                  name="selected_knowledge_graph_provider_id"
-                  label="知识图谱模型提供商"
-                  tooltip="选择知识图谱专用提供商和模型"
-                  rules={[{ required: true, message: '请选择知识图谱模型提供商' }]}
-                >
-                  <Select
-                    placeholder="选择知识图谱模型提供商"
-                    style={{ width: '100%' }}
-                    disabled={!isAuthenticated}
-                    options={llmProviderOptions}
-                  />
-                </Form.Item>
-              )}
-            </Card>
-
             <Form.Item>
               <Space>
                 <Button
@@ -511,13 +472,8 @@ export default function LLMSettingsTab() {
                           llmSettings.selected_exploration_provider_id,
                           llmSettings.selected_exploration_models,
                         ),
-                        selected_knowledge_graph_provider_id: toProviderAndModel(
-                          llmSettings.selected_knowledge_graph_provider_id,
-                          llmSettings.selected_knowledge_graph_models,
-                        ),
                         exploration_execution_mode: llmSettings.exploration_execution_mode || 'auto',
                         exploration_use_independent_provider: llmSettings.exploration_use_independent_provider || false,
-                        knowledge_graph_use_independent_provider: llmSettings.knowledge_graph_use_independent_provider || false,
                       });
                     }
                   }}

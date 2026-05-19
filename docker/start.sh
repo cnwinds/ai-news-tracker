@@ -27,6 +27,21 @@ echo "📁 创建必要的目录..."
 mkdir -p ./data
 mkdir -p ./logs
 
+if [ -f ./.env ]; then
+    set -a
+    # shellcheck disable=SC1091
+    . ./.env
+    set +a
+fi
+
+if [ -z "$JWT_SECRET_KEY" ] || [ -z "$DEFAULT_ADMIN_PASSWORD" ]; then
+    echo "❌ 错误: 生产启动前必须设置 JWT_SECRET_KEY 和 DEFAULT_ADMIN_PASSWORD"
+    echo "   可以在 docker/.env 中配置，例如："
+    echo "   JWT_SECRET_KEY=一段足够长的随机字符串"
+    echo "   DEFAULT_ADMIN_PASSWORD=首次登录密码"
+    exit 1
+fi
+
 # 使用 docker compose (Docker Compose V2)
 # 指定项目名称，确保只管理自己的容器
 PROJECT_NAME="ai-news-tracker"
