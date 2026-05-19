@@ -40,9 +40,13 @@ logs/
 
 # 数据库文件
 *.db
+*.db-wal
+*.db-shm
 *.sqlite
 *.sqlite3
 backend/app/data/*.db
+data/*.db-wal
+data/*.db-shm
 
 # 进程 PID 文件
 .pids/
