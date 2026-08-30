@@ -11,6 +11,7 @@ import Login from '@/pages/Login';
 import ShareArticle from '@/pages/ShareArticle';
 import ShareSummary from '@/pages/ShareSummary';
 import './App.css';
+import './styles/mobile.css';
 
 const STALE_TIME = 5 * 60 * 1000;
 

@@ -1835,9 +1835,26 @@ export default function TechnologyEvolutionPage() {
       )}
 
       <main style={{ ...industryPageStyles.report, ...panelStyle, minHeight: isMobile ? 480 : industryPageStyles.report.minHeight }}>
+        {isMobile ? (
+          <div className="mobile-industry-toolbar">
+            <Button
+              size="small"
+              type="default"
+              icon={<HistoryOutlined />}
+              onClick={() => setHistoryDrawerOpen(true)}
+            >
+              历史会话
+            </Button>
+            {conversationId ? (
+              <span style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>
+                会话 #{conversationId}
+              </span>
+            ) : null}
+          </div>
+        ) : (
         <div
           style={{
-            padding: isMobile ? '12px' : '14px 18px',
+            padding: '14px 18px',
             borderBottom: `1px solid ${getThemeColor(theme, 'borderSecondary')}`,
             display: 'flex',
             alignItems: 'center',
@@ -1850,27 +1867,17 @@ export default function TechnologyEvolutionPage() {
             <Avatar icon={<ApartmentOutlined />} style={{ background: '#13c2c2' }} />
             <div>
               <Text strong>行业趋势图谱报告</Text>
-              {!isMobile && (
               <div>
                 <Text type="secondary">流式输出文本、趋势卡片、证据和局部图</Text>
               </div>
-              )}
             </div>
           </Space>
           <Space size={8} wrap>
-            {isMobile && (
-              <Button
-                size="small"
-                icon={<HistoryOutlined />}
-                onClick={() => setHistoryDrawerOpen(true)}
-              >
-                历史会话
-              </Button>
-            )}
             <Tag icon={<ClockCircleOutlined />}>last_3_months</Tag>
             {conversationId && <Tag color="blue">会话 {conversationId}</Tag>}
           </Space>
         </div>
+        )}
 
         <div ref={reportBodyRef} style={{ ...industryPageStyles.reportBody, padding: isMobile ? 12 : 20 }}>
           {messages.length === 0 ? (

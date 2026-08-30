@@ -340,43 +340,6 @@ body {
   background: var(--color-disabled);
 }
 
-/* Mobile layout utilities */
-.mobile-tab-bar .ant-tabs-nav {
-  margin-bottom: 12px;
-}
-
-.mobile-tab-bar .ant-tabs-nav-wrap {
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-}
-
-.mobile-tab-bar .ant-tabs-nav-wrap::-webkit-scrollbar {
-  display: none;
-}
-
-.mobile-tab-bar .ant-tabs-nav-list {
-  flex-wrap: nowrap;
-}
-
-.mobile-tab-bar .ant-tabs-tab {
-  flex-shrink: 0;
-  padding: 8px 12px;
-}
-
-.mobile-filter-stack {
-  width: 100%;
-}
-
-.mobile-filter-stack .ant-space-item {
-  width: 100%;
-}
-
-.mobile-safe-bottom {
-  padding-bottom: env(safe-area-inset-bottom, 0);
-}
-
 /* 流式输出光标闪烁动画 */
 @keyframes blink {
   0%, 50% {

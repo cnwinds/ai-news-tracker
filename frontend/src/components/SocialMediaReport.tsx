@@ -25,6 +25,7 @@ import dayjs from 'dayjs';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
+import MobileListRow from '@/components/mobile/MobileListRow';
 import { createMarkdownComponents } from '@/utils/markdown';
 import { getThemeColor } from '@/utils/theme';
 
@@ -128,129 +129,51 @@ export default function SocialMediaReport() {
     });
   };
 
-  return (
-    <div>
-      <Card
-        title="📱 社交平台"
-        extra={
-          isAuthenticated ? (
-            <Button
-              type="primary"
-              icon={<PlusOutlined />}
-              onClick={() => setGenerateModalVisible(true)}
-            >
-              创建AI热点小报
-            </Button>
-          ) : null
-        }
+  const getReportMeta = (report: SocialMediaReport) =>
+    `YT ${report.youtube_count} · TT ${report.tiktok_count} · X ${report.twitter_count} · 共 ${report.total_count}`;
+
+  const renderExpandedReport = (report: SocialMediaReport) => (
+    <>
+      <div
+        style={{
+          padding: '12px',
+          backgroundColor: getThemeColor(theme, 'bgSecondary'),
+          borderRadius: '4px',
+          border: `1px solid ${getThemeColor(theme, 'border')}`,
+          color: getThemeColor(theme, 'text'),
+        }}
       >
-        {isLoading ? (
-          <div style={{ textAlign: 'center', padding: '40px 0' }}>
-            <Spin size="large" />
-          </div>
-        ) : !reports || reports.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '40px 0', color: getThemeColor(theme, 'textSecondary') }}>
-            暂无热点小报，点击右上角按钮创建AI热点小报
-          </div>
-        ) : (
-          <List
-            dataSource={reports}
-            renderItem={(report) => (
-              <List.Item style={{ padding: 0, marginBottom: 8 }}>
-                <Card
-                  style={{ width: '100%', marginBottom: 0 }}
-                  styles={{ body: { padding: '12px 16px' } }}
-                >
-                  <Space direction="vertical" size="small" style={{ width: '100%' }}>
-                    {/* 第一行（概览）：标题 + 统计Tag + 展开按钮 */}
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        flexWrap: 'wrap',
-                        gap: 6,
-                        cursor: 'pointer',
-                        padding: '2px 0',
-                      }}
-                      onClick={() => toggleExpand(report.id)}
-                    >
-                      {/* 标题 */}
-                      <Title level={5} style={{ marginBottom: 0, display: 'inline', flexShrink: 0 }}>
-                        AI热点小报 - {dayjs(report.report_date).format('YYYY-MM-DD')}
-                      </Title>
-
-                      {/* 统计Tag */}
-                      <Tag color="red" style={{ flexShrink: 0 }}>
-                        YouTube: {report.youtube_count}
-                      </Tag>
-                      <Tag color="blue" style={{ flexShrink: 0 }}>
-                        TikTok: {report.tiktok_count}
-                      </Tag>
-                      <Tag color="cyan" style={{ flexShrink: 0 }}>
-                        Twitter: {report.twitter_count}
-                      </Tag>
-                      <Tag style={{ flexShrink: 0 }}>总计: {report.total_count}</Tag>
-
-                      {/* 展开/收起图标 */}
-                      <Button
-                        type="text"
-                        icon={expandedReports.has(report.id) ? <UpOutlined /> : <DownOutlined />}
-                        size="small"
-                        style={{ flexShrink: 0, marginLeft: 'auto' }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleExpand(report.id);
-                        }}
-                      />
-                    </div>
-
-                    {/* 展开后的内容 */}
-                    {expandedReports.has(report.id) && (
-                      <>
-                        <div
-                          style={{
-                            padding: '16px',
-                            backgroundColor: getThemeColor(theme, 'bgSecondary'),
-                            borderRadius: '4px',
-                            border: `1px solid ${getThemeColor(theme, 'border')}`,
-                            color: getThemeColor(theme, 'text'),
-                          }}
-                        >
-                          <ReactMarkdown components={createMarkdownComponents(theme)}>
-                            {report.report_content || ''}
-                          </ReactMarkdown>
-                        </div>
-                        <div style={{ marginTop: '16px', display: 'flex', gap: '8px' }}>
-                          {isAuthenticated && (
-                            <Button
-                              type="primary"
-                              danger
-                              icon={<DeleteOutlined />}
-                              onClick={() => handleDelete(report.id)}
-                              loading={deleteMutation.isPending}
-                            >
-                              删除
-                            </Button>
-                          )}
-                          <Button
-                            type="default"
-                            icon={<UpOutlined />}
-                            onClick={() => toggleExpand(report.id)}
-                          >
-                            收起
-                          </Button>
-                        </div>
-                      </>
-                    )}
-                  </Space>
-                </Card>
-              </List.Item>
-            )}
-          />
+        <ReactMarkdown components={createMarkdownComponents(theme)}>
+          {report.report_content || ''}
+        </ReactMarkdown>
+      </div>
+      <div className="mobile-explorer-actions">
+        {isAuthenticated && (
+          <Button
+            type="primary"
+            danger
+            icon={<DeleteOutlined />}
+            onClick={() => handleDelete(report.id)}
+            loading={deleteMutation.isPending}
+            size="small"
+          >
+            删除
+          </Button>
         )}
-      </Card>
+        <Button
+          type="default"
+          icon={<UpOutlined />}
+          onClick={() => toggleExpand(report.id)}
+          size="small"
+        >
+          收起
+        </Button>
+      </div>
+    </>
+  );
 
-      <Modal
+  const generateModal = (
+    <Modal
         title="创建AI热点小报"
         open={generateModalVisible}
         onCancel={() => {
@@ -352,6 +275,107 @@ export default function SocialMediaReport() {
           </Form>
         </Spin>
       </Modal>
+  );
+
+  if (isMobile) {
+    return (
+      <>
+        <div className="mobile-list-page">
+          <div className="mobile-list-toolbar">
+            <span className="mobile-list-toolbar__meta">
+              {isLoading ? '加载中...' : `${reports?.length ?? 0} 条小报`}
+            </span>
+            {isAuthenticated && (
+              <Button
+                type="default"
+                size="small"
+                icon={<PlusOutlined />}
+                onClick={() => setGenerateModalVisible(true)}
+              >
+                新建
+              </Button>
+            )}
+          </div>
+          {isLoading ? (
+            <div className="mobile-feed-loading"><Spin /></div>
+          ) : !reports || reports.length === 0 ? (
+            <div style={{ padding: 40, textAlign: 'center', color: getThemeColor(theme, 'textSecondary') }}>
+              暂无热点小报
+            </div>
+          ) : (
+            <div className="mobile-list">
+              {reports.map((report) => (
+                <MobileListRow
+                  key={report.id}
+                  title={`热点小报 ${dayjs(report.report_date).format('YYYY-MM-DD')}`}
+                  meta={getReportMeta(report)}
+                  expanded={expandedReports.has(report.id)}
+                  onToggle={() => toggleExpand(report.id)}
+                >
+                  {renderExpandedReport(report)}
+                </MobileListRow>
+              ))}
+            </div>
+          )}
+        </div>
+        {generateModal}
+      </>
+    );
+  }
+
+  return (
+    <div>
+      <Card
+        title="社交平台"
+        extra={
+          isAuthenticated ? (
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => setGenerateModalVisible(true)}>
+              创建AI热点小报
+            </Button>
+          ) : null
+        }
+      >
+        {isLoading ? (
+          <div style={{ textAlign: 'center', padding: '40px 0' }}><Spin size="large" /></div>
+        ) : !reports || reports.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '40px 0', color: getThemeColor(theme, 'textSecondary') }}>
+            暂无热点小报
+          </div>
+        ) : (
+          <List
+            dataSource={reports}
+            renderItem={(report) => (
+              <List.Item style={{ padding: 0, marginBottom: 8 }}>
+                <Card style={{ width: '100%' }} styles={{ body: { padding: '12px 16px' } }}>
+                  <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                    <div
+                      style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6, cursor: 'pointer' }}
+                      onClick={() => toggleExpand(report.id)}
+                    >
+                      <Title level={5} style={{ marginBottom: 0, flexShrink: 0 }}>
+                        AI热点小报 - {dayjs(report.report_date).format('YYYY-MM-DD')}
+                      </Title>
+                      <Tag>YouTube: {report.youtube_count}</Tag>
+                      <Tag>TikTok: {report.tiktok_count}</Tag>
+                      <Tag>Twitter: {report.twitter_count}</Tag>
+                      <Tag>总计: {report.total_count}</Tag>
+                      <Button
+                        type="text"
+                        icon={expandedReports.has(report.id) ? <UpOutlined /> : <DownOutlined />}
+                        size="small"
+                        style={{ marginLeft: 'auto' }}
+                        onClick={(e) => { e.stopPropagation(); toggleExpand(report.id); }}
+                      />
+                    </div>
+                    {expandedReports.has(report.id) && renderExpandedReport(report)}
+                  </Space>
+                </Card>
+              </List.Item>
+            )}
+          />
+        )}
+      </Card>
+      {generateModal}
     </div>
   );
 }

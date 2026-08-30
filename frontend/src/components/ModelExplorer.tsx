@@ -22,10 +22,13 @@ import {
   Tooltip,
   Typography,
   message,
+  Drawer,
+  Pagination,
 } from 'antd';
 import type { TableProps } from 'antd';
 import {
   FileTextOutlined,
+  FilterOutlined,
   GithubOutlined,
   RocketOutlined,
   SettingOutlined,
@@ -37,6 +40,7 @@ import { apiService } from '@/services/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { useTheme } from '@/contexts/ThemeContext';
+import MobileListRow from '@/components/mobile/MobileListRow';
 import { createMarkdownComponents, remarkGfm } from '@/utils/markdown';
 import type {
   DiscoveredModel,
@@ -179,6 +183,8 @@ export default function ModelExplorer() {
   const [searchText, setSearchText] = useState('');
   const [searchValue, setSearchValue] = useState('');
   const [page, setPage] = useState(1);
+  const [expandedModelId, setExpandedModelId] = useState<number | null>(null);
+  const [filterDrawerOpen, setFilterDrawerOpen] = useState(false);
 
   const [configModalVisible, setConfigModalVisible] = useState(false);
   const [explorationConfigState, setExplorationConfigState] = useState<ExplorationConfig>(
@@ -782,8 +788,206 @@ export default function ModelExplorer() {
     }
   };
 
+  const getModelMeta = (record: DiscoveredModel) => {
+    const score = record.final_score?.toFixed(1) ?? 'N/A';
+    const platform = sourceLabel(record.source_platform);
+    const type = getExtraString(record, 'update_type') || 'unknown';
+    return `${record.organization || 'Unknown'} · ${platform} · ${score} 分 · ${type}`;
+  };
+
+  const renderModelActions = (record: DiscoveredModel) => {
+    const canViewReport = record.status === 'reported' && !modelsWithoutReports.has(record.id);
+    if (canViewReport) {
+      return (
+        <Button
+          type="default"
+          size="small"
+          icon={<FileTextOutlined />}
+          onClick={() => { void fetchLatestReport(record.id); }}
+        >
+          查看报告
+        </Button>
+      );
+    }
+    if (!isAuthenticated) {
+      return <Button size="small" disabled>登录后生成</Button>;
+    }
+    const isCurrentRowGenerating =
+      creatingReportModelId === record.id && (generateReportMutation.isPending || Boolean(reportTaskId));
+    return (
+      <Button
+        type="default"
+        size="small"
+        loading={isCurrentRowGenerating}
+        disabled={generateReportMutation.isPending || Boolean(reportTaskId)}
+        onClick={() => generateReportMutation.mutate(record.id)}
+      >
+        {isCurrentRowGenerating ? '生成中' : '生成报告'}
+      </Button>
+    );
+  };
+
+  const renderModelExpanded = (record: DiscoveredModel) => {
+    const updateSummary = getExtraString(record, 'update_summary') || '暂无更新说明';
+    const confidence = getExtraNumber(record, 'release_confidence') ?? 0;
+    const canViewReport = record.status === 'reported' && !modelsWithoutReports.has(record.id);
+    return (
+      <>
+        <Text type="secondary" style={{ fontSize: 13, display: 'block', marginBottom: 8 }}>
+          {updateSummary}
+        </Text>
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          发布置信度 {confidence.toFixed(1)} · {canViewReport ? '已生成报告' : '预警候选'}
+        </Text>
+        <div className="mobile-explorer-actions">
+          {renderModelActions(record)}
+          <Button type="default" size="small" onClick={() => setExpandedModelId(null)}>
+            收起
+          </Button>
+        </div>
+      </>
+    );
+  };
+
+  const filterControls = (
+    <Space wrap style={{ width: isMobile ? '100%' : undefined }} direction={isMobile ? 'vertical' : 'horizontal'}>
+      <Search
+        value={searchText}
+        onChange={(event) => setSearchText(event.target.value)}
+        onSearch={(value) => {
+          setSearchValue(value.trim());
+          setPage(1);
+        }}
+        placeholder="搜索模型或组织"
+        allowClear
+        style={{ width: isMobile ? '100%' : 220 }}
+      />
+      <Select
+        placeholder="模型类型"
+        style={{ width: isMobile ? '100%' : 140 }}
+        allowClear
+        value={modelType}
+        onChange={(value) => { setModelType(value); setPage(1); }}
+      >
+        <Select.Option value="LLM">LLM</Select.Option>
+        <Select.Option value="Vision">Vision</Select.Option>
+        <Select.Option value="Audio">Audio</Select.Option>
+        <Select.Option value="Multimodal">Multimodal</Select.Option>
+        <Select.Option value="Generative">Generative</Select.Option>
+      </Select>
+      <Select
+        placeholder="来源平台"
+        style={{ width: isMobile ? '100%' : 150 }}
+        allowClear
+        value={sourcePlatform}
+        onChange={(value) => { setSourcePlatform(value); setPage(1); }}
+      >
+        <Select.Option value="github">GitHub</Select.Option>
+        <Select.Option value="huggingface">Hugging Face</Select.Option>
+        <Select.Option value="modelscope">ModelScope</Select.Option>
+        <Select.Option value="arxiv">arXiv</Select.Option>
+      </Select>
+      <Select
+        placeholder="最低评分"
+        style={{ width: isMobile ? '100%' : 140 }}
+        value={minScore}
+        onChange={(value: number) => { setMinScore(value); setPage(1); }}
+      >
+        <Select.Option value={0}>全部</Select.Option>
+        <Select.Option value={70}>≥ 70 分</Select.Option>
+        <Select.Option value={80}>≥ 80 分</Select.Option>
+        <Select.Option value={90}>≥ 90 分</Select.Option>
+      </Select>
+    </Space>
+  );
+
   return (
     <div>
+      {isMobile ? (
+        <div className="mobile-list-page">
+          {!isAuthenticated && (
+            <Alert type="info" showIcon message="只读模式，登录后可启动任务。" style={{ margin: '8px 16px 0' }} />
+          )}
+          <div className="mobile-list-toolbar">
+            <span className="mobile-list-toolbar__meta">{mergedModels.length} 个模型</span>
+            <Space size={4}>
+              {isAuthenticated && (
+                <>
+                  <Button
+                    type="default"
+                    size="small"
+                    icon={<RocketOutlined />}
+                    loading={startExplorationMutation.isPending}
+                    disabled={startExplorationMutation.isPending || isTaskActive}
+                    onClick={() => startExplorationMutation.mutate()}
+                  >
+                    启动
+                  </Button>
+                  <Button
+                    size="small"
+                    icon={<SettingOutlined />}
+                    onClick={() => {
+                      configForm.setFieldsValue(explorationConfigState);
+                      setConfigModalVisible(true);
+                    }}
+                  />
+                </>
+              )}
+              <Button
+                type="text"
+                icon={<FilterOutlined />}
+                className="mobile-feed-toolbar__btn"
+                onClick={() => setFilterDrawerOpen(true)}
+              />
+            </Space>
+          </div>
+          {taskAlert && (
+            <div style={{ padding: '6px 16px', fontSize: 12, color: 'var(--color-text-secondary)' }}>
+              {taskAlert.inline}
+            </div>
+          )}
+          {(reportedLoading || candidateLoading) && pagedModels.length === 0 ? (
+            <div className="mobile-feed-loading"><Empty description="加载中" /></div>
+          ) : pagedModels.length === 0 ? (
+            <div className="mobile-feed-loading"><Empty description="暂无模型数据" /></div>
+          ) : (
+            <div className="mobile-list">
+              {pagedModels.map((record) => (
+                <MobileListRow
+                  key={record.id}
+                  title={record.model_name}
+                  meta={getModelMeta(record)}
+                  expanded={expandedModelId === record.id}
+                  onToggle={() => setExpandedModelId((prev) => (prev === record.id ? null : record.id))}
+                >
+                  {renderModelExpanded(record)}
+                </MobileListRow>
+              ))}
+            </div>
+          )}
+          <div className="mobile-feed-pagination">
+            <Pagination
+              simple
+              size="small"
+              current={page}
+              total={mergedModels.length}
+              pageSize={PAGE_SIZE}
+              onChange={(newPage) => setPage(newPage)}
+            />
+          </div>
+          <Drawer
+            title="筛选"
+            placement="bottom"
+            height="auto"
+            open={filterDrawerOpen}
+            onClose={() => setFilterDrawerOpen(false)}
+            className="mobile-filter-drawer"
+          >
+            {filterControls}
+          </Drawer>
+        </div>
+      ) : (
+        <>
       {!isAuthenticated && (
         <Alert
           type="info"
@@ -880,64 +1084,7 @@ export default function ModelExplorer() {
             </Text>
           </Space>
 
-          <Space wrap style={{ width: isMobile ? '100%' : undefined }}>
-            <Search
-              value={searchText}
-              onChange={(event) => setSearchText(event.target.value)}
-              onSearch={(value) => {
-                setSearchValue(value.trim());
-                setPage(1);
-              }}
-              placeholder="搜索模型或组织"
-              allowClear
-              style={{ width: isMobile ? '100%' : 220 }}
-            />
-            <Select
-              placeholder="模型类型"
-              style={{ width: isMobile ? '100%' : 140 }}
-              allowClear
-              value={modelType}
-              onChange={(value) => {
-                setModelType(value);
-                setPage(1);
-              }}
-            >
-              <Select.Option value="LLM">LLM</Select.Option>
-              <Select.Option value="Vision">Vision</Select.Option>
-              <Select.Option value="Audio">Audio</Select.Option>
-              <Select.Option value="Multimodal">Multimodal</Select.Option>
-              <Select.Option value="Generative">Generative</Select.Option>
-            </Select>
-            <Select
-              placeholder="来源平台"
-              style={{ width: isMobile ? '100%' : 150 }}
-              allowClear
-              value={sourcePlatform}
-              onChange={(value) => {
-                setSourcePlatform(value);
-                setPage(1);
-              }}
-            >
-              <Select.Option value="github">GitHub</Select.Option>
-              <Select.Option value="huggingface">Hugging Face</Select.Option>
-              <Select.Option value="modelscope">ModelScope</Select.Option>
-              <Select.Option value="arxiv">arXiv</Select.Option>
-            </Select>
-            <Select
-              placeholder="最低评分"
-              style={{ width: isMobile ? '100%' : 140 }}
-              value={minScore}
-              onChange={(value: number) => {
-                setMinScore(value);
-                setPage(1);
-              }}
-            >
-              <Select.Option value={0}>全部</Select.Option>
-              <Select.Option value={70}>≥ 70 分</Select.Option>
-              <Select.Option value={80}>≥ 80 分</Select.Option>
-              <Select.Option value={90}>≥ 90 分</Select.Option>
-            </Select>
-          </Space>
+          {filterControls}
         </div>
       </Card>
 
@@ -969,6 +1116,8 @@ export default function ModelExplorer() {
           }}
         />
       </Card>
+        </>
+      )}
 
       <Modal
         title="模型先知配置"

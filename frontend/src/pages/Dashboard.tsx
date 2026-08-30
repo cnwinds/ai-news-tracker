@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { Layout, Tabs, Drawer, Button, Space } from 'antd';
 import {
   ApartmentOutlined,
@@ -22,16 +22,51 @@ import AIConversationModal from '@/components/AIConversationModal';
 import SocialMediaReport from '@/components/SocialMediaReport';
 import ModelExplorer from '@/components/ModelExplorer';
 import TechnologyEvolutionPage from '@/features/industryGraph/TechnologyEvolutionPage';
+import MobileBottomNav, { type MobileNavKey } from '@/components/mobile/MobileBottomNav';
+import MobileMoreSheet, { type MobileMoreTabKey } from '@/components/mobile/MobileMoreSheet';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useMessage } from '@/hooks/useMessage';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
+import { getThemeColor } from '@/utils/theme';
 
 const { Content } = Layout;
 
+type TabKey = 'articles' | 'summary' | 'industry-graph' | MobileMoreTabKey;
+
+const MOBILE_PAGE_TITLES: Record<TabKey, string> = {
+  articles: '最新资讯',
+  summary: '内容总结',
+  'industry-graph': '行业趋势',
+  exploration: '模型先知',
+  'social-media': '社交平台',
+  statistics: '数据统计',
+};
+
+const MOBILE_PAGE_EYEBROWS: Record<TabKey, string> = {
+  articles: '资讯',
+  summary: '总结',
+  'industry-graph': '趋势',
+  exploration: '探索',
+  'social-media': '社媒',
+  statistics: '统计',
+};
+
+function getMobileNavKey(tab: TabKey): MobileNavKey {
+  if (tab === 'articles' || tab === 'summary' || tab === 'industry-graph') {
+    return tab;
+  }
+  return 'more';
+}
+
+function isMoreTab(tab: TabKey): tab is MobileMoreTabKey {
+  return tab === 'exploration' || tab === 'social-media' || tab === 'statistics';
+}
+
 export default function Dashboard() {
-  const [selectedTab, setSelectedTab] = useState('articles');
+  const [selectedTab, setSelectedTab] = useState<TabKey>('articles');
   const [settingsDrawerOpen, setSettingsDrawerOpen] = useState(false);
+  const [moreSheetOpen, setMoreSheetOpen] = useState(false);
   const { theme } = useTheme();
   const { isAuthenticated, username, logout } = useAuth();
   const { isMobile } = useBreakpoint();
@@ -50,13 +85,139 @@ export default function Dashboard() {
     queryClient.invalidateQueries({ queryKey: ['industry-graph-suggested-questions'] });
   }, [queryClient, settingsDrawerOpen]);
 
-  const tabs = [
+  const tabContent = useMemo(() => {
+    switch (selectedTab) {
+      case 'articles':
+        return <ArticleList />;
+      case 'summary':
+        return <DailySummary />;
+      case 'industry-graph':
+        return <TechnologyEvolutionPage />;
+      case 'exploration':
+        return <ModelExplorer />;
+      case 'social-media':
+        return <SocialMediaReport />;
+      case 'statistics':
+        return <Statistics />;
+      default:
+        return <ArticleList />;
+    }
+  }, [selectedTab]);
+
+  const handleMobileNavChange = (key: MobileNavKey) => {
+    if (key === 'more') {
+      setMoreSheetOpen(true);
+      return;
+    }
+    setSelectedTab(key);
+  };
+
+  const settingsDrawer = (
+    <Drawer
+      title={
+        <div className="mobile-settings-drawer__title">
+          <span>系统设置</span>
+          <Space wrap>
+            {isAuthenticated ? (
+              <>
+                <span>{username}</span>
+                <Button
+                  type="text"
+                  icon={<LogoutOutlined />}
+                  onClick={() => {
+                    logout();
+                    message.success('已退出登录');
+                    navigate('/');
+                  }}
+                >
+                  退出
+                </Button>
+              </>
+            ) : (
+              <Button
+                type="primary"
+                icon={<LoginOutlined />}
+                onClick={() => navigate('/login')}
+              >
+                登录
+              </Button>
+            )}
+          </Space>
+        </div>
+      }
+      placement="right"
+      width={isMobile ? '100%' : 800}
+      open={settingsDrawerOpen}
+      onClose={() => setSettingsDrawerOpen(false)}
+      styles={{ body: { padding: 0 } }}
+    >
+      <div style={{ padding: isMobile ? '12px' : '24px' }}>
+        <SystemSettings />
+      </div>
+    </Drawer>
+  );
+
+  if (isMobile) {
+    const showMoreBack = isMoreTab(selectedTab);
+
+    return (
+      <div className={`mobile-app-shell ${theme === 'dark' ? 'dark-theme' : 'light-theme'}`}>
+        <GlobalNavigation onSettingsClick={() => setSettingsDrawerOpen(true)} />
+        <main className="mobile-app-main">
+          <div className="mobile-page-header">
+            <div className="mobile-page-header__channel">
+              <span className="mobile-page-header__eyebrow">
+                {MOBILE_PAGE_EYEBROWS[selectedTab]}
+              </span>
+              <h1
+                className="mobile-page-header__title"
+                style={{ color: getThemeColor(theme, 'text') }}
+              >
+                {MOBILE_PAGE_TITLES[selectedTab]}
+              </h1>
+            </div>
+            {showMoreBack && (
+              <button
+                type="button"
+                className="mobile-page-header__back"
+                onClick={() => setMoreSheetOpen(true)}
+                style={{
+                  color: getThemeColor(theme, 'text'),
+                  borderColor: getThemeColor(theme, 'borderSecondary'),
+                }}
+              >
+                更多
+              </button>
+            )}
+          </div>
+          <div className="mobile-page-content">{tabContent}</div>
+        </main>
+
+        <MobileBottomNav
+          activeKey={getMobileNavKey(selectedTab)}
+          onChange={handleMobileNavChange}
+        />
+
+        <MobileMoreSheet
+          open={moreSheetOpen}
+          activeTab={isMoreTab(selectedTab) ? selectedTab : null}
+          onClose={() => setMoreSheetOpen(false)}
+          onSelect={setSelectedTab}
+        />
+
+        <AIConversationModal />
+        {settingsDrawer}
+      </div>
+    );
+  }
+
+  const desktopTabs = [
     {
       key: 'articles',
       label: (
         <span>
           <FileTextOutlined />
-          {isMobile ? ' 文章' : ' 文章列表'}
+          {' '}文章列表
         </span>
       ),
       children: <ArticleList />,
@@ -66,7 +227,7 @@ export default function Dashboard() {
       label: (
         <span>
           <ReadOutlined />
-          {isMobile ? ' 总结' : ' 内容总结'}
+          {' '}内容总结
         </span>
       ),
       children: <DailySummary />,
@@ -76,7 +237,7 @@ export default function Dashboard() {
       label: (
         <span>
           <ApartmentOutlined />
-          {isMobile ? ' 趋势' : ' 行业趋势图谱'}
+          {' '}行业趋势图谱
         </span>
       ),
       children: <TechnologyEvolutionPage />,
@@ -86,7 +247,7 @@ export default function Dashboard() {
       label: (
         <span>
           <RocketOutlined />
-          {isMobile ? ' 模型' : ' 模型先知'}
+          {' '}模型先知
         </span>
       ),
       children: <ModelExplorer />,
@@ -96,7 +257,7 @@ export default function Dashboard() {
       label: (
         <span>
           <ShareAltOutlined />
-          {isMobile ? ' 社交' : ' 社交平台'}
+          {' '}社交平台
         </span>
       ),
       children: <SocialMediaReport />,
@@ -106,7 +267,7 @@ export default function Dashboard() {
       label: (
         <span>
           <BarChartOutlined />
-          {isMobile ? ' 统计' : ' 数据统计'}
+          {' '}数据统计
         </span>
       ),
       children: <Statistics />,
@@ -114,74 +275,27 @@ export default function Dashboard() {
   ];
 
   const contentStyle: CSSProperties = {
-    padding: isMobile ? '12px' : '24px',
+    padding: '24px',
     background: theme === 'dark' ? '#1a1a1a' : '#f0f2f5',
-    minHeight: isMobile ? 'calc(100vh - 120px)' : 'calc(100vh - 64px)',
+    minHeight: 'calc(100vh - 64px)',
   };
 
   return (
-    <Layout style={{ minHeight: '100vh' }} className={isMobile ? 'mobile-safe-bottom' : undefined}>
+    <Layout style={{ minHeight: '100vh' }}>
       <GlobalNavigation onSettingsClick={() => setSettingsDrawerOpen(true)} />
       <Layout>
         <Content style={contentStyle}>
           <Tabs
             activeKey={selectedTab}
-            onChange={setSelectedTab}
-            items={tabs}
-            size={isMobile ? 'small' : 'large'}
-            className={isMobile ? 'mobile-tab-bar' : undefined}
+            onChange={(key) => setSelectedTab(key as TabKey)}
+            items={desktopTabs}
+            size="large"
           />
         </Content>
       </Layout>
 
       <AIConversationModal />
-
-      <Drawer
-        title={
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-            <span>系统设置</span>
-            <Space>
-              {isAuthenticated ? (
-                <>
-                  <span style={{ marginRight: 8 }}>{username}</span>
-                  <Button
-                    type="text"
-                    icon={<LogoutOutlined />}
-                    onClick={() => {
-                      logout();
-                      message.success('已退出登录');
-                      navigate('/');
-                    }}
-                  >
-                    退出
-                  </Button>
-                </>
-              ) : (
-                <Button
-                  type="primary"
-                  icon={<LoginOutlined />}
-                  onClick={() => navigate('/login')}
-                >
-                  登录
-                </Button>
-              )}
-            </Space>
-          </div>
-        }
-        placement="right"
-        width={isMobile ? '100%' : 800}
-        open={settingsDrawerOpen}
-        onClose={() => setSettingsDrawerOpen(false)}
-        styles={{
-          body: {
-            padding: 0,
-          },
-        }}
-      >
-        <div style={{ padding: isMobile ? '12px' : '24px' }}>
-          <SystemSettings />
-        </div>
-      </Drawer>
+      {settingsDrawer}
     </Layout>
   );
 }

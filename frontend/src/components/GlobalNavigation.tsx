@@ -3,7 +3,7 @@
  * 包含搜索框和快捷键支持
  */
 import { useState, useRef, useEffect } from 'react';
-import { Layout, Input, Button, Space } from 'antd';
+import { Layout, Input, Button } from 'antd';
 import type { InputRef } from 'antd';
 import { SearchOutlined, SunOutlined, MoonOutlined, SettingOutlined } from '@ant-design/icons';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -44,7 +44,6 @@ export default function GlobalNavigation({ onSettingsClick }: GlobalNavigationPr
     };
   }, []);
 
-  // 全局快捷键 Cmd/Ctrl + K
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
@@ -75,8 +74,7 @@ export default function GlobalNavigation({ onSettingsClick }: GlobalNavigationPr
   }, [searchQuery, articleDetailModalOpen]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value;
-    setSearchQuery(value);
+    setSearchQuery(e.target.value);
     setIsDropdownOpen(true);
   };
 
@@ -117,90 +115,14 @@ export default function GlobalNavigation({ onSettingsClick }: GlobalNavigationPr
         message.warning('文章已存在');
         const match = apiError.message?.match(/ID:\s*(\d+)/);
         if (match) {
-          const articleId = parseInt(match[1]);
-          setSelectedArticleId(articleId);
+          setSelectedArticleId(parseInt(match[1]));
           setArticleDetailModalOpen(true);
         }
       } else {
-        const errorMessage = apiError.message || (apiError.response?.data?.detail) || '采集文章失败';
-        message.error(errorMessage);
+        message.error(apiError.message || apiError.response?.data?.detail || '采集文章失败');
       }
     }
   };
-
-  const headerStyle: React.CSSProperties = {
-    padding: isMobile ? '8px 12px' : '0 24px',
-    display: 'flex',
-    flexDirection: isMobile ? 'column' : 'row',
-    alignItems: isMobile ? 'stretch' : 'center',
-    gap: isMobile ? '8px' : '16px',
-    background: theme === 'dark' ? '#1a1a1a' : '#001529',
-    borderBottom: theme === 'dark' ? '1px solid #303030' : 'none',
-    position: 'relative',
-    zIndex: 1000,
-    height: isMobile ? 'auto' : undefined,
-    lineHeight: isMobile ? 'normal' : undefined,
-  };
-
-  const inputStyle: React.CSSProperties = {
-    flex: 1,
-    width: '100%',
-    maxWidth: isMobile ? '100%' : '800px',
-    height: '40px',
-    borderRadius: '8px',
-  };
-
-  const actionButtons = (
-    <Space size="middle">
-      <Button
-        type="text"
-        icon={theme === 'dark' ? <SunOutlined style={{ fontSize: '18px' }} /> : <MoonOutlined style={{ fontSize: '18px' }} />}
-        onClick={toggleTheme}
-        style={{ color: '#fff', fontSize: '18px', padding: '8px 12px' }}
-        title={theme === 'dark' ? '切换到浅色主题' : '切换到深色主题'}
-      />
-      {isAuthenticated && (
-        <Button
-          type="text"
-          icon={<SettingOutlined style={{ fontSize: '18px' }} />}
-          style={{ color: '#fff', fontSize: '18px', padding: '8px 12px' }}
-          title="设置"
-          onClick={onSettingsClick}
-        />
-      )}
-    </Space>
-  );
-
-  const searchInput = (
-    <Input
-      ref={inputRef}
-      placeholder={isMobile ? '搜索或提问...' : '搜索新闻，或向 AI 提问，或输入文章URL (Cmd+K)'}
-      value={searchQuery}
-      onChange={handleInputChange}
-      onFocus={handleInputFocus}
-      onBlur={handleInputBlur}
-      onPressEnter={(e) => {
-        if (!isDropdownOpen) {
-          const value = (e.target as HTMLInputElement).value;
-          handleSearch(value);
-        }
-      }}
-      prefix={<SearchOutlined style={{ color: getThemeColor(theme, 'textSecondary') }} />}
-      suffix={
-        !isMobile && (
-          <span style={{
-            fontSize: '12px',
-            color: getThemeColor(theme, 'textTertiary'),
-            paddingRight: '8px',
-          }}>
-            {navigator.platform.includes('Mac') ? '⌘K' : 'Ctrl+K'}
-          </span>
-        )
-      }
-      style={inputStyle}
-      size="large"
-    />
-  );
 
   const dropdownProps = {
     query: searchQuery,
@@ -213,9 +135,7 @@ export default function GlobalNavigation({ onSettingsClick }: GlobalNavigationPr
       setIsDropdownOpen(false);
       setSearchQuery('');
     },
-    onSelectAIQuery: (query: string) => {
-      handleSearch(query);
-    },
+    onSelectAIQuery: (query: string) => handleSearch(query),
     onSelectSearchHistory: (historyQuery: string) => {
       if (blurTimeoutRef.current) {
         clearTimeout(blurTimeoutRef.current);
@@ -224,9 +144,7 @@ export default function GlobalNavigation({ onSettingsClick }: GlobalNavigationPr
       setSearchQuery(historyQuery);
       setIsDropdownOpen(true);
       setIsFocused(true);
-      setTimeout(() => {
-        inputRef.current?.focus();
-      }, 0);
+      setTimeout(() => inputRef.current?.focus(), 0);
     },
     onSearchExecuted: () => {},
     onCollectUrl: handleCollectUrl,
@@ -237,72 +155,135 @@ export default function GlobalNavigation({ onSettingsClick }: GlobalNavigationPr
       }
       setIsDropdownOpen(true);
       setIsFocused(true);
-      setTimeout(() => {
-        inputRef.current?.focus();
-      }, 0);
+      setTimeout(() => inputRef.current?.focus(), 0);
     },
   };
 
-  return (
-    <Header style={headerStyle}>
-      {isMobile ? (
-        <>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div
-              style={{
-                color: '#fff',
-                fontSize: '16px',
-                fontWeight: 'bold',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-              }}
-            >
-              <img
-                src="/favicon.svg"
-                alt="AI News Tracker"
-                style={{ width: 26, height: 26, display: 'block' }}
-              />
-              <span>AI News</span>
+  const themeToggle = (
+    <Button
+      type="text"
+      icon={theme === 'dark' ? <SunOutlined /> : <MoonOutlined />}
+      onClick={toggleTheme}
+      className={isMobile ? 'mobile-header-btn' : undefined}
+      style={isMobile ? undefined : { color: '#fff', fontSize: '18px', padding: '8px 12px' }}
+      title={theme === 'dark' ? '切换到浅色主题' : '切换到深色主题'}
+    />
+  );
+
+  const settingsBtn = isAuthenticated ? (
+    <Button
+      type="text"
+      icon={<SettingOutlined />}
+      onClick={onSettingsClick}
+      className={isMobile ? 'mobile-header-btn' : undefined}
+      style={isMobile ? undefined : { color: '#fff', fontSize: '18px', padding: '8px 12px' }}
+      title="设置"
+    />
+  ) : null;
+
+  const searchInput = (
+    <Input
+      ref={inputRef}
+      className={isMobile ? 'mobile-search-input' : undefined}
+      placeholder={isMobile ? '搜索资讯或向 AI 提问' : '搜索新闻，或向 AI 提问，或输入文章URL (Cmd+K)'}
+      value={searchQuery}
+      onChange={handleInputChange}
+      onFocus={handleInputFocus}
+      onBlur={handleInputBlur}
+      onPressEnter={(e) => {
+        if (!isDropdownOpen) {
+          handleSearch((e.target as HTMLInputElement).value);
+        }
+      }}
+      prefix={<SearchOutlined style={{ color: getThemeColor(theme, 'textSecondary') }} />}
+      suffix={
+        !isMobile && (
+          <span style={{ fontSize: 12, color: getThemeColor(theme, 'textTertiary'), paddingRight: 8 }}>
+            {navigator.platform.includes('Mac') ? '⌘K' : 'Ctrl+K'}
+          </span>
+        )
+      }
+      style={
+        isMobile
+          ? undefined
+          : { flex: 1, maxWidth: '800px', height: 40, borderRadius: 8 }
+      }
+      size="large"
+    />
+  );
+
+  if (isMobile) {
+    return (
+      <Header
+        className="mobile-app-header"
+        style={{
+          background: getThemeColor(theme, 'bgElevated'),
+        }}
+      >
+        <div className="mobile-app-header__top">
+          <div className="mobile-app-header__brand">
+            <img src="/favicon.svg" alt="" className="mobile-app-header__logo" />
+            <div className="mobile-app-header__name">
+              <span
+                className="mobile-app-header__name-main"
+                style={{ color: getThemeColor(theme, 'text') }}
+              >
+                AI News
+              </span>
+              <span className="mobile-app-header__name-sub">资讯追踪</span>
             </div>
-            {actionButtons}
           </div>
-          <div style={{ position: 'relative', width: '100%' }}>
-            {searchInput}
-            {isDropdownOpen && <SmartDropdown {...dropdownProps} />}
+          <div className="mobile-app-header__actions">
+            {themeToggle}
+            {settingsBtn}
           </div>
-        </>
-      ) : (
-        <>
-          <div
-            style={{
-              color: '#fff',
-              fontSize: '20px',
-              fontWeight: 'bold',
-              minWidth: '200px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-            }}
-          >
-            <img
-              src="/favicon.svg"
-              alt="AI News Tracker"
-              style={{ width: 32, height: 32, display: 'block' }}
-            />
-            <span>AI News Tracker</span>
-          </div>
+        </div>
+        <div className="mobile-app-header__search">
+          {searchInput}
+          {isDropdownOpen && <SmartDropdown {...dropdownProps} />}
+        </div>
 
-          <div style={{ position: 'relative', flex: 1, display: 'flex', justifyContent: 'center' }}>
-            {searchInput}
-            {isDropdownOpen && <SmartDropdown {...dropdownProps} />}
-          </div>
+        <ArticleDetailModal
+          articleId={selectedArticleId}
+          open={articleDetailModalOpen}
+          onClose={() => {
+            setArticleDetailModalOpen(false);
+            setSelectedArticleId(null);
+            setIsDropdownOpen(true);
+            setIsFocused(true);
+          }}
+        />
+      </Header>
+    );
+  }
 
-          <div style={{ marginLeft: 'auto', minWidth: '120px', paddingRight: '8px', display: 'flex', justifyContent: 'flex-end' }}>
-            {actionButtons}
-          </div>
-        </>
-      )}
+  return (
+    <Header
+      style={{
+        padding: '0 24px',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 16,
+        background: theme === 'dark' ? '#1a1a1a' : '#001529',
+        borderBottom: theme === 'dark' ? '1px solid #303030' : 'none',
+        position: 'relative',
+        zIndex: 1000,
+      }}
+    >
+      <div style={{ color: '#fff', fontSize: 20, fontWeight: 'bold', minWidth: 200, display: 'flex', alignItems: 'center', gap: 8 }}>
+        <img src="/favicon.svg" alt="AI News Tracker" style={{ width: 32, height: 32 }} />
+        <span>AI News Tracker</span>
+      </div>
+
+      <div style={{ position: 'relative', flex: 1, display: 'flex', justifyContent: 'center' }}>
+        {searchInput}
+        {isDropdownOpen && <SmartDropdown {...dropdownProps} />}
+      </div>
+
+      <div style={{ marginLeft: 'auto', minWidth: 120, paddingRight: 8, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+        {themeToggle}
+        {settingsBtn}
+      </div>
 
       <ArticleDetailModal
         articleId={selectedArticleId}

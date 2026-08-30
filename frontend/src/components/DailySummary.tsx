@@ -23,6 +23,7 @@ import { apiService } from '@/services/api';
 import { useMessage } from '@/hooks/useMessage';
 import { useErrorHandler } from '@/hooks/useErrorHandler';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
+import MobileListRow from '@/components/mobile/MobileListRow';
 import type {
   SummaryGenerateRequest,
   DailySummaryListItem,
@@ -352,180 +353,100 @@ export default function DailySummary() {
     });
   };
 
-  return (
-    <div>
-      <Card
-        title="📊 内容总结"
-        extra={
-          isAuthenticated ? (
-            <Button
-              type="primary"
-              icon={<PlusOutlined />}
-              onClick={() => setGenerateModalVisible(true)}
-            >
-              生成新摘要
-            </Button>
-          ) : null
-        }
-      >
-        {isLoading ? (
-          <div>加载中...</div>
-        ) : !summaries || summaries.length === 0 ? (
-          <div>暂无摘要</div>
-        ) : (
-          <List
-            dataSource={summaries}
-            renderItem={(summary) => (
-              <List.Item style={{ padding: 0, marginBottom: 8 }}>
-                <Card
-                  style={{ width: '100%', marginBottom: 0 }}
-                  styles={{ body: { padding: isMobile ? '12px' : '12px 16px' } }}
-                >
-                  <Space direction="vertical" size="small" style={{ width: '100%' }}>
-                    {/* 第一行（概览）：标题 + 统计Tag + 展开按钮，整行可点击 */}
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        flexWrap: 'wrap',
-                        gap: isMobile ? 8 : 6,
-                        cursor: 'pointer',
-                        padding: '2px 0',
-                      }}
-                      onClick={() => toggleExpand(summary)}
-                    >
-                      {/* 标题 */}
-                      <Title level={5} style={{ marginBottom: 0, display: 'inline', flexShrink: 0 }}>
-                        {summary.summary_type === 'daily'
-                          ? `每日摘要 - ${dayjs(summary.summary_date).format('YYYY-MM-DD')}`
-                          : `每周摘要 - ${dayjs(summary.start_date).format('YYYY-MM-DD')} 至 ${dayjs(summary.end_date).format('YYYY-MM-DD')}`
-                        }
-                      </Title>
+  const getSummaryTitle = (summary: DailySummaryListItem) =>
+    summary.summary_type === 'daily'
+      ? `每日摘要 ${dayjs(summary.summary_date).format('YYYY-MM-DD')}`
+      : `每周摘要 ${dayjs(summary.start_date).format('MM-DD')} ~ ${dayjs(summary.end_date).format('MM-DD')}`;
 
-                      {/* 统计Tag */}
-                      <Tag style={{ flexShrink: 0 }}>文章数: {summary.total_articles}</Tag>
-                      <Tag color="red" style={{ flexShrink: 0 }}>高重要性: {summary.high_importance_count}</Tag>
-                      <Tag color="orange" style={{ flexShrink: 0 }}>中重要性: {summary.medium_importance_count}</Tag>
+  const getSummaryMeta = (summary: DailySummaryListItem) =>
+    `${summary.total_articles} 篇 · 高 ${summary.high_importance_count} · 中 ${summary.medium_importance_count}`;
 
-                      {/* 展开/收起图标 - 推到最右边 */}
-                      <Button
-                        type="text"
-                        icon={expandedSummaries.has(summary.id) ? <UpOutlined /> : <DownOutlined />}
-                        size="small"
-                        style={{ flexShrink: 0, marginLeft: 'auto' }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleExpand(summary);
-                        }}
-                      />
-                    </div>
-                    {expandedSummaries.has(summary.id) && (
-                      <>
-                        {(() => {
-                          const details = loadedDetails.get(summary.id);
-                          const isLoading = loadingDetails.has(summary.id);
-                          
-                          if (!details) {
-                            if (isLoading) {
-                              // 正在加载详情
-                              return (
-                                <div style={{ textAlign: 'center', padding: '20px 0' }}>
-                                  <Spin size="large" />
-                                </div>
-                              );
-                            } else {
-                              // 加载失败或未加载，尝试重新加载
-                              loadSummaryDetails(summary.id);
-                              return (
-                                <div style={{ textAlign: 'center', padding: '20px 0' }}>
-                                  <Spin size="large" />
-                                </div>
-                              );
-                            }
-                          }
-                          
-                          // details 已确认存在，可以安全使用
-                          return (
-                            <>
-                              <div
-                                style={{
-                                  padding: isMobile ? '12px' : '16px',
-                                  backgroundColor: getThemeColor(theme, 'bgSecondary'),
-                                  borderRadius: '4px',
-                                  border: `1px solid ${getThemeColor(theme, 'border')}`,
-                                  color: getThemeColor(theme, 'text'),
-                                }}
-                              >
-                                <ReactMarkdown 
-                                  components={createMarkdownComponents(theme)}
-                                  remarkPlugins={[remarkGfm]}
-                                >
-                                  {details.summary_content || ''}
-                                </ReactMarkdown>
-                              </div>
-                              {details.key_topics && details.key_topics.length > 0 && (
-                                <div>
-                                  <strong style={{ color: getThemeColor(theme, 'text') }}>
-                                    关键主题：
-                                  </strong>
-                                  {details.key_topics.map((topic, index) => (
-                                    <Tag key={index} style={{ marginBottom: 4 }}>
-                                      {topic}
-                                    </Tag>
-                                  ))}
-                                </div>
-                              )}
-                            </>
-                          );
-                        })()}
-                        <div style={{ marginTop: '16px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                          {isAuthenticated && (
-                            <>
-                              <Button
-                                type="default"
-                                icon={<ReloadOutlined />}
-                                onClick={() => handleRegenerate(summary)}
-                                loading={regenerateMutation.isPending}
-                              >
-                                重新生成
-                              </Button>
-                              <Button
-                                type="primary"
-                                danger
-                                icon={<DeleteOutlined />}
-                                onClick={() => handleDelete(summary.id)}
-                                loading={deleteMutation.isPending}
-                              >
-                                删除
-                              </Button>
-                            </>
-                          )}
-                          <Button
-                            type="default"
-                            icon={<ShareAltOutlined />}
-                            onClick={() => handleShareLink(summary.id)}
-                          >
-                            分享
-                          </Button>
-                          <Button
-                            type="default"
-                            icon={<UpOutlined />}
-                            onClick={() => toggleExpand(summary)}
-                          >
-                            收起
-                          </Button>
-                        </div>
-                      </>
-                    )}
-                  </Space>
-                </Card>
-              </List.Item>
-            )}
-          />
+  const renderExpandedSummary = (summary: DailySummaryListItem) => {
+    const details = loadedDetails.get(summary.id);
+
+    if (!details) {
+      return (
+        <div style={{ textAlign: 'center', padding: '20px 0' }}>
+          <Spin />
+        </div>
+      );
+    }
+
+    return (
+      <>
+        <div
+          style={{
+            padding: isMobile ? '12px' : '16px',
+            backgroundColor: getThemeColor(theme, 'bgSecondary'),
+            borderRadius: '4px',
+            border: `1px solid ${getThemeColor(theme, 'border')}`,
+            color: getThemeColor(theme, 'text'),
+          }}
+        >
+          <ReactMarkdown
+            components={createMarkdownComponents(theme)}
+            remarkPlugins={[remarkGfm]}
+          >
+            {details.summary_content || ''}
+          </ReactMarkdown>
+        </div>
+        {details.key_topics && details.key_topics.length > 0 && (
+          <div style={{ marginTop: 12 }}>
+            <strong style={{ color: getThemeColor(theme, 'text') }}>关键主题：</strong>
+            {details.key_topics.map((topic, index) => (
+              <Tag key={index} style={{ marginBottom: 4 }}>
+                {topic}
+              </Tag>
+            ))}
+          </div>
         )}
-      </Card>
+        <div style={{ marginTop: 16, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {isAuthenticated && (
+            <>
+              <Button
+                type="default"
+                icon={<ReloadOutlined />}
+                onClick={() => handleRegenerate(summary)}
+                loading={regenerateMutation.isPending}
+                size="small"
+              >
+                重新生成
+              </Button>
+              <Button
+                type="primary"
+                danger
+                icon={<DeleteOutlined />}
+                onClick={() => handleDelete(summary.id)}
+                loading={deleteMutation.isPending}
+                size="small"
+              >
+                删除
+              </Button>
+            </>
+          )}
+          <Button
+            type="default"
+            icon={<ShareAltOutlined />}
+            onClick={() => handleShareLink(summary.id)}
+            size="small"
+          >
+            分享
+          </Button>
+          <Button
+            type="default"
+            icon={<UpOutlined />}
+            onClick={() => toggleExpand(summary)}
+            size="small"
+          >
+            收起
+          </Button>
+        </div>
+      </>
+    );
+  };
 
-      <Modal
+  const generateModal = (
+    <Modal
         title={(
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingRight: 32 }}>
             <span>生成新摘要</span>
@@ -766,6 +687,118 @@ export default function DailySummary() {
           </Form>
         </Spin>
       </Modal>
+  );
+
+  if (isMobile) {
+    return (
+      <>
+        <div className="mobile-list-page">
+          <div className="mobile-list-toolbar">
+            <span className="mobile-list-toolbar__meta">
+              {isLoading ? '加载中...' : `${summaries?.length ?? 0} 条摘要`}
+            </span>
+            {isAuthenticated && (
+              <Button
+                type="default"
+                size="small"
+                icon={<PlusOutlined />}
+                onClick={() => setGenerateModalVisible(true)}
+              >
+                新建
+              </Button>
+            )}
+          </div>
+          {isLoading ? (
+            <div className="mobile-feed-loading"><Spin /></div>
+          ) : !summaries || summaries.length === 0 ? (
+            <div style={{ padding: 40, textAlign: 'center', color: getThemeColor(theme, 'textSecondary') }}>
+              暂无摘要
+            </div>
+          ) : (
+            <div className="mobile-list">
+              {summaries.map((summary) => (
+                <MobileListRow
+                  key={summary.id}
+                  title={getSummaryTitle(summary)}
+                  meta={getSummaryMeta(summary)}
+                  expanded={expandedSummaries.has(summary.id)}
+                  onToggle={() => toggleExpand(summary)}
+                >
+                  {renderExpandedSummary(summary)}
+                </MobileListRow>
+              ))}
+            </div>
+          )}
+        </div>
+        {generateModal}
+      </>
+    );
+  }
+
+  return (
+    <div>
+      <Card
+        title="内容总结"
+        extra={
+          isAuthenticated ? (
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={() => setGenerateModalVisible(true)}
+            >
+              生成新摘要
+            </Button>
+          ) : null
+        }
+      >
+        {isLoading ? (
+          <div>加载中...</div>
+        ) : !summaries || summaries.length === 0 ? (
+          <div>暂无摘要</div>
+        ) : (
+          <List
+            dataSource={summaries}
+            renderItem={(summary) => (
+              <List.Item style={{ padding: 0, marginBottom: 8 }}>
+                <Card style={{ width: '100%', marginBottom: 0 }} styles={{ body: { padding: '12px 16px' } }}>
+                  <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        flexWrap: 'wrap',
+                        gap: 6,
+                        cursor: 'pointer',
+                        padding: '2px 0',
+                      }}
+                      onClick={() => toggleExpand(summary)}
+                    >
+                      <Title level={5} style={{ marginBottom: 0, display: 'inline', flexShrink: 0 }}>
+                        {getSummaryTitle(summary)}
+                      </Title>
+                      <Tag style={{ flexShrink: 0 }}>文章数: {summary.total_articles}</Tag>
+                      <Tag color="red" style={{ flexShrink: 0 }}>高重要性: {summary.high_importance_count}</Tag>
+                      <Tag color="orange" style={{ flexShrink: 0 }}>中重要性: {summary.medium_importance_count}</Tag>
+                      <Button
+                        type="text"
+                        icon={expandedSummaries.has(summary.id) ? <UpOutlined /> : <DownOutlined />}
+                        size="small"
+                        style={{ flexShrink: 0, marginLeft: 'auto' }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleExpand(summary);
+                        }}
+                      />
+                    </div>
+                    {expandedSummaries.has(summary.id) && renderExpandedSummary(summary)}
+                  </Space>
+                </Card>
+              </List.Item>
+            )}
+          />
+        )}
+      </Card>
+      {generateModal}
     </div>
   );
 }

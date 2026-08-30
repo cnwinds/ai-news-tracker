@@ -18,6 +18,7 @@ import { copyToClipboard } from '@/utils/clipboard';
 import { useMessage } from '@/hooks/useMessage';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { getOrCreateSessionId } from '@/utils/sessionId';
+import MobileListRow from '@/components/mobile/MobileListRow';
 
 const { TextArea } = Input;
 const { Title, Text } = Typography;
@@ -150,119 +151,18 @@ export default function ArticleCard({ article }: ArticleCardProps) {
   };
 
   const actionButtonSize = isMobile ? 'small' : 'middle';
-  const titleStyle = { marginBottom: 0, display: 'inline' as const, fontSize: isMobile ? 15 : undefined };
+  const titleStyle = { marginBottom: 0, display: 'inline' as const, fontSize: isMobile ? 16 : undefined };
+  const displayTitle = article.title_zh || article.title;
+  const mobileDate = article.published_at
+    ? dayjs(article.published_at).format('MM-DD')
+    : '未知';
 
-  return (
-    <Card
-      style={{ marginBottom: 8 }}
-      styles={{ body: { padding: '12px 16px' } }}
-    >
-      <Space direction="vertical" size="small" style={{ width: '100%' }}>
-        {/* 第一行（概览）：日期Tag + 重要程度Tag + 标题 + 来源Tag，整行可点击展开（除了来源Tag） */}
-        <div 
-          style={{ 
-            display: 'flex', 
-            alignItems: 'center', 
-            flexWrap: 'wrap', 
-            gap: 6,
-            cursor: 'pointer',
-            padding: '2px 0',
-          }}
-          onClick={(e) => {
-            // 如果点击的是展开/收起按钮，不展开（按钮会自己处理点击事件）
-            // 来源 tag 已经有 stopPropagation，所以不需要特别检查
-            if ((e.target as HTMLElement).closest('button')) {
-              return;
-            }
-            setExpanded(!expanded);
-          }}
-        >
-          {/* 日期Tag（最前面） */}
-          <Tag color="default" style={{ flexShrink: 0 }}>
-            {article.published_at
-              ? dayjs(article.published_at).format('YYYY-MM-DD')
-              : '未知日期'}
-          </Tag>
-          
-          {/* 重要程度Tag */}
-          {article.importance && (
-            <Tag color={IMPORTANCE_COLORS[article.importance]} style={{ flexShrink: 0 }}>
-              {getImportanceLabel(article.importance)}
-            </Tag>
-          )}
-          
-          {/* 标题 + 来源Tag + 收藏标记（紧跟在标题后面，靠左显示） */}
-          <div style={{ flex: '1 1 auto', minWidth: 0, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-            {article.title_zh ? (
-              <Tooltip title={article.title} placement="top">
-                <Title 
-                  level={5} 
-                  style={titleStyle}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.color = getThemeColor(theme, 'primary');
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.color = getThemeColor(theme, 'text');
-                  }}
-                >
-                  {article.title_zh}
-                </Title>
-              </Tooltip>
-            ) : (
-              <Title 
-                level={5} 
-                style={titleStyle}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.color = getThemeColor(theme, 'primary');
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.color = getThemeColor(theme, 'text');
-                }}
-              >
-                {article.title}
-              </Title>
-            )}
-            <Tag 
-              color="blue" 
-              style={{ flexShrink: 0, cursor: 'pointer' }}
-              onClick={(e) => {
-                e.stopPropagation();
-                if (article.url) {
-                  window.open(article.url, '_blank');
-                }
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.opacity = '0.8';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.opacity = '1';
-              }}
-            >
-              {article.source}
-            </Tag>
-            {article.is_favorited && (
-              <Tooltip title="已收藏">
-                <StarFilled style={{ color: '#faad14', fontSize: 14 }} />
-              </Tooltip>
-            )}
-          </div>
-          
-          {/* 展开/收起图标 */}
-          <Button
-            type="text"
-            icon={expanded ? <UpOutlined /> : <DownOutlined />}
-            size="small"
-            style={{ flexShrink: 0 }}
-            onClick={(e) => {
-              e.stopPropagation();
-              setExpanded(!expanded);
-            }}
-          />
-        </div>
-
-        {/* 展开后的详情区域 */}
-        {expanded && (
-          <div style={{ marginTop: 8, paddingTop: 8, borderTop: `1px solid ${getThemeColor(theme, 'border')}` }}>
+  const expandedDetails = (
+    <div style={{
+      marginTop: isMobile ? 0 : 8,
+      paddingTop: isMobile ? 12 : 8,
+      borderTop: isMobile ? 'none' : `1px solid ${getThemeColor(theme, 'border')}`,
+    }}>
             {/* 日期和作者 */}
             <div style={{ marginBottom: 8 }}>
               <Space size="small">
@@ -549,7 +449,120 @@ export default function ArticleCard({ article }: ArticleCardProps) {
               )}
             </div>
           </div>
-        )}
+  );
+
+  if (isMobile) {
+    const metaParts = [
+      mobileDate,
+      article.source,
+      article.importance ? getImportanceLabel(article.importance) : null,
+      article.is_favorited ? '已收藏' : null,
+    ].filter(Boolean);
+
+    return (
+      <MobileListRow
+        title={displayTitle}
+        meta={metaParts.join(' · ')}
+        expanded={expanded}
+        onToggle={() => setExpanded(!expanded)}
+      >
+        {expandedDetails}
+      </MobileListRow>
+    );
+  }
+
+  return (
+    <Card
+      style={{ marginBottom: 8 }}
+      styles={{ body: { padding: '12px 16px' } }}
+    >
+      <Space direction="vertical" size="small" style={{ width: '100%' }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: 6,
+            cursor: 'pointer',
+            padding: '2px 0',
+          }}
+          onClick={(e) => {
+            if ((e.target as HTMLElement).closest('button')) {
+              return;
+            }
+            setExpanded(!expanded);
+          }}
+        >
+          <Tag color="default" style={{ flexShrink: 0 }}>
+            {article.published_at
+              ? dayjs(article.published_at).format('YYYY-MM-DD')
+              : '未知日期'}
+          </Tag>
+          {article.importance && (
+            <Tag color={IMPORTANCE_COLORS[article.importance]} style={{ flexShrink: 0 }}>
+              {getImportanceLabel(article.importance)}
+            </Tag>
+          )}
+          <div style={{ flex: '1 1 auto', minWidth: 0, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            {article.title_zh ? (
+              <Tooltip title={article.title} placement="top">
+                <Title
+                  level={5}
+                  style={titleStyle}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.color = getThemeColor(theme, 'primary');
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.color = getThemeColor(theme, 'text');
+                  }}
+                >
+                  {article.title_zh}
+                </Title>
+              </Tooltip>
+            ) : (
+              <Title
+                level={5}
+                style={titleStyle}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = getThemeColor(theme, 'primary');
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = getThemeColor(theme, 'text');
+                }}
+              >
+                {article.title}
+              </Title>
+            )}
+            <Tag
+              color="blue"
+              style={{ flexShrink: 0, cursor: 'pointer' }}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (article.url) {
+                  window.open(article.url, '_blank');
+                }
+              }}
+            >
+              {article.source}
+            </Tag>
+            {article.is_favorited && (
+              <Tooltip title="已收藏">
+                <StarFilled style={{ color: '#faad14', fontSize: 14 }} />
+              </Tooltip>
+            )}
+          </div>
+          <Button
+            type="text"
+            icon={expanded ? <UpOutlined /> : <DownOutlined />}
+            size="small"
+            style={{ flexShrink: 0 }}
+            onClick={(e) => {
+              e.stopPropagation();
+              setExpanded(!expanded);
+            }}
+          />
+        </div>
+        {expanded && expandedDetails}
       </Space>
     </Card>
   );
