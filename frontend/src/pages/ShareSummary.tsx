@@ -14,6 +14,7 @@ import ReactMarkdown from 'react-markdown';
 import dayjs from 'dayjs';
 import { apiService } from '@/services/api';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { getThemeColor } from '@/utils/theme';
 import { createMarkdownComponents, remarkGfm } from '@/utils/markdown';
 import type { CSSProperties } from 'react';
@@ -26,6 +27,7 @@ export default function ShareSummary() {
   const summaryId = Number(id);
   const navigate = useNavigate();
   const { theme, toggleTheme } = useTheme();
+  const { isMobile } = useBreakpoint();
 
   const { data: summary, isLoading, error } = useQuery({
     queryKey: ['share-summary', summaryId],
@@ -38,7 +40,7 @@ export default function ShareSummary() {
     background: getThemeColor(theme, 'bgElevated'),
     border: `1px solid ${getThemeColor(theme, 'border')}`,
     borderRadius: 12,
-    padding: 24,
+    padding: isMobile ? 12 : 24,
   };
 
   const summaryTitle = summary
@@ -55,7 +57,7 @@ export default function ShareSummary() {
 
   return (
     <Layout style={{ minHeight: '100vh', background: getThemeColor(theme, 'bgContainer') }}>
-      <Content style={{ padding: '24px', maxWidth: 980, margin: '0 auto', width: '100%' }}>
+      <Content style={{ padding: isMobile ? '12px' : '24px', maxWidth: 980, margin: '0 auto', width: '100%' }}>
         <div
           style={{
             display: 'flex',

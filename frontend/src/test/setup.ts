@@ -3,16 +3,26 @@ import { vi } from 'vitest';
 
 Object.defineProperty(window, 'matchMedia', {
   writable: true,
-  value: vi.fn().mockImplementation((query: string) => ({
-    matches: false,
-    media: query,
-    onchange: null,
-    addListener: vi.fn(),
-    removeListener: vi.fn(),
-    addEventListener: vi.fn(),
-    removeEventListener: vi.fn(),
-    dispatchEvent: vi.fn(),
-  })),
+  value: vi.fn().mockImplementation((query: string) => {
+    const minWidthMatch = query.match(/min-width:\s*(\d+)px/);
+    const maxWidthMatch = query.match(/max-width:\s*(\d+)px/);
+    let matches = false;
+    if (minWidthMatch) {
+      matches = window.innerWidth >= Number(minWidthMatch[1]);
+    } else if (maxWidthMatch) {
+      matches = window.innerWidth <= Number(maxWidthMatch[1]);
+    }
+    return {
+      matches,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    };
+  }),
 });
 
 Object.defineProperty(window.HTMLElement.prototype, 'scrollIntoView', {

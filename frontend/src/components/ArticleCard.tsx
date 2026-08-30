@@ -16,6 +16,7 @@ import { getThemeColor } from '@/utils/theme';
 import { getSummaryText, IMPORTANCE_COLORS, getImportanceLabel } from '@/utils/article';
 import { copyToClipboard } from '@/utils/clipboard';
 import { useMessage } from '@/hooks/useMessage';
+import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { getOrCreateSessionId } from '@/utils/sessionId';
 
 const { TextArea } = Input;
@@ -39,6 +40,7 @@ export default function ArticleCard({ article }: ArticleCardProps) {
   const updateMutation = useUpdateArticle();
   const { theme } = useTheme();
   const { isAuthenticated, username } = useAuth();
+  const { isMobile } = useBreakpoint();
 
   // 按需加载：只在展开时一次性加载所有详细字段
   const { data: loadedDetails, isLoading: isLoadingDetails } = useArticleDetails(
@@ -147,6 +149,9 @@ export default function ArticleCard({ article }: ArticleCardProps) {
     void copyToClipboard(shareUrl, { onSuccess: (msg) => message.success(msg) }, '分享链接已复制');
   };
 
+  const actionButtonSize = isMobile ? 'small' : 'middle';
+  const titleStyle = { marginBottom: 0, display: 'inline' as const, fontSize: isMobile ? 15 : undefined };
+
   return (
     <Card
       style={{ marginBottom: 8 }}
@@ -192,7 +197,7 @@ export default function ArticleCard({ article }: ArticleCardProps) {
               <Tooltip title={article.title} placement="top">
                 <Title 
                   level={5} 
-                  style={{ marginBottom: 0, display: 'inline' }}
+                  style={titleStyle}
                   onMouseEnter={(e) => {
                     e.currentTarget.style.color = getThemeColor(theme, 'primary');
                   }}
@@ -206,7 +211,7 @@ export default function ArticleCard({ article }: ArticleCardProps) {
             ) : (
               <Title 
                 level={5} 
-                style={{ marginBottom: 0, display: 'inline' }}
+                style={titleStyle}
                 onMouseEnter={(e) => {
                   e.currentTarget.style.color = getThemeColor(theme, 'primary');
                 }}
@@ -399,7 +404,7 @@ export default function ArticleCard({ article }: ArticleCardProps) {
                     {isAuthenticated && (
                       <Button
                         type="primary"
-                        size="middle"
+                        size={actionButtonSize}
                         icon={<SaveOutlined />}
                         onClick={handleSaveNotes}
                         loading={updateMutation.isPending}
@@ -408,7 +413,7 @@ export default function ArticleCard({ article }: ArticleCardProps) {
                       </Button>
                     )}
                     <Button
-                      size="middle"
+                      size={actionButtonSize}
                       onClick={handleCancelEditNotes}
                     >
                       取消
@@ -423,7 +428,7 @@ export default function ArticleCard({ article }: ArticleCardProps) {
                   {isAuthenticated && (
                     <Button
                       type="text"
-                      size="middle"
+                      size={actionButtonSize}
                       icon={<EditOutlined />}
                       onClick={() => setIsEditingNotes(true)}
                     >
@@ -461,7 +466,7 @@ export default function ArticleCard({ article }: ArticleCardProps) {
                   icon={<LinkOutlined />}
                   href={article.url}
                   target="_blank"
-                  size="middle"
+                  size={actionButtonSize}
                 >
                   查看原文
                 </Button>
@@ -469,7 +474,7 @@ export default function ArticleCard({ article }: ArticleCardProps) {
                   type="default"
                   icon={<ShareAltOutlined />}
                   onClick={handleShareLink}
-                  size="middle"
+                  size={actionButtonSize}
                 >
                   分享
                 </Button>
@@ -479,7 +484,7 @@ export default function ArticleCard({ article }: ArticleCardProps) {
                     icon={article.is_favorited ? <StarFilled /> : <StarOutlined />}
                     onClick={handleFavorite}
                     loading={favoriteMutation.isPending || unfavoriteMutation.isPending}
-                    size="middle"
+                    size={actionButtonSize}
                   >
                     {article.is_favorited ? '已收藏' : '收藏'}
                   </Button>
@@ -493,7 +498,7 @@ export default function ArticleCard({ article }: ArticleCardProps) {
                     type="default"
                     icon={<EditOutlined />}
                     onClick={() => setIsEditingNotes(true)}
-                    size="middle"
+                    size={actionButtonSize}
                   >
                     笔记
                   </Button>
@@ -507,7 +512,7 @@ export default function ArticleCard({ article }: ArticleCardProps) {
                     <>
                       <Button
                         type="default"
-                        size="middle"
+                        size={actionButtonSize}
                         icon={<RobotOutlined />}
                         onClick={handleAnalyze}
                         loading={analyzeMutation.isPending}
@@ -523,7 +528,7 @@ export default function ArticleCard({ article }: ArticleCardProps) {
                         <Button
                           type="primary"
                           danger
-                          size="middle"
+                          size={actionButtonSize}
                           icon={<DeleteOutlined />}
                           loading={deleteMutation.isPending}
                         >
@@ -534,7 +539,7 @@ export default function ArticleCard({ article }: ArticleCardProps) {
                   )}
                   <Button
                     type="default"
-                    size="middle"
+                    size={actionButtonSize}
                     icon={<UpOutlined />}
                     onClick={() => setExpanded(false)}
                   >

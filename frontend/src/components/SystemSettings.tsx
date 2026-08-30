@@ -1,6 +1,7 @@
 import { Alert, Tabs } from 'antd';
 
 import { useAuth } from '@/contexts/AuthContext';
+import { useBreakpoint } from '@/hooks/useBreakpoint';
 import SourceManagement from '@/components/SourceManagement';
 import DataCleanup from '@/components/DataCleanup';
 import CollectionHistory from '@/components/CollectionHistory';
@@ -18,6 +19,7 @@ import {
 
 export default function SystemSettings() {
   const { isAuthenticated } = useAuth();
+  const { isMobile } = useBreakpoint();
 
   const tabItems = [
     {
@@ -93,7 +95,12 @@ export default function SystemSettings() {
           style={{ marginBottom: 16 }}
         />
       )}
-      <Tabs items={tabItems} />
+      <Tabs
+        items={tabItems}
+        size={isMobile ? 'small' : 'middle'}
+        className={isMobile ? 'mobile-tab-bar' : undefined}
+        tabBarStyle={isMobile ? { marginBottom: 12 } : undefined}
+      />
     </div>
   );
 }

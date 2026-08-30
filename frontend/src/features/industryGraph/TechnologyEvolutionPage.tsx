@@ -13,6 +13,7 @@ import {
   Alert,
   Avatar,
   Button,
+  Drawer,
   Input,
   InputNumber,
   Popconfirm,
@@ -46,6 +47,7 @@ import { apiService } from '@/services/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme, type ThemeMode } from '@/contexts/ThemeContext';
 import { useMessage } from '@/hooks/useMessage';
+import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { getThemeColor } from '@/utils/theme';
 import type {
   IndustryGraphConversation,
@@ -1147,6 +1149,8 @@ export default function TechnologyEvolutionPage() {
   const { isAuthenticated } = useAuth();
   const queryClient = useQueryClient();
   const message = useMessage();
+  const { isMobile } = useBreakpoint();
+  const [historyDrawerOpen, setHistoryDrawerOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [conversationId, setConversationId] = useState<number | null>(null);
@@ -1349,10 +1353,13 @@ export default function TechnologyEvolutionPage() {
       setConversationId(conversation.id);
       setMessages(conversationToChatMessages(conversation));
       setInputValue('');
+      if (isMobile) {
+        setHistoryDrawerOpen(false);
+      }
     } catch (error) {
       message.error(error instanceof Error ? error.message : '加载会话失败');
     }
-  }, [isAuthenticated, isStreaming, message]);
+  }, [isAuthenticated, isMobile, isStreaming, message]);
 
   const handleAsk = useCallback((question: string) => {
     const normalizedQuestion = question.trim();
@@ -1573,19 +1580,24 @@ export default function TechnologyEvolutionPage() {
     </div>
   );
 
-  return (
-    <div style={industryPageStyles.shell}>
-      <aside style={industryPageStyles.sidebar}>
-        <div
-          style={{
-            ...panelStyle,
-            padding: 14,
-            flex: 1,
-            minHeight: 0,
-            display: 'flex',
-            flexDirection: 'column',
-          }}
-        >
+  const shellStyle: CSSProperties = {
+    ...industryPageStyles.shell,
+    gridTemplateColumns: isMobile ? '1fr' : '320px minmax(0, 1fr)',
+    minHeight: isMobile ? 'auto' : industryPageStyles.shell.minHeight,
+  };
+
+  const historyPanel = (
+    <div
+      style={{
+        ...panelStyle,
+        padding: 14,
+        flex: 1,
+        minHeight: 0,
+        display: 'flex',
+        flexDirection: 'column',
+        height: isMobile ? '100%' : undefined,
+      }}
+    >
           <Space direction="vertical" size={12} style={{ width: '100%', minHeight: 0, flex: 1 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
               <Space>
@@ -1811,36 +1823,56 @@ export default function TechnologyEvolutionPage() {
             )}
           </Space>
         </div>
+  );
 
+  return (
+    <>
+    <div style={shellStyle}>
+      {!isMobile && (
+      <aside style={industryPageStyles.sidebar}>
+        {historyPanel}
       </aside>
+      )}
 
-      <main style={{ ...industryPageStyles.report, ...panelStyle }}>
+      <main style={{ ...industryPageStyles.report, ...panelStyle, minHeight: isMobile ? 480 : industryPageStyles.report.minHeight }}>
         <div
           style={{
-            padding: '14px 18px',
+            padding: isMobile ? '12px' : '14px 18px',
             borderBottom: `1px solid ${getThemeColor(theme, 'borderSecondary')}`,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
             gap: 12,
+            flexWrap: 'wrap',
           }}
         >
-          <Space>
+          <Space wrap>
             <Avatar icon={<ApartmentOutlined />} style={{ background: '#13c2c2' }} />
             <div>
               <Text strong>行业趋势图谱报告</Text>
+              {!isMobile && (
               <div>
                 <Text type="secondary">流式输出文本、趋势卡片、证据和局部图</Text>
               </div>
+              )}
             </div>
           </Space>
           <Space size={8} wrap>
+            {isMobile && (
+              <Button
+                size="small"
+                icon={<HistoryOutlined />}
+                onClick={() => setHistoryDrawerOpen(true)}
+              >
+                历史会话
+              </Button>
+            )}
             <Tag icon={<ClockCircleOutlined />}>last_3_months</Tag>
             {conversationId && <Tag color="blue">会话 {conversationId}</Tag>}
           </Space>
         </div>
 
-        <div ref={reportBodyRef} style={industryPageStyles.reportBody}>
+        <div ref={reportBodyRef} style={{ ...industryPageStyles.reportBody, padding: isMobile ? 12 : 20 }}>
           {messages.length === 0 ? (
             <SuggestedQuestionPrompt
               items={suggestedQuestions?.items || []}
@@ -2016,5 +2048,19 @@ export default function TechnologyEvolutionPage() {
         </div>
       </main>
     </div>
+
+    {isMobile && (
+      <Drawer
+        title="历史会话"
+        placement="left"
+        width="100%"
+        open={historyDrawerOpen}
+        onClose={() => setHistoryDrawerOpen(false)}
+        styles={{ body: { padding: 12 } }}
+      >
+        {historyPanel}
+      </Drawer>
+    )}
+    </>
   );
 }

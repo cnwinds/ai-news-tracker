@@ -18,6 +18,7 @@ import { useAIConversation } from '@/contexts/AIConversationContext';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiService } from '@/services/api';
 import { useErrorHandler } from '@/hooks/useErrorHandler';
+import { useBreakpoint } from '@/hooks/useBreakpoint';
 import type { ArticleSearchResult, SmartDropdownItemData } from '@/types';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getThemeColor } from '@/utils/theme';
@@ -294,15 +295,7 @@ export default function SmartDropdown({
   }, [isZeroState, options.length, highlightedIndex, query, isUrlInput, isCollecting, handleCollectUrl, handleCreateIndex, onSelectAIQuery, onSelectArticle]);
 
   // 响应式：检测移动端
-  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
-
-  useEffect(() => {
-    const handleResize = () => {
-      setIsMobile(window.innerWidth < 768);
-    };
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
+  const { isMobile } = useBreakpoint();
 
   const dropdownStyle: React.CSSProperties = {
     position: 'absolute',

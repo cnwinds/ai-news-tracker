@@ -35,6 +35,7 @@ import ReactMarkdown from 'react-markdown';
 
 import { apiService } from '@/services/api';
 import { useAuth } from '@/contexts/AuthContext';
+import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { useTheme } from '@/contexts/ThemeContext';
 import { createMarkdownComponents, remarkGfm } from '@/utils/markdown';
 import type {
@@ -169,6 +170,7 @@ function buildFullReportMarkdown(report: ExplorationReport): string {
 
 export default function ModelExplorer() {
   const { isAuthenticated } = useAuth();
+  const { isMobile } = useBreakpoint();
   const { theme } = useTheme();
 
   const [modelType, setModelType] = useState<string | undefined>(undefined);
@@ -878,7 +880,7 @@ export default function ModelExplorer() {
             </Text>
           </Space>
 
-          <Space wrap>
+          <Space wrap style={{ width: isMobile ? '100%' : undefined }}>
             <Search
               value={searchText}
               onChange={(event) => setSearchText(event.target.value)}
@@ -888,11 +890,11 @@ export default function ModelExplorer() {
               }}
               placeholder="搜索模型或组织"
               allowClear
-              style={{ width: 220 }}
+              style={{ width: isMobile ? '100%' : 220 }}
             />
             <Select
               placeholder="模型类型"
-              style={{ width: 140 }}
+              style={{ width: isMobile ? '100%' : 140 }}
               allowClear
               value={modelType}
               onChange={(value) => {
@@ -908,7 +910,7 @@ export default function ModelExplorer() {
             </Select>
             <Select
               placeholder="来源平台"
-              style={{ width: 150 }}
+              style={{ width: isMobile ? '100%' : 150 }}
               allowClear
               value={sourcePlatform}
               onChange={(value) => {
@@ -923,7 +925,7 @@ export default function ModelExplorer() {
             </Select>
             <Select
               placeholder="最低评分"
-              style={{ width: 140 }}
+              style={{ width: isMobile ? '100%' : 140 }}
               value={minScore}
               onChange={(value: number) => {
                 setMinScore(value);
@@ -953,6 +955,7 @@ export default function ModelExplorer() {
           dataSource={pagedModels}
           loading={reportedLoading || candidateLoading}
           rowKey="id"
+          scroll={{ x: 800 }}
           pagination={{
             total: mergedModels.length,
             current: page,
@@ -970,7 +973,8 @@ export default function ModelExplorer() {
       <Modal
         title="模型先知配置"
         open={configModalVisible}
-        width={760}
+        width={isMobile ? '100%' : 760}
+        style={isMobile ? { top: 0, maxWidth: '100vw', padding: 0, margin: 0 } : undefined}
         onCancel={() => setConfigModalVisible(false)}
         okText="保存配置"
         cancelText="取消"
@@ -1086,7 +1090,8 @@ export default function ModelExplorer() {
           setReportModalVisible(false);
           setSelectedReport(null);
         }}
-        width={980}
+        width={isMobile ? '100%' : 980}
+        style={isMobile ? { top: 0, maxWidth: '100vw', padding: 0, margin: 0 } : undefined}
         footer={[
           <Button
             key="close"

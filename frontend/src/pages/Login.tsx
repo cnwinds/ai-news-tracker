@@ -8,6 +8,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useMessage } from '@/hooks/useMessage';
+import { useBreakpoint } from '@/hooks/useBreakpoint';
 
 const { Title, Text } = Typography;
 
@@ -17,6 +18,7 @@ export default function Login() {
   const navigate = useNavigate();
   const { theme } = useTheme();
   const message = useMessage();
+  const { isMobile } = useBreakpoint();
 
   const onFinish = async (values: { username: string; password: string }) => {
     setLoading(true);
@@ -40,7 +42,7 @@ export default function Login() {
 
   const cardStyle: React.CSSProperties = {
     maxWidth: 400,
-    margin: '100px auto',
+    margin: isMobile ? '40px auto' : '100px auto',
     boxShadow: theme === 'dark' 
       ? '0 4px 12px rgba(0, 0, 0, 0.5)' 
       : '0 4px 12px rgba(0, 0, 0, 0.1)',
@@ -51,7 +53,7 @@ export default function Login() {
     background: theme === 'dark' 
       ? 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)' 
       : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-    padding: '20px',
+    padding: isMobile ? '12px' : '20px',
   };
 
   return (

@@ -18,6 +18,7 @@ import ReactMarkdown from 'react-markdown';
 import dayjs from 'dayjs';
 import { apiService } from '@/services/api';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { getThemeColor } from '@/utils/theme';
 import { createMarkdownComponents, normalizeMarkdownImageContent, remarkGfm } from '@/utils/markdown';
 
@@ -29,6 +30,7 @@ export default function ShareArticle() {
   const articleId = Number(id);
   const navigate = useNavigate();
   const { theme, toggleTheme } = useTheme();
+  const { isMobile } = useBreakpoint();
   const [isContentExpanded, setIsContentExpanded] = useState(false);
 
   const { data: article, isLoading, error } = useQuery({
@@ -43,12 +45,12 @@ export default function ShareArticle() {
     background: getThemeColor(theme, 'bgElevated'),
     border: `1px solid ${getThemeColor(theme, 'border')}`,
     borderRadius: 12,
-    padding: 24,
+    padding: isMobile ? 12 : 24,
   };
 
   return (
     <Layout style={{ minHeight: '100vh', background: getThemeColor(theme, 'bgContainer') }}>
-      <Content style={{ padding: '24px', maxWidth: 980, margin: '0 auto', width: '100%' }}>
+      <Content style={{ padding: isMobile ? '12px' : '24px', maxWidth: 980, margin: '0 auto', width: '100%' }}>
         <div
           style={{
             display: 'flex',

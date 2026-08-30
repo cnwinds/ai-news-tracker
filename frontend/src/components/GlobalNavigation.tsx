@@ -10,6 +10,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { useAIConversation } from '@/contexts/AIConversationContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useMessage } from '@/hooks/useMessage';
+import { useBreakpoint } from '@/hooks/useBreakpoint';
 import SmartDropdown from './SmartDropdown';
 import ArticleDetailModal from './ArticleDetailModal';
 import { getThemeColor } from '@/utils/theme';
@@ -27,6 +28,7 @@ export default function GlobalNavigation({ onSettingsClick }: GlobalNavigationPr
   const { openModal, setSearchQuery, searchQuery } = useAIConversation();
   const { isAuthenticated } = useAuth();
   const message = useMessage();
+  const { isMobile } = useBreakpoint();
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [, setIsFocused] = useState(false);
   const [articleDetailModalOpen, setArticleDetailModalOpen] = useState(false);
@@ -34,13 +36,20 @@ export default function GlobalNavigation({ onSettingsClick }: GlobalNavigationPr
   const inputRef = useRef<InputRef>(null);
   const blurTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  useEffect(() => {
+    return () => {
+      if (blurTimeoutRef.current) {
+        clearTimeout(blurTimeoutRef.current);
+      }
+    };
+  }, []);
+
   // 全局快捷键 Cmd/Ctrl + K
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault();
         inputRef.current?.focus();
-        // 如果搜索框有内容，全选
         if (inputRef.current && searchQuery) {
           inputRef.current.select();
         }
@@ -51,7 +60,6 @@ export default function GlobalNavigation({ onSettingsClick }: GlobalNavigationPr
         if (articleDetailModalOpen) {
           setArticleDetailModalOpen(false);
           setSelectedArticleId(null);
-          // 关闭详情后，保持下拉窗口打开
           setIsDropdownOpen(true);
           setIsFocused(true);
         } else {
@@ -78,8 +86,6 @@ export default function GlobalNavigation({ onSettingsClick }: GlobalNavigationPr
   };
 
   const handleInputBlur = () => {
-    // 延迟关闭，以便点击下拉项
-    // 如果文章详情模态框打开，不要关闭下拉窗口
     blurTimeoutRef.current = setTimeout(() => {
       if (!articleDetailModalOpen) {
         setIsFocused(false);
@@ -97,21 +103,18 @@ export default function GlobalNavigation({ onSettingsClick }: GlobalNavigationPr
     }
   };
 
-  // 处理URL采集
   const handleCollectUrl = async (url: string) => {
     try {
       const article = await apiService.collectArticleFromUrl(url);
       message.success(`成功采集文章: ${article.title}`);
       setSearchQuery('');
       setIsDropdownOpen(false);
-      // 打开文章详情
       setSelectedArticleId(article.id);
       setArticleDetailModalOpen(true);
     } catch (error: unknown) {
       const apiError = error as ApiError;
       if (apiError.status === 409) {
         message.warning('文章已存在');
-        // 尝试从错误消息中提取文章ID
         const match = apiError.message?.match(/ID:\s*(\d+)/);
         if (match) {
           const articleId = parseInt(match[1]);
@@ -126,183 +129,187 @@ export default function GlobalNavigation({ onSettingsClick }: GlobalNavigationPr
   };
 
   const headerStyle: React.CSSProperties = {
-    padding: '0 24px',
+    padding: isMobile ? '8px 12px' : '0 24px',
     display: 'flex',
-    alignItems: 'center',
-    gap: '16px',
+    flexDirection: isMobile ? 'column' : 'row',
+    alignItems: isMobile ? 'stretch' : 'center',
+    gap: isMobile ? '8px' : '16px',
     background: theme === 'dark' ? '#1a1a1a' : '#001529',
     borderBottom: theme === 'dark' ? '1px solid #303030' : 'none',
     position: 'relative',
     zIndex: 1000,
+    height: isMobile ? 'auto' : undefined,
+    lineHeight: isMobile ? 'normal' : undefined,
   };
-
-  // 响应式：检测移动端
-  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
-
-  useEffect(() => {
-    const handleResize = () => {
-      setIsMobile(window.innerWidth < 768);
-    };
-    window.addEventListener('resize', handleResize);
-    return () => {
-      window.removeEventListener('resize', handleResize);
-      // 清理 blur timeout
-      if (blurTimeoutRef.current) {
-        clearTimeout(blurTimeoutRef.current);
-      }
-    };
-  }, []);
 
   const inputStyle: React.CSSProperties = {
     flex: 1,
+    width: '100%',
     maxWidth: isMobile ? '100%' : '800px',
     height: '40px',
     borderRadius: '8px',
   };
 
+  const actionButtons = (
+    <Space size="middle">
+      <Button
+        type="text"
+        icon={theme === 'dark' ? <SunOutlined style={{ fontSize: '18px' }} /> : <MoonOutlined style={{ fontSize: '18px' }} />}
+        onClick={toggleTheme}
+        style={{ color: '#fff', fontSize: '18px', padding: '8px 12px' }}
+        title={theme === 'dark' ? '切换到浅色主题' : '切换到深色主题'}
+      />
+      {isAuthenticated && (
+        <Button
+          type="text"
+          icon={<SettingOutlined style={{ fontSize: '18px' }} />}
+          style={{ color: '#fff', fontSize: '18px', padding: '8px 12px' }}
+          title="设置"
+          onClick={onSettingsClick}
+        />
+      )}
+    </Space>
+  );
+
+  const searchInput = (
+    <Input
+      ref={inputRef}
+      placeholder={isMobile ? '搜索或提问...' : '搜索新闻，或向 AI 提问，或输入文章URL (Cmd+K)'}
+      value={searchQuery}
+      onChange={handleInputChange}
+      onFocus={handleInputFocus}
+      onBlur={handleInputBlur}
+      onPressEnter={(e) => {
+        if (!isDropdownOpen) {
+          const value = (e.target as HTMLInputElement).value;
+          handleSearch(value);
+        }
+      }}
+      prefix={<SearchOutlined style={{ color: getThemeColor(theme, 'textSecondary') }} />}
+      suffix={
+        !isMobile && (
+          <span style={{
+            fontSize: '12px',
+            color: getThemeColor(theme, 'textTertiary'),
+            paddingRight: '8px',
+          }}>
+            {navigator.platform.includes('Mac') ? '⌘K' : 'Ctrl+K'}
+          </span>
+        )
+      }
+      style={inputStyle}
+      size="large"
+    />
+  );
+
+  const dropdownProps = {
+    query: searchQuery,
+    onSelectArticle: (article: { id: number }) => {
+      setSelectedArticleId(article.id);
+      setArticleDetailModalOpen(true);
+    },
+    onSelectHistory: (chatId: string) => {
+      openModal(undefined, chatId);
+      setIsDropdownOpen(false);
+      setSearchQuery('');
+    },
+    onSelectAIQuery: (query: string) => {
+      handleSearch(query);
+    },
+    onSelectSearchHistory: (historyQuery: string) => {
+      if (blurTimeoutRef.current) {
+        clearTimeout(blurTimeoutRef.current);
+        blurTimeoutRef.current = null;
+      }
+      setSearchQuery(historyQuery);
+      setIsDropdownOpen(true);
+      setIsFocused(true);
+      setTimeout(() => {
+        inputRef.current?.focus();
+      }, 0);
+    },
+    onSearchExecuted: () => {},
+    onCollectUrl: handleCollectUrl,
+    onKeepDropdownOpen: () => {
+      if (blurTimeoutRef.current) {
+        clearTimeout(blurTimeoutRef.current);
+        blurTimeoutRef.current = null;
+      }
+      setIsDropdownOpen(true);
+      setIsFocused(true);
+      setTimeout(() => {
+        inputRef.current?.focus();
+      }, 0);
+    },
+  };
+
   return (
     <Header style={headerStyle}>
-      <div
-        style={{
-          color: '#fff',
-          fontSize: isMobile ? '16px' : '20px',
-          fontWeight: 'bold',
-          minWidth: isMobile ? '120px' : '200px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-        }}
-      >
-        <img
-          src="/favicon.svg"
-          alt="AI News Tracker"
-          style={{
-            width: isMobile ? 26 : 32,
-            height: isMobile ? 26 : 32,
-            display: 'block',
-          }}
-        />
-        <span>{isMobile ? 'AI News' : 'AI News Tracker'}</span>
-      </div>
-      
-      <div style={{ position: 'relative', flex: 1, display: 'flex', justifyContent: 'center' }}>
-        <Input
-          ref={inputRef}
-          placeholder="搜索新闻，或向 AI 提问，或输入文章URL (Cmd+K)"
-          value={searchQuery}
-          onChange={handleInputChange}
-          onFocus={handleInputFocus}
-          onBlur={handleInputBlur}
-          onPressEnter={(e) => {
-            // 如果下拉窗口打开，SmartDropdown会处理回车键
-            if (!isDropdownOpen) {
-              const value = (e.target as HTMLInputElement).value;
-              handleSearch(value);
-            }
-          }}
-          prefix={<SearchOutlined style={{ color: getThemeColor(theme, 'textSecondary') }} />}
-          suffix={
-            !isMobile && (
-              <span style={{
-                fontSize: '12px',
-                color: getThemeColor(theme, 'textTertiary'),
-                paddingRight: '8px'
-              }}>
-                {navigator.platform.includes('Mac') ? '⌘K' : 'Ctrl+K'}
-              </span>
-            )
-          }
-          style={inputStyle}
-          size="large"
-        />
-        
-        {isDropdownOpen && (
-          <SmartDropdown
-            query={searchQuery}
-            onSelectArticle={(article) => {
-              // 点击文章项，打开文章详情模态框，但保持下拉窗口打开
-              setSelectedArticleId(article.id);
-              setArticleDetailModalOpen(true);
-              // 不关闭下拉窗口，不清空搜索内容，方便继续查看其他文章
+      {isMobile ? (
+        <>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div
+              style={{
+                color: '#fff',
+                fontSize: '16px',
+                fontWeight: 'bold',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+              }}
+            >
+              <img
+                src="/favicon.svg"
+                alt="AI News Tracker"
+                style={{ width: 26, height: 26, display: 'block' }}
+              />
+              <span>AI News</span>
+            </div>
+            {actionButtons}
+          </div>
+          <div style={{ position: 'relative', width: '100%' }}>
+            {searchInput}
+            {isDropdownOpen && <SmartDropdown {...dropdownProps} />}
+          </div>
+        </>
+      ) : (
+        <>
+          <div
+            style={{
+              color: '#fff',
+              fontSize: '20px',
+              fontWeight: 'bold',
+              minWidth: '200px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
             }}
-            onSelectHistory={(chatId) => {
-              // 点击历史记录，打开模态层
-              openModal(undefined, chatId);
-              setIsDropdownOpen(false);
-              setSearchQuery('');
-            }}
-            onSelectAIQuery={(query) => {
-              // 选择 AI 问答
-              handleSearch(query);
-            }}
-            onSelectSearchHistory={(searchQuery) => {
-              // 清除可能存在的 blur timeout，防止关闭下拉菜单
-              if (blurTimeoutRef.current) {
-                clearTimeout(blurTimeoutRef.current);
-                blurTimeoutRef.current = null;
-              }
-              // 选择搜索历史，填充到输入框并触发文章搜索（不打开AI对话）
-              setSearchQuery(searchQuery);
-              // 保持下拉菜单打开，让用户看到搜索结果
-              setIsDropdownOpen(true);
-              setIsFocused(true);
-              // 确保输入框保持焦点，避免 onBlur 关闭下拉菜单
-              setTimeout(() => {
-                inputRef.current?.focus();
-              }, 0);
-            }}
-            onSearchExecuted={() => {
-              // 搜索已执行，可以在这里做额外处理
-              // 搜索历史已在 SmartDropdown 中保存
-            }}
-            onCollectUrl={handleCollectUrl}
-            onKeepDropdownOpen={() => {
-              // 清除可能存在的 blur timeout，防止关闭下拉菜单
-              if (blurTimeoutRef.current) {
-                clearTimeout(blurTimeoutRef.current);
-                blurTimeoutRef.current = null;
-              }
-              // 保持下拉菜单打开
-              setIsDropdownOpen(true);
-              setIsFocused(true);
-              // 确保输入框保持焦点，避免 onBlur 关闭下拉菜单
-              setTimeout(() => {
-                inputRef.current?.focus();
-              }, 0);
-            }}
-          />
-        )}
-      </div>
-
-      <div style={{ marginLeft: 'auto', minWidth: '120px', paddingRight: '8px', display: 'flex', justifyContent: 'flex-end' }}>
-        <Space size="middle">
-          <Button
-            type="text"
-            icon={theme === 'dark' ? <SunOutlined style={{ fontSize: '18px' }} /> : <MoonOutlined style={{ fontSize: '18px' }} />}
-            onClick={toggleTheme}
-            style={{ color: '#fff', fontSize: '18px', padding: '8px 12px' }}
-            title={theme === 'dark' ? '切换到浅色主题' : '切换到深色主题'}
-          />
-          {isAuthenticated && (
-            <Button
-              type="text"
-              icon={<SettingOutlined style={{ fontSize: '18px' }} />}
-              style={{ color: '#fff', fontSize: '18px', padding: '8px 12px' }}
-              title="设置"
-              onClick={onSettingsClick}
+          >
+            <img
+              src="/favicon.svg"
+              alt="AI News Tracker"
+              style={{ width: 32, height: 32, display: 'block' }}
             />
-          )}
-        </Space>
-      </div>
+            <span>AI News Tracker</span>
+          </div>
 
-      {/* 文章详情模态框 */}
+          <div style={{ position: 'relative', flex: 1, display: 'flex', justifyContent: 'center' }}>
+            {searchInput}
+            {isDropdownOpen && <SmartDropdown {...dropdownProps} />}
+          </div>
+
+          <div style={{ marginLeft: 'auto', minWidth: '120px', paddingRight: '8px', display: 'flex', justifyContent: 'flex-end' }}>
+            {actionButtons}
+          </div>
+        </>
+      )}
+
       <ArticleDetailModal
         articleId={selectedArticleId}
         open={articleDetailModalOpen}
         onClose={() => {
           setArticleDetailModalOpen(false);
           setSelectedArticleId(null);
-          // 关闭详情后，保持下拉窗口打开，方便继续查看其他文章
           setIsDropdownOpen(true);
           setIsFocused(true);
         }}

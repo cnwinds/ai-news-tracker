@@ -6,6 +6,7 @@ import { Card, Select, Radio, Space, Pagination, Spin, Empty, Alert, Button } fr
 import { ReloadOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { useArticles } from '@/hooks/useArticles';
+import { useBreakpoint } from '@/hooks/useBreakpoint';
 import ArticleCard from './ArticleCard';
 import { apiService } from '@/services/api';
 import type { ArticleFilter } from '@/types';
@@ -17,22 +18,21 @@ const { Option, OptGroup } = Select;
 const TIME_RANGES = ['今天', '最近3天', '最近7天', '最近30天', '全部'] as const;
 
 export default function ArticleList() {
+  const { isMobile } = useBreakpoint();
   const [filter, setFilter] = useState<ArticleFilter>({
     time_range: '全部',
     page: 1,
     page_size: 20,
-    source_filter_mode: 'include', // 默认正向过滤
+    source_filter_mode: 'include',
   });
 
   const { data, isLoading, error, refetch, isFetching } = useArticles(filter);
 
-  // 获取所有订阅源列表
   const { data: sources } = useQuery({
     queryKey: ['sources'],
     queryFn: () => apiService.getSources(),
   });
 
-  // 按类型分组订阅源
   const groupedSources = useMemo(() => {
     if (!sources) return {};
     return groupSourcesByType(sources);
@@ -48,7 +48,6 @@ export default function ArticleList() {
       return {
         ...prev,
         [isExcludeMode ? 'exclude_sources' : 'sources']: value.length > 0 ? value : undefined,
-        // 清除另一个模式的选中值
         [isExcludeMode ? 'sources' : 'exclude_sources']: undefined,
         page: 1,
       };
@@ -57,7 +56,6 @@ export default function ArticleList() {
 
   const handleFilterModeChange = (mode: 'include' | 'exclude') => {
     setFilter((prev) => {
-      // 切换模式时，将当前选中的来源转移到对应的字段
       const currentSources = mode === 'exclude' ? prev.sources : prev.exclude_sources;
       return {
         ...prev,
@@ -73,12 +71,93 @@ export default function ArticleList() {
     setFilter((prev) => ({ ...prev, page, page_size: pageSize }));
   };
 
+  const sourceSelect = (
+    <Space.Compact style={{ display: 'flex', alignItems: 'stretch', width: isMobile ? '100%' : undefined }}>
+      <SourceFilterToggle
+        mode={filter.source_filter_mode || 'include'}
+        onModeChange={handleFilterModeChange}
+      />
+      <Select
+        mode="tags"
+        placeholder={
+          filter.source_filter_mode === 'exclude'
+            ? '排除订阅源或搜索关键词'
+            : '选择订阅源或输入关键词搜索'
+        }
+        style={{
+          minWidth: isMobile ? undefined : 280,
+          width: isMobile ? '100%' : undefined,
+          flex: isMobile ? 1 : undefined,
+          borderTopLeftRadius: 0,
+          borderBottomLeftRadius: 0,
+        }}
+        value={
+          filter.source_filter_mode === 'exclude'
+            ? filter.exclude_sources
+            : filter.sources
+        }
+        onChange={handleSourceChange}
+        allowClear
+        maxTagCount="responsive"
+        showSearch
+        filterOption={(input, option) => {
+          if (option?.type === 'group') return true;
+          const label = String(option?.label ?? '');
+          return label.toLowerCase().includes(input.toLowerCase());
+        }}
+        tokenSeparators={[',', ' ', '\n']}
+      >
+        {Object.entries(groupedSources).map(([type, sourcesList]) => (
+          <OptGroup
+            key={type}
+            label={`${SOURCE_TYPE_LABELS[type] || type} (${sourcesList.length})`}
+          >
+            {sourcesList.map((source) => (
+              <Option key={source.id} value={source.name} label={source.name}>
+                {source.name}
+              </Option>
+            ))}
+          </OptGroup>
+        ))}
+      </Select>
+    </Space.Compact>
+  );
+
+  const timeRangeFilter = isMobile ? (
+    <Select
+      value={filter.time_range}
+      onChange={handleTimeRangeChange}
+      style={{ width: '100%' }}
+      options={TIME_RANGES.map((range) => ({ label: range, value: range }))}
+    />
+  ) : (
+    <Radio.Group
+      value={filter.time_range}
+      onChange={(e) => handleTimeRangeChange(e.target.value)}
+      options={TIME_RANGES.map((range) => ({ label: range, value: range }))}
+      optionType="button"
+      buttonStyle="solid"
+    />
+  );
+
+  const filterControls = isMobile ? (
+    <Space direction="vertical" size={8} className="mobile-filter-stack" style={{ width: '100%' }}>
+      {timeRangeFilter}
+      {sourceSelect}
+    </Space>
+  ) : (
+    <Space wrap>
+      {sourceSelect}
+      {timeRangeFilter}
+    </Space>
+  );
+
   return (
     <div>
       <Card
         title={
-          <Space>
-                <span>📰 最新AI资讯</span>
+          <Space wrap>
+            <span>📰 最新AI资讯</span>
             {data && !isLoading && (
               <>
                 <span style={{ color: '#8c8c8c', fontSize: '14px', fontWeight: 'normal' }}>
@@ -96,64 +175,7 @@ export default function ArticleList() {
             )}
           </Space>
         }
-        extra={
-          <Space>
-            <Space.Compact style={{ display: 'flex', alignItems: 'stretch' }}>
-              <SourceFilterToggle
-                mode={filter.source_filter_mode || 'include'}
-                onModeChange={handleFilterModeChange}
-              />
-              <Select
-                mode="tags"
-                placeholder={
-                  filter.source_filter_mode === 'exclude'
-                    ? '排除订阅源或搜索关键词'
-                    : '选择订阅源或输入关键词搜索'
-                }
-                style={{
-                  minWidth: 280,
-                  borderTopLeftRadius: 0,
-                  borderBottomLeftRadius: 0,
-                }}
-                value={
-                  filter.source_filter_mode === 'exclude'
-                    ? filter.exclude_sources
-                    : filter.sources
-                }
-                onChange={handleSourceChange}
-                allowClear
-                maxTagCount="responsive"
-                showSearch
-                filterOption={(input, option) => {
-                  if (option?.type === 'group') return true;
-                  const label = String(option?.label ?? '');
-                  return label.toLowerCase().includes(input.toLowerCase());
-                }}
-                tokenSeparators={[',', ' ', '\n']}
-              >
-                {Object.entries(groupedSources).map(([type, sourcesList]) => (
-                  <OptGroup
-                    key={type}
-                    label={`${SOURCE_TYPE_LABELS[type] || type} (${sourcesList.length})`}
-                  >
-                    {sourcesList.map((source) => (
-                      <Option key={source.id} value={source.name} label={source.name}>
-                        {source.name}
-                      </Option>
-                    ))}
-                  </OptGroup>
-                ))}
-              </Select>
-            </Space.Compact>
-            <Radio.Group
-              value={filter.time_range}
-              onChange={(e) => handleTimeRangeChange(e.target.value)}
-              options={TIME_RANGES.map((range) => ({ label: range, value: range }))}
-              optionType="button"
-              buttonStyle="solid"
-            />
-          </Space>
-        }
+        extra={filterControls}
       >
         {isLoading ? (
           <div style={{ textAlign: 'center', padding: '50px 0' }}>
@@ -168,13 +190,15 @@ export default function ArticleList() {
             {data.items.map((article) => (
               <ArticleCard key={article.id} article={article} />
             ))}
-            <div style={{ marginTop: 16, textAlign: 'right' }}>
+            <div style={{ marginTop: 16, textAlign: isMobile ? 'center' : 'right' }}>
               <Pagination
                 current={data.page}
                 total={data.total}
                 pageSize={data.page_size}
-                showSizeChanger
-                showTotal={(total) => `共 ${total} 条`}
+                size={isMobile ? 'small' : 'default'}
+                simple={isMobile}
+                showSizeChanger={!isMobile}
+                showTotal={isMobile ? undefined : (total) => `共 ${total} 条`}
                 onChange={handlePageChange}
                 onShowSizeChange={handlePageChange}
               />
@@ -185,5 +209,3 @@ export default function ArticleList() {
     </div>
   );
 }
-
-

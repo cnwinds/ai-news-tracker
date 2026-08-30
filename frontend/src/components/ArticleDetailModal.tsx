@@ -32,6 +32,7 @@ import { getThemeColor } from '@/utils/theme';
 import { createMarkdownComponents, normalizeMarkdownImageContent, remarkGfm } from '@/utils/markdown';
 import { copyToClipboard } from '@/utils/clipboard';
 import { useMessage } from '@/hooks/useMessage';
+import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { getOrCreateSessionId } from '@/utils/sessionId';
 
 const { Title, Text } = Typography;
@@ -45,16 +46,10 @@ interface ArticleDetailModalProps {
 export default function ArticleDetailModal({ articleId, open, onClose }: ArticleDetailModalProps) {
   const { theme } = useTheme();
   const { isAuthenticated, username } = useAuth();
-  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  const { isMobile } = useBreakpoint();
   const [isContentExpanded, setIsContentExpanded] = useState(false);
   const queryClient = useQueryClient();
   const message = useMessage();
-
-  useEffect(() => {
-    const handleResize = () => setIsMobile(window.innerWidth < 768);
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
 
   const { data: article, isLoading, error } = useQuery({
     queryKey: ['article', articleId],

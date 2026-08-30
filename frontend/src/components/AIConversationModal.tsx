@@ -30,6 +30,7 @@ import relativeTime from 'dayjs/plugin/relativeTime';
 
 import { apiService } from '@/services/api';
 import { useAIConversation, type Message } from '@/contexts/AIConversationContext';
+import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getThemeColor, getMessageBubbleStyle } from '@/utils/theme';
 import { createMarkdownComponents, remarkGfm } from '@/utils/markdown';
@@ -77,7 +78,7 @@ export default function AIConversationModal() {
   const [isHistoryDrawerOpen, setIsHistoryDrawerOpen] = useState(false);
   const [isHistoryDrawerClosing, setIsHistoryDrawerClosing] = useState(false);
   const [expandedPanels, setExpandedPanels] = useState<Record<string, boolean>>({});
-  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  const { isMobile } = useBreakpoint();
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const hasAutoTriggeredRef = useRef(false);
@@ -90,12 +91,6 @@ export default function AIConversationModal() {
   useEffect(() => {
     scrollToBottom();
   }, [currentMessages, isStreaming, scrollToBottom]);
-
-  useEffect(() => {
-    const handleResize = () => setIsMobile(window.innerWidth < 768);
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
 
   const finishAssistantMessage = useCallback((
     chatId: string,

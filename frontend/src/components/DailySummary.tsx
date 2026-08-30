@@ -22,6 +22,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiService } from '@/services/api';
 import { useMessage } from '@/hooks/useMessage';
 import { useErrorHandler } from '@/hooks/useErrorHandler';
+import { useBreakpoint } from '@/hooks/useBreakpoint';
 import type {
   SummaryGenerateRequest,
   DailySummaryListItem,
@@ -92,6 +93,7 @@ export default function DailySummary() {
   const [hoveredWeekDate, setHoveredWeekDate] = useState<dayjs.Dayjs | null>(null);
   const { theme } = useTheme();
   const { isAuthenticated } = useAuth();
+  const { isMobile } = useBreakpoint();
   // 保存正在重新生成的摘要ID
   const regeneratingSummaryIdRef = useRef<number | null>(null);
 
@@ -377,7 +379,7 @@ export default function DailySummary() {
               <List.Item style={{ padding: 0, marginBottom: 8 }}>
                 <Card
                   style={{ width: '100%', marginBottom: 0 }}
-                  styles={{ body: { padding: '12px 16px' } }}
+                  styles={{ body: { padding: isMobile ? '12px' : '12px 16px' } }}
                 >
                   <Space direction="vertical" size="small" style={{ width: '100%' }}>
                     {/* 第一行（概览）：标题 + 统计Tag + 展开按钮，整行可点击 */}
@@ -386,7 +388,7 @@ export default function DailySummary() {
                         display: 'flex',
                         alignItems: 'center',
                         flexWrap: 'wrap',
-                        gap: 6,
+                        gap: isMobile ? 8 : 6,
                         cursor: 'pointer',
                         padding: '2px 0',
                       }}
@@ -447,7 +449,7 @@ export default function DailySummary() {
                             <>
                               <div
                                 style={{
-                                  padding: '16px',
+                                  padding: isMobile ? '12px' : '16px',
                                   backgroundColor: getThemeColor(theme, 'bgSecondary'),
                                   borderRadius: '4px',
                                   border: `1px solid ${getThemeColor(theme, 'border')}`,
@@ -476,7 +478,7 @@ export default function DailySummary() {
                             </>
                           );
                         })()}
-                        <div style={{ marginTop: '16px', display: 'flex', gap: '8px' }}>
+                        <div style={{ marginTop: '16px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                           {isAuthenticated && (
                             <>
                               <Button
@@ -554,7 +556,9 @@ export default function DailySummary() {
         confirmLoading={generateMutation.isPending}
         okText={generateMutation.isPending ? '正在生成...' : '生成'}
         cancelButtonProps={{ disabled: generateMutation.isPending }}
-        width={600}
+        width={isMobile ? '100%' : 600}
+        style={isMobile ? { top: 0, maxWidth: '100vw', padding: 0, margin: 0 } : undefined}
+        styles={isMobile ? { body: { maxHeight: 'calc(100vh - 110px)', overflowY: 'auto' } } : undefined}
         closable={!generateMutation.isPending}
         maskClosable={!generateMutation.isPending}
       >

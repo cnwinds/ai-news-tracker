@@ -3,10 +3,12 @@
  */
 import { Card, Row, Col, Statistic } from 'antd';
 import { useQuery } from '@tanstack/react-query';
+import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { apiService } from '@/services/api';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 
 export default function Statistics() {
+  const { isMobile } = useBreakpoint();
   const { data: stats, isLoading } = useQuery({
     queryKey: ['statistics'],
     queryFn: () => apiService.getStatistics(),
@@ -32,33 +34,33 @@ export default function Statistics() {
 
   return (
     <div>
-      <Row gutter={16} style={{ marginBottom: 16 }}>
-        <Col span={6}>
+      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+        <Col xs={24} sm={12} md={6}>
           <Card>
             <Statistic title="总文章数" value={stats.total_articles} />
           </Card>
         </Col>
-        <Col span={6}>
+        <Col xs={24} sm={12} md={6}>
           <Card>
             <Statistic title="今日新增" value={stats.today_count} />
           </Card>
         </Col>
-        <Col span={6}>
+        <Col xs={24} sm={12} md={6}>
           <Card>
             <Statistic title="高重要性" value={stats.high_importance} valueStyle={{ color: '#cf1322' }} />
           </Card>
         </Col>
-        <Col span={6}>
+        <Col xs={24} sm={12} md={6}>
           <Card>
             <Statistic title="待分析" value={stats.unanalyzed} />
           </Card>
         </Col>
       </Row>
 
-      <Row gutter={16}>
-        <Col span={12}>
+      <Row gutter={[16, 16]}>
+        <Col xs={24} md={12}>
           <Card title="来源分布">
-            <ResponsiveContainer width="100%" height={300}>
+            <ResponsiveContainer width="100%" height={isMobile ? 240 : 300}>
               <BarChart data={sourceData}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="name" angle={-45} textAnchor="end" height={100} />
@@ -69,9 +71,9 @@ export default function Statistics() {
             </ResponsiveContainer>
           </Card>
         </Col>
-        <Col span={12}>
+        <Col xs={24} md={12}>
           <Card title="重要性分布">
-            <ResponsiveContainer width="100%" height={300}>
+            <ResponsiveContainer width="100%" height={isMobile ? 240 : 300}>
               <BarChart data={importanceData}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="name" />

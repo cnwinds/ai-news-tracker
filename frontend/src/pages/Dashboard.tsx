@@ -25,6 +25,7 @@ import TechnologyEvolutionPage from '@/features/industryGraph/TechnologyEvolutio
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useMessage } from '@/hooks/useMessage';
+import { useBreakpoint } from '@/hooks/useBreakpoint';
 
 const { Content } = Layout;
 
@@ -33,6 +34,7 @@ export default function Dashboard() {
   const [settingsDrawerOpen, setSettingsDrawerOpen] = useState(false);
   const { theme } = useTheme();
   const { isAuthenticated, username, logout } = useAuth();
+  const { isMobile } = useBreakpoint();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const message = useMessage();
@@ -54,7 +56,7 @@ export default function Dashboard() {
       label: (
         <span>
           <FileTextOutlined />
-          文章列表
+          {isMobile ? ' 文章' : ' 文章列表'}
         </span>
       ),
       children: <ArticleList />,
@@ -64,7 +66,7 @@ export default function Dashboard() {
       label: (
         <span>
           <ReadOutlined />
-          内容总结
+          {isMobile ? ' 总结' : ' 内容总结'}
         </span>
       ),
       children: <DailySummary />,
@@ -74,7 +76,7 @@ export default function Dashboard() {
       label: (
         <span>
           <ApartmentOutlined />
-          行业趋势图谱
+          {isMobile ? ' 趋势' : ' 行业趋势图谱'}
         </span>
       ),
       children: <TechnologyEvolutionPage />,
@@ -84,7 +86,7 @@ export default function Dashboard() {
       label: (
         <span>
           <RocketOutlined />
-          模型先知
+          {isMobile ? ' 模型' : ' 模型先知'}
         </span>
       ),
       children: <ModelExplorer />,
@@ -94,7 +96,7 @@ export default function Dashboard() {
       label: (
         <span>
           <ShareAltOutlined />
-          社交平台
+          {isMobile ? ' 社交' : ' 社交平台'}
         </span>
       ),
       children: <SocialMediaReport />,
@@ -104,7 +106,7 @@ export default function Dashboard() {
       label: (
         <span>
           <BarChartOutlined />
-          数据统计
+          {isMobile ? ' 统计' : ' 数据统计'}
         </span>
       ),
       children: <Statistics />,
@@ -112,13 +114,13 @@ export default function Dashboard() {
   ];
 
   const contentStyle: CSSProperties = {
-    padding: '24px',
+    padding: isMobile ? '12px' : '24px',
     background: theme === 'dark' ? '#1a1a1a' : '#f0f2f5',
-    minHeight: 'calc(100vh - 64px)',
+    minHeight: isMobile ? 'calc(100vh - 120px)' : 'calc(100vh - 64px)',
   };
 
   return (
-    <Layout style={{ minHeight: '100vh' }}>
+    <Layout style={{ minHeight: '100vh' }} className={isMobile ? 'mobile-safe-bottom' : undefined}>
       <GlobalNavigation onSettingsClick={() => setSettingsDrawerOpen(true)} />
       <Layout>
         <Content style={contentStyle}>
@@ -126,7 +128,8 @@ export default function Dashboard() {
             activeKey={selectedTab}
             onChange={setSelectedTab}
             items={tabs}
-            size="large"
+            size={isMobile ? 'small' : 'large'}
+            className={isMobile ? 'mobile-tab-bar' : undefined}
           />
         </Content>
       </Layout>
@@ -135,7 +138,7 @@ export default function Dashboard() {
 
       <Drawer
         title={
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
             <span>系统设置</span>
             <Space>
               {isAuthenticated ? (
@@ -166,7 +169,7 @@ export default function Dashboard() {
           </div>
         }
         placement="right"
-        width={800}
+        width={isMobile ? '100%' : 800}
         open={settingsDrawerOpen}
         onClose={() => setSettingsDrawerOpen(false)}
         styles={{
@@ -175,7 +178,7 @@ export default function Dashboard() {
           },
         }}
       >
-        <div style={{ padding: '24px' }}>
+        <div style={{ padding: isMobile ? '12px' : '24px' }}>
           <SystemSettings />
         </div>
       </Drawer>

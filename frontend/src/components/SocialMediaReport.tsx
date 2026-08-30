@@ -24,6 +24,7 @@ import ReactMarkdown from 'react-markdown';
 import dayjs from 'dayjs';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { createMarkdownComponents } from '@/utils/markdown';
 import { getThemeColor } from '@/utils/theme';
 
@@ -36,6 +37,7 @@ export default function SocialMediaReport() {
   const [expandedReports, setExpandedReports] = useState<Set<number>>(new Set());
   const { theme } = useTheme();
   const { isAuthenticated } = useAuth();
+  const { isMobile } = useBreakpoint();
   const { createErrorHandler, showSuccess } = useErrorHandler();
 
   const { data: reports, isLoading } = useQuery({
@@ -261,7 +263,9 @@ export default function SocialMediaReport() {
         confirmLoading={generateMutation.isPending}
         okText={generateMutation.isPending ? '正在生成...' : '生成'}
         cancelButtonProps={{ disabled: generateMutation.isPending }}
-        width={600}
+        width={isMobile ? '100%' : 600}
+        style={isMobile ? { top: 0, maxWidth: '100vw', padding: 0, margin: 0 } : undefined}
+        styles={isMobile ? { body: { maxHeight: 'calc(100vh - 110px)', overflowY: 'auto' } } : undefined}
         closable={!generateMutation.isPending}
         maskClosable={!generateMutation.isPending}
       >
