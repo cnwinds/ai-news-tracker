@@ -14,7 +14,11 @@ from sqlalchemy.orm import Session
 from backend.app.api.v1.endpoints.settings import require_auth
 from backend.app.core.dependencies import get_database
 from backend.app.db.models import Article, ArticleEmbedding
-from backend.app.services.rag.rag_service import RAGService
+from backend.app.services.rag.rag_service import (
+    RAGService,
+    VectorSearchUnavailable,
+    compute_index_stats,
+)
 from backend.app.utils import create_ai_analyzer
 from backend.app.schemas.rag import (
     RAGSearchRequest,
@@ -25,6 +29,7 @@ from backend.app.schemas.rag import (
     RAGBatchIndexRequest,
     RAGBatchIndexResponse,
     RAGStatsResponse,
+    RAGVecSyncResponse,
     ArticleSearchResult,
 )
 
@@ -33,17 +38,18 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def get_rag_db_service(
+    db: Session = Depends(get_database),
+) -> RAGService:
+    """只读/管理用 RAG 服务，不创建 AI 客户端。"""
+    return RAGService(ai_analyzer=None, db=db)
+
+
 def get_rag_service(
     db: Session = Depends(get_database),
 ) -> RAGService:
     """
-    获取RAG服务实例
-
-    Args:
-        db: 数据库会话
-
-    Returns:
-        RAG服务实例
+    获取RAG服务实例（复用进程内 AI 客户端）
     """
     ai_analyzer = create_ai_analyzer()
     if not ai_analyzer:
@@ -113,6 +119,8 @@ async def search_articles(
             results=search_results,
             total=len(search_results)
         )
+    except VectorSearchUnavailable as e:
+        raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
         logger.error(f"搜索失败: {e}", exc_info=True)
         import traceback
@@ -190,6 +198,8 @@ async def query_articles(
         )
     except HTTPException:
         raise
+    except VectorSearchUnavailable as e:
+        raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
         logger.error(f"问答失败: {e}", exc_info=True)
         logger.error(f"请求参数: question={request.question}, top_k={request.top_k}")
@@ -522,18 +532,35 @@ async def index_article(
         raise HTTPException(status_code=500, detail=f"索引失败: {str(e)}")
 
 
+@router.post("/index/sync-vec", response_model=RAGVecSyncResponse)
+async def sync_vec_from_json(
+    batch_size: int = Query(200, ge=10, le=1000, description="每批回填条数"),
+    rag_service: RAGService = Depends(get_rag_db_service),
+    current_user: str = Depends(require_auth),
+):
+    """
+    把 article_embeddings 中缺失的 JSON 向量写入 vec_embeddings。
+    不调用 embedding API，不 DROP vec0。部署后应执行一次以补齐缺失行。
+    """
+    try:
+        result = await asyncio.to_thread(rag_service.sync_json_to_vec, batch_size)
+        return RAGVecSyncResponse(**result)
+    except VectorSearchUnavailable as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        logger.error(f"vec0 回填失败: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"vec0 回填失败: {str(e)}")
+
+
 @router.get("/stats", response_model=RAGStatsResponse)
 async def get_rag_stats(
     db: Session = Depends(get_database),
 ):
     """
-    获取RAG索引统计信息。
-
-    不创建 AI 客户端：统计只读数据库，不应触发配置重载或 Embedding 初始化。
+    获取RAG索引统计。不创建 AI 客户端，COUNT/GROUP BY 在线程池执行。
     """
     try:
-        rag_service = RAGService(ai_analyzer=None, db=db)
-        stats = rag_service.get_index_stats()
+        stats = await asyncio.to_thread(compute_index_stats, db)
         return RAGStatsResponse(**stats)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"获取统计信息失败: {str(e)}")

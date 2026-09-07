@@ -92,8 +92,23 @@ class RAGStatsResponse(BaseModel):
     vec_index_count: Optional[int] = Field(
         None, description="sqlite-vec vec_embeddings 行数；为 None 表示 vec0 不可用"
     )
+    vec_missing_count: Optional[int] = Field(
+        None, description="article_embeddings 有、vec_embeddings 没有的行数"
+    )
     vector_backend: Optional[str] = Field(
         None, description="预计检索后端：sqlite-vec / python / none / unknown"
     )
+
+
+class RAGVecSyncResponse(BaseModel):
+    """JSON → vec0 回填结果"""
+    json_count: int
+    vec_count_before: int
+    vec_count_after: int
+    missing_before: int
+    synced: int
+    skipped: int
+    failed: int
+    message: str
 
 

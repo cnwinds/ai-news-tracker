@@ -305,8 +305,10 @@ async def update_llm_settings(
     if not success:
         raise HTTPException(status_code=500, detail="保存LLM配置失败")
     
-    # 重新加载配置
+    # 重新加载配置并丢弃进程内 AI 客户端
     settings.load_settings_from_db()
+    from backend.app.utils.factories import invalidate_ai_analyzer_cache
+    invalidate_ai_analyzer_cache()
     return LLMSettings(
         selected_llm_provider_id=settings.SELECTED_LLM_PROVIDER_ID,
         selected_embedding_provider_id=settings.SELECTED_EMBEDDING_PROVIDER_ID,
@@ -360,6 +362,8 @@ async def create_provider(
                 enabled=provider_data.enabled,
                 provider_type=provider_data.provider_type
             )
+            from backend.app.utils.factories import invalidate_ai_analyzer_cache
+            invalidate_ai_analyzer_cache()
             return LLMProvider(
                 id=provider.id,
                 name=provider.name,
@@ -421,6 +425,8 @@ async def update_provider(
         )
         if not provider:
             raise HTTPException(status_code=404, detail="提供商不存在")
+        from backend.app.utils.factories import invalidate_ai_analyzer_cache
+        invalidate_ai_analyzer_cache()
         return LLMProvider(
             id=provider.id,
             name=provider.name,
@@ -462,6 +468,8 @@ async def delete_provider(
         success = LLMProviderRepository.delete(session, provider_id)
         if not success:
             raise HTTPException(status_code=404, detail="提供商不存在")
+        from backend.app.utils.factories import invalidate_ai_analyzer_cache
+        invalidate_ai_analyzer_cache()
         return {"message": "提供商已删除"}
 
 
@@ -872,6 +880,8 @@ async def restore_database(
         # 重新初始化sqlite-vec扩展（需要重新设置事件监听器）
         if hasattr(db, '_setup_sqlite_vec_loader'):
             db._setup_sqlite_vec_loader()
+        from backend.app.utils.factories import invalidate_ai_analyzer_cache
+        invalidate_ai_analyzer_cache()
         
         # 重新初始化数据库表结构（确保表存在）
         try:

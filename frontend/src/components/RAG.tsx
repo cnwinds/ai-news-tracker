@@ -132,7 +132,7 @@ export default function RAG() {
           description={
             `JSON 索引 ${stats.indexed_articles} 条，vec0 索引 ${stats.vec_index_count ?? 0} 条` +
             `（后端 ${stats.vector_backend || 'unknown'}）。` +
-            '数量不一致时搜索会回退到 Python 全表扫描，约 2 万篇文章会明显变慢。请查看日志中的 search path=。'
+            '请到系统设置 → RAG 索引执行「同步缺失的 vec0 行」（不消耗 embedding API）。'
           }
           type="warning"
           showIcon
