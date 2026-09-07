@@ -82,9 +82,11 @@ GET /api/v1/rag/stats
 
 ## 技术实现
 
-- **嵌入模型**：OpenAI text-embedding-3-small
-- **向量存储**：SQLite数据库（JSON格式存储向量）
-- **相似度计算**：余弦相似度（使用numpy）
+- **嵌入模型**：默认 `text-embedding-3-small`（以提供商实际返回维度为准）
+- **向量存储**：SQLite + `sqlite-vec` 的 `vec0` 虚拟表（余弦距离）；`article_embeddings` 另存 JSON 作为回退/重建源
+- **检索**：优先 `vec_embeddings MATCH`；失败或 vec0 为空时回退为加载全部 JSON 做 numpy 余弦计算（约 2 万篇时会很慢）
+- **粒度**：一篇文章一个向量，不按 chunk 切分
+- **性能说明**：见 [docs/vector-search-optimization.md](../../../docs/vector-search-optimization.md)
 
 ## 注意事项
 

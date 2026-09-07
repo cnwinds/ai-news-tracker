@@ -89,5 +89,11 @@ class RAGStatsResponse(BaseModel):
     unindexed_articles: int
     index_coverage: float = Field(..., description="索引覆盖率 (0-1)")
     source_stats: Dict[str, int]
+    vec_index_count: Optional[int] = Field(
+        None, description="sqlite-vec vec_embeddings 行数；为 None 表示 vec0 不可用"
+    )
+    vector_backend: Optional[str] = Field(
+        None, description="预计检索后端：sqlite-vec / python / none / unknown"
+    )
 
 

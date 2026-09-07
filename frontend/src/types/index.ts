@@ -337,6 +337,8 @@ export interface RAGStatsResponse {
   unindexed_articles: number;
   index_coverage: number; // 索引覆盖率 (0-1)
   source_stats: Record<string, number>;
+  vec_index_count?: number | null;
+  vector_backend?: string | null;
 }
 
 export interface RAGBatchIndexResponse {

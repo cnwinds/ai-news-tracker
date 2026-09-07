@@ -524,18 +524,15 @@ async def index_article(
 
 @router.get("/stats", response_model=RAGStatsResponse)
 async def get_rag_stats(
-    rag_service: RAGService = Depends(get_rag_service),
+    db: Session = Depends(get_database),
 ):
     """
-    获取RAG索引统计信息
+    获取RAG索引统计信息。
 
-    Args:
-        rag_service: RAG服务实例
-
-    Returns:
-        统计信息
+    不创建 AI 客户端：统计只读数据库，不应触发配置重载或 Embedding 初始化。
     """
     try:
+        rag_service = RAGService(ai_analyzer=None, db=db)
         stats = rag_service.get_index_stats()
         return RAGStatsResponse(**stats)
     except Exception as e:

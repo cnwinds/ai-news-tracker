@@ -3,13 +3,13 @@ RAG服务 - 实现文章向量索引、搜索和问答功能
 """
 import json
 import logging
+import time
 import numpy as np
 import struct
 from typing import List, Dict, Any, Optional
 from datetime import datetime
-from sqlalchemy.orm import Session
-from sqlalchemy import and_, or_, text
-from sqlalchemy.engine import Connection
+from sqlalchemy.orm import Session, load_only
+from sqlalchemy import func, text
 
 from backend.app.db.models import Article, ArticleEmbedding
 from backend.app.services.analyzer.ai_analyzer import AIAnalyzer
@@ -302,18 +302,30 @@ class RAGService:
         try:
             # 生成查询向量
             logger.info(f"🔍 正在搜索: {query[:50]}...")
+            embed_started = time.perf_counter()
             query_embedding = self.generate_embedding(query)
+            embed_elapsed = time.perf_counter() - embed_started
             
             if not query_embedding:
                 logger.error("❌ 查询向量生成失败")
                 return []
             
+            search_started = time.perf_counter()
+            self._last_search_backend = "python"
             # 如果sqlite-vec可用，使用SQL向量搜索
             if self._use_sqlite_vec:
-                return self._search_with_sqlite_vec(query_embedding, top_k, filters)
+                results = self._search_with_sqlite_vec(query_embedding, top_k, filters)
             else:
                 # 回退到Python向量计算
-                return self._search_with_python(query_embedding, top_k, filters)
+                results = self._search_with_python(query_embedding, top_k, filters)
+
+            logger.info(
+                f"search path={self._last_search_backend} results={len(results)} "
+                f"embed_elapsed={embed_elapsed:.3f}s "
+                f"retrieve_elapsed={time.perf_counter() - search_started:.3f}s "
+                f"top_k={top_k} filters={bool(filters)}"
+            )
+            return results
             
         except Exception as e:
             logger.error(f"❌ 搜索失败: {e}")
@@ -414,6 +426,7 @@ class RAGService:
             result = self.db.execute(text(sql), params)
             rows = result.fetchall()
             
+            self._last_search_backend = "sqlite-vec"
             logger.info(f"查询返回 {len(rows)} 条结果")
             
             # 转换为字典格式
@@ -526,6 +539,7 @@ class RAGService:
             
         except Exception as e:
             logger.error(f"❌ sqlite-vec搜索失败: {e}，回退到Python计算")
+            self._last_search_backend = "python-fallback"
             return self._search_with_python(query_embedding, top_k, filters)
 
     def _search_with_python(
@@ -535,9 +549,33 @@ class RAGService:
         filters: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
         """使用Python进行向量搜索（回退方案）"""
-        # 获取所有已索引的文章嵌入
+        if getattr(self, "_last_search_backend", None) != "python-fallback":
+            self._last_search_backend = "python"
+        logger.warning(
+            "⚠️  向量搜索走 Python 全表扫描。约 2 万篇文章时会明显变慢；"
+            "请检查 vec_embeddings 是否为空、维度是否不匹配、sqlite-vec 是否加载失败"
+        )
+        # 只加载相似度计算和返回结果需要的列，避免把正文/索引原文整表读入内存
         query_obj = self.db.query(ArticleEmbedding, Article).join(
             Article, ArticleEmbedding.article_id == Article.id
+        ).options(
+            load_only(
+                ArticleEmbedding.id,
+                ArticleEmbedding.article_id,
+                ArticleEmbedding.embedding,
+            ),
+            load_only(
+                Article.id,
+                Article.title,
+                Article.title_zh,
+                Article.url,
+                Article.summary,
+                Article.source,
+                Article.published_at,
+                Article.importance,
+                Article.tags,
+                Article.is_favorited,
+            ),
         )
         
         # 应用过滤条件
@@ -1059,25 +1097,49 @@ class RAGService:
             total_articles = self.db.query(Article).count()
             indexed_articles = self.db.query(ArticleEmbedding).count()
             unindexed_articles = total_articles - indexed_articles
-            
-            # 按来源统计
-            source_stats = {}
-            embeddings = self.db.query(ArticleEmbedding, Article).join(
-                Article, ArticleEmbedding.article_id == Article.id
-            ).all()
-            
-            for embedding_obj, article in embeddings:
-                source = article.source
-                if source not in source_stats:
-                    source_stats[source] = 0
-                source_stats[source] += 1
-            
+
+            source_rows = (
+                self.db.query(Article.source, func.count(ArticleEmbedding.id))
+                .join(ArticleEmbedding, ArticleEmbedding.article_id == Article.id)
+                .group_by(Article.source)
+                .all()
+            )
+            source_stats = {source: count for source, count in source_rows}
+
+            vec_index_count = None
+            try:
+                vec_index_count = self.db.execute(
+                    text("SELECT COUNT(*) FROM vec_embeddings")
+                ).scalar()
+            except Exception:
+                vec_index_count = None
+
+            if self._use_sqlite_vec and vec_index_count:
+                vector_backend = "sqlite-vec"
+            elif indexed_articles > 0:
+                vector_backend = "python"
+            else:
+                vector_backend = "none"
+
+            if (
+                indexed_articles > 0
+                and (vec_index_count is None or vec_index_count < indexed_articles)
+            ):
+                logger.warning(
+                    "⚠️  vec_embeddings(%s) 少于 article_embeddings(%s)，"
+                    "搜索可能回退到 Python 全表扫描",
+                    vec_index_count,
+                    indexed_articles,
+                )
+
             return {
                 "total_articles": total_articles,
                 "indexed_articles": indexed_articles,
                 "unindexed_articles": unindexed_articles,
                 "index_coverage": indexed_articles / total_articles if total_articles > 0 else 0.0,
-                "source_stats": source_stats
+                "source_stats": source_stats,
+                "vec_index_count": vec_index_count,
+                "vector_backend": vector_backend,
             }
         except Exception as e:
             logger.error(f"❌ 获取索引统计失败: {e}")
@@ -1086,6 +1148,8 @@ class RAGService:
                 "indexed_articles": 0,
                 "unindexed_articles": 0,
                 "index_coverage": 0.0,
-                "source_stats": {}
+                "source_stats": {},
+                "vec_index_count": None,
+                "vector_backend": "unknown",
             }
 
