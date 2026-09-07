@@ -487,6 +487,27 @@ async def rebuild_all_indexes(
         raise HTTPException(status_code=500, detail=f"强制重建索引失败: {str(e)}")
 
 
+# 静态路径必须写在 /index/{article_id} 之前，否则 sync-vec 会被当成 article_id 并 422
+@router.post("/index/sync-vec", response_model=RAGVecSyncResponse)
+async def sync_vec_from_json(
+    batch_size: int = Query(200, ge=10, le=1000, description="每批回填条数"),
+    rag_service: RAGService = Depends(get_rag_db_service),
+    current_user: str = Depends(require_auth),
+):
+    """
+    把 article_embeddings 中缺失的 JSON 向量写入 vec_embeddings。
+    不调用 embedding API，不 DROP vec0。部署后应执行一次以补齐缺失行。
+    """
+    try:
+        result = await asyncio.to_thread(rag_service.sync_json_to_vec, batch_size)
+        return RAGVecSyncResponse(**result)
+    except VectorSearchUnavailable as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        logger.error(f"vec0 回填失败: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"vec0 回填失败: {str(e)}")
+
+
 @router.post("/index/{article_id}", response_model=RAGIndexResponse)
 async def index_article(
     article_id: int,
@@ -530,26 +551,6 @@ async def index_article(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"索引失败: {str(e)}")
-
-
-@router.post("/index/sync-vec", response_model=RAGVecSyncResponse)
-async def sync_vec_from_json(
-    batch_size: int = Query(200, ge=10, le=1000, description="每批回填条数"),
-    rag_service: RAGService = Depends(get_rag_db_service),
-    current_user: str = Depends(require_auth),
-):
-    """
-    把 article_embeddings 中缺失的 JSON 向量写入 vec_embeddings。
-    不调用 embedding API，不 DROP vec0。部署后应执行一次以补齐缺失行。
-    """
-    try:
-        result = await asyncio.to_thread(rag_service.sync_json_to_vec, batch_size)
-        return RAGVecSyncResponse(**result)
-    except VectorSearchUnavailable as e:
-        raise HTTPException(status_code=503, detail=str(e))
-    except Exception as e:
-        logger.error(f"vec0 回填失败: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"vec0 回填失败: {str(e)}")
 
 
 @router.get("/stats", response_model=RAGStatsResponse)

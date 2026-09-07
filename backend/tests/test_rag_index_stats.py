@@ -92,7 +92,7 @@ class RAGIndexStatsTests(unittest.TestCase):
         self.assertEqual(stats["source_stats"], {"SourceA": 2})
         self.assertEqual(stats["vec_index_count"], 0)
         self.assertEqual(stats["vec_missing_count"], 2)
-        self.assertIn(stats["vector_backend"], ("python", "sqlite-vec", "none"))
+        self.assertEqual(stats["vector_backend"], "sqlite-vec")
 
     def test_python_search_allowed_on_small_index(self):
         results = self.service._search_or_refuse_python(

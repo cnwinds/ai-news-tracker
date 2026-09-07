@@ -30,6 +30,25 @@ class VectorSearchUnavailable(Exception):
         self.backend = backend
 
 
+_VEC_COUNT_ERROR_LOGGED = False
+
+
+def _log_vec_count_error_once(error: Exception) -> None:
+    global _VEC_COUNT_ERROR_LOGGED
+    if _VEC_COUNT_ERROR_LOGGED:
+        return
+    logger.warning("COUNT vec_embeddings 失败: %s", error)
+    _VEC_COUNT_ERROR_LOGGED = True
+
+
+def _session_has_sqlite_vec(db: Session) -> bool:
+    try:
+        db.execute(text("SELECT vec_version()")).scalar()
+        return True
+    except Exception:
+        return False
+
+
 def compute_index_stats(db: Session) -> Dict[str, Any]:
     """只做 COUNT/GROUP BY，绝不 SELECT embedding / text_content。"""
     try:
@@ -54,10 +73,19 @@ def compute_index_stats(db: Session) -> Dict[str, Any]:
                 text("SELECT COUNT(*) FROM vec_embeddings")
             ).scalar()
             sqlite_vec_ok = True
-        except Exception:
-            vec_index_count = None
+        except Exception as e:
+            _log_vec_count_error_once(e)
+            if _session_has_sqlite_vec(db):
+                try:
+                    vec_index_count = db.execute(
+                        text("SELECT COUNT(*) FROM vec_embeddings_rowids")
+                    ).scalar()
+                    sqlite_vec_ok = True
+                except Exception as rowids_error:
+                    logger.warning("COUNT vec_embeddings_rowids 也失败: %s", rowids_error)
+                    vec_index_count = None
 
-        if sqlite_vec_ok and vec_index_count:
+        if vec_index_count is not None:
             vector_backend = "sqlite-vec"
         elif indexed_articles > 0:
             vector_backend = "python"

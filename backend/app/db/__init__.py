@@ -57,6 +57,53 @@ def get_embedding_dimension(embedding_model: str) -> int:
     return 1536
 
 
+_SQLITE_VEC_LOAD_WARNED = False
+
+
+def sqlite_vec_extension_loaded(dbapi_conn) -> bool:
+    """当前 sqlite3 连接是否已能调用 vec0。"""
+    cursor = dbapi_conn.cursor()
+    try:
+        cursor.execute("SELECT vec_version()")
+        cursor.fetchone()
+        return True
+    except Exception:
+        return False
+    finally:
+        cursor.close()
+
+
+def load_sqlite_vec_on_dbapi(dbapi_conn) -> bool:
+    """在一条 DBAPI 连接上加载 sqlite-vec。已加载则直接返回 True。"""
+    global _SQLITE_VEC_LOAD_WARNED
+    if sqlite_vec_extension_loaded(dbapi_conn):
+        return True
+    try:
+        import sqlite_vec
+    except ImportError:
+        return False
+    try:
+        dbapi_conn.enable_load_extension(True)
+        sqlite_vec.load(dbapi_conn)
+    except Exception as e:
+        if not _SQLITE_VEC_LOAD_WARNED:
+            logger.warning("加载 sqlite-vec 扩展失败: %s", e)
+            _SQLITE_VEC_LOAD_WARNED = True
+        return False
+    return sqlite_vec_extension_loaded(dbapi_conn)
+
+
+def _dbapi_connection_from_session(session: Session):
+    sa_conn = session.connection()
+    proxied = getattr(sa_conn, "connection", None)
+    if proxied is None:
+        return None
+    return (
+        getattr(proxied, "dbapi_connection", None)
+        or getattr(proxied, "driver_connection", None)
+    )
+
+
 class DatabaseManager:
     """数据库管理器"""
 
@@ -105,11 +152,11 @@ class DatabaseManager:
                 cursor.execute("PRAGMA synchronous=NORMAL")
                 cursor.close()
 
-            self._enable_sqlite_wal()
-        
-        # 为 SQLite 连接注册事件监听器，在每次连接时加载 sqlite-vec 扩展
-        if database_url.startswith("sqlite:///"):
+            # connect 只在新建 DBAPI 连接时触发。必须先注册加载器，再 dispose
+            # 掉可能已入池、没有 vec0 的连接，然后才 WAL / engine.connect()。
             self._setup_sqlite_vec_loader()
+            self.engine.dispose()
+            self._enable_sqlite_wal()
 
         # 创建会话工厂
         self.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=self.engine)
@@ -897,46 +944,80 @@ class DatabaseManager:
                 logger.warning(f"⚠️  sqlite-vec扩展不可用，将使用Python向量计算: {e}")
             finally:
                 conn.close()
+
+            # 启动用的是独立 sqlite3.connect；再验证引擎 Session 也能访问 vec0
+            try:
+                with self.get_session() as session:
+                    session.execute(text("SELECT COUNT(*) FROM vec_embeddings")).scalar()
+                logger.info("✅ sqlite-vec 已在 SQLAlchemy Session 上可用")
+            except Exception as e:
+                logger.warning(
+                    "⚠️  引擎 Session 访问 vec_embeddings 失败（常见于连接池未加载扩展）: %s",
+                    e,
+                )
                 
         except Exception as e:
             logger.warning(f"⚠️  初始化sqlite-vec时出错: {e}，将使用Python向量计算")
     
     def _setup_sqlite_vec_loader(self):
-        """设置 SQLAlchemy 连接事件监听器，在每次连接时加载 sqlite-vec 扩展"""
+        """在 connect 和 checkout 时加载 sqlite-vec。
+
+        connect 只在新建 DBAPI 连接时触发。QueuePool 里已经 checkout 过的
+        连接（例如 WAL/init_db 抢先占用的）必须在 checkout 时补加载，
+        否则 Session 会报 no such module: vec0。
+        """
         try:
-            # 检查 SQLite 版本
             sqlite_version = sqlite3.sqlite_version_info
             if sqlite_version < (3, 41, 0):
                 logger.debug(f"SQLite版本 {sqlite3.sqlite_version} 过低，跳过 sqlite-vec 加载器设置")
                 return
-            
-            # 尝试导入 sqlite_vec
+
             try:
-                import sqlite_vec
+                import sqlite_vec  # noqa: F401
             except ImportError:
                 logger.debug("sqlite-vec模块未安装，跳过加载器设置")
                 return
-            
-            # 注册连接事件监听器
+
+            engine_id = id(self.engine)
+            if getattr(self, "_sqlite_vec_loader_engine_id", None) == engine_id:
+                return
+
             @event.listens_for(self.engine, "connect")
-            def load_sqlite_vec(dbapi_conn, connection_record):
-                """在每次创建 SQLite 连接时加载 sqlite-vec 扩展"""
-                try:
-                    dbapi_conn.enable_load_extension(True)
-                    sqlite_vec.load(dbapi_conn)
-                except Exception as e:
-                    # 静默失败，因为可能某些连接不需要扩展
-                    logger.debug(f"加载 sqlite-vec 扩展失败（可能不需要）: {e}")
-            
-            logger.info("✅ sqlite-vec 连接加载器已设置")
+            def load_sqlite_vec_on_connect(dbapi_conn, connection_record):
+                if load_sqlite_vec_on_dbapi(dbapi_conn):
+                    connection_record.info["sqlite_vec_loaded"] = True
+
+            @event.listens_for(self.engine, "checkout")
+            def load_sqlite_vec_on_checkout(dbapi_conn, connection_record, _connection_proxy):
+                if connection_record.info.get("sqlite_vec_loaded") and sqlite_vec_extension_loaded(dbapi_conn):
+                    return
+                if load_sqlite_vec_on_dbapi(dbapi_conn):
+                    connection_record.info["sqlite_vec_loaded"] = True
+
+            self._sqlite_vec_loader_engine_id = engine_id
+            logger.info("✅ sqlite-vec 连接加载器已设置（connect + checkout）")
         except Exception as e:
-            logger.debug(f"设置 sqlite-vec 加载器失败: {e}")
+            logger.warning(f"设置 sqlite-vec 加载器失败: {e}")
+
+    def ensure_sqlite_vec_on_session(self, session: Session) -> bool:
+        """保证当前 Session 底层连接已加载 sqlite-vec。"""
+        if not (self.database_url or "").startswith("sqlite:///"):
+            return False
+        try:
+            dbapi_conn = _dbapi_connection_from_session(session)
+            if dbapi_conn is None:
+                return False
+            return load_sqlite_vec_on_dbapi(dbapi_conn)
+        except Exception as e:
+            logger.warning("session 加载 sqlite-vec 失败: %s", e)
+            return False
 
     @contextmanager
     def get_session(self) -> Generator[Session, None, None]:
         """获取数据库会话（上下文管理器）"""
         session = self.SessionLocal()
         try:
+            self.ensure_sqlite_vec_on_session(session)
             yield session
             session.commit()
         except Exception:

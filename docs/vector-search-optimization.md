@@ -63,7 +63,17 @@ curl -X POST -H "Authorization: Bearer <TOKEN>" \
 - 不要 `DROP TABLE vec_embeddings` 除非维度真的错了
 - 不要设 `RAG_ALLOW_PYTHON_FULL_SCAN=1` 上生产
 
-## 5. 调试
+## 5. 部署热修（2026-09）
+
+1. **`/index/sync-vec` 被 `{article_id}` 吃掉（422）**  
+   静态路由必须写在 `/index/{article_id}` **前面**。
+
+2. **请求 Session 报 `no such module: vec0`**  
+   根因：`init_sqlite_vec_table()` 用独立 `sqlite3.connect()` 加载扩展，启动日志因此是绿的；SQLAlchemy QueuePool 在注册 `connect` 监听器之前就被 WAL 占用，`connect` 不会再触发，之后每个 Session 都是 `no such module: vec0`。  
+   修复：`_setup_sqlite_vec_loader()` 必须在 `_enable_sqlite_wal()` / 任何 `engine.connect()` **之前**；注册后立刻 `engine.dispose()` 清掉无 vec0 的池连接。checkout / `get_session()` 再补加载作为兜底。  
+   `compute_index_stats`：`vec_index_count is not None`（**包括 0**）即视为 sqlite-vec。
+
+## 6. 调试
 
 日志关键字：
 
@@ -78,7 +88,7 @@ curl -X POST -H "Authorization: Bearer <TOKEN>" \
 |---|---|
 | `RAG_ALLOW_PYTHON_FULL_SCAN=1` | 允许全表 JSON 余弦（仅调试） |
 
-## 6. 仍未做（规模再涨再评估）
+## 7. 仍未做（规模再涨再评估）
 
 - 去掉 JSON 双写
 - FTS5 混合检索

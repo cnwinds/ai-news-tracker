@@ -874,12 +874,13 @@ async def restore_database(
         db.engine = new_engine
         db.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=new_engine)
 
-        if hasattr(db, '_enable_sqlite_wal'):
-            db._enable_sqlite_wal()
-        
-        # 重新初始化sqlite-vec扩展（需要重新设置事件监听器）
+        # 先注册 sqlite-vec，再 dispose 空池，最后 WAL，避免无 vec0 的连接留在池里
         if hasattr(db, '_setup_sqlite_vec_loader'):
             db._setup_sqlite_vec_loader()
+        if hasattr(db, 'engine'):
+            db.engine.dispose()
+        if hasattr(db, '_enable_sqlite_wal'):
+            db._enable_sqlite_wal()
         from backend.app.utils.factories import invalidate_ai_analyzer_cache
         invalidate_ai_analyzer_cache()
         
