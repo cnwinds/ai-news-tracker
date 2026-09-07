@@ -2,12 +2,17 @@
 工厂函数模块 - 用于创建通用对象实例
 """
 import logging
-from typing import Dict, Optional
+import threading
+from typing import Dict, Optional, Tuple
 
 from backend.app.core.settings import settings
 from backend.app.services.analyzer.ai_analyzer import AIAnalyzer
 
 logger = logging.getLogger(__name__)
+
+_ANALYZER_LOCK = threading.Lock()
+_CACHED_ANALYZER: Optional[AIAnalyzer] = None
+_CACHED_KEY: Optional[Tuple] = None
 
 
 def _validate_provider_config(config: Optional[Dict], provider_type: str) -> bool:
@@ -80,16 +85,49 @@ def _create_analyzer_with_same_provider(
     )
 
 
-def create_ai_analyzer(api_key: Optional[str] = None) -> Optional[AIAnalyzer]:
-    """创建AI分析器实例
+def _analyzer_cache_key(
+    llm_config: Dict,
+    embedding_config: Dict,
+    llm_api_key: str,
+) -> Tuple:
+    return (
+        llm_config.get("id"),
+        llm_config.get("selected_model"),
+        llm_config.get("api_base"),
+        embedding_config.get("id"),
+        embedding_config.get("selected_model"),
+        embedding_config.get("api_base"),
+        (llm_api_key or "")[-6:],
+        (embedding_config.get("api_key") or "")[-6:],
+    )
 
-    Args:
-        api_key: OpenAI API密钥（可选，默认从配置读取）
 
-    Returns:
-        AI分析器实例，如果未配置API密钥则返回None
+def invalidate_ai_analyzer_cache() -> None:
+    """设置变更后丢弃进程内 AI 客户端和 query embedding 缓存。"""
+    global _CACHED_ANALYZER, _CACHED_KEY
+    with _ANALYZER_LOCK:
+        _CACHED_ANALYZER = None
+        _CACHED_KEY = None
+    try:
+        from backend.app.services.rag.query_cache import query_embedding_cache
+        query_embedding_cache.clear()
+    except Exception:
+        pass
+    logger.info("AI analyzer cache invalidated")
+
+
+def create_ai_analyzer(
+    api_key: Optional[str] = None,
+    force_new: bool = False,
+) -> Optional[AIAnalyzer]:
+    """创建或复用 AI 分析器。
+
+    默认复用进程内客户端，不再每次 force_reload 配置。
+    设置页保存 LLM/提供商后应调用 invalidate_ai_analyzer_cache()。
     """
-    settings.load_settings_from_db(force_reload=True)
+    global _CACHED_ANALYZER, _CACHED_KEY
+
+    settings.load_settings_from_db(force_reload=force_new)
     
     llm_provider_config = settings.get_llm_provider_config()
     embedding_provider_config = settings.get_embedding_provider_config()
@@ -106,6 +144,17 @@ def create_ai_analyzer(api_key: Optional[str] = None) -> Optional[AIAnalyzer]:
     
     llm_model = llm_provider_config["selected_model"]
     embedding_model = embedding_provider_config["selected_model"]
+    cache_key = _analyzer_cache_key(
+        llm_provider_config, embedding_provider_config, llm_api_key
+    )
+
+    with _ANALYZER_LOCK:
+        if (
+            not force_new
+            and _CACHED_ANALYZER is not None
+            and _CACHED_KEY == cache_key
+        ):
+            return _CACHED_ANALYZER
     
     logger.info(
         f"创建AI分析器: LLM模型={llm_model}, 向量模型={embedding_model}, "
@@ -114,17 +163,22 @@ def create_ai_analyzer(api_key: Optional[str] = None) -> Optional[AIAnalyzer]:
     )
     
     if llm_provider_config["id"] != embedding_provider_config["id"]:
-        return _create_analyzer_with_separate_providers(
+        analyzer = _create_analyzer_with_separate_providers(
             llm_provider_config,
             embedding_provider_config,
             llm_api_key,
             llm_model,
             embedding_model
         )
-    
-    return _create_analyzer_with_same_provider(
-        llm_provider_config,
-        llm_api_key,
-        llm_model,
-        embedding_model
-    )
+    else:
+        analyzer = _create_analyzer_with_same_provider(
+            llm_provider_config,
+            llm_api_key,
+            llm_model,
+            embedding_model
+        )
+
+    with _ANALYZER_LOCK:
+        _CACHED_ANALYZER = analyzer
+        _CACHED_KEY = cache_key
+    return analyzer

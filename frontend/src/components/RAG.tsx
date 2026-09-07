@@ -124,6 +124,22 @@ export default function RAG() {
       )}
 
       {/* 提示信息和操作按钮 */}
+      {stats && stats.indexed_articles > 0 && (
+        (stats.vec_index_count == null || stats.vec_index_count < stats.indexed_articles)
+      ) && (
+        <Alert
+          message="向量索引可能未同步到 sqlite-vec"
+          description={
+            `JSON 索引 ${stats.indexed_articles} 条，vec0 索引 ${stats.vec_index_count ?? 0} 条` +
+            `（后端 ${stats.vector_backend || 'unknown'}）。` +
+            '请到系统设置 → RAG 索引执行「同步缺失的 vec0 行」（不消耗 embedding API）。'
+          }
+          type="warning"
+          showIcon
+          style={{ marginBottom: 16 }}
+        />
+      )}
+
       {stats && stats.unindexed_articles > 0 && (
         <Alert
           message="索引提示"

@@ -337,6 +337,20 @@ export interface RAGStatsResponse {
   unindexed_articles: number;
   index_coverage: number; // 索引覆盖率 (0-1)
   source_stats: Record<string, number>;
+  vec_index_count?: number | null;
+  vec_missing_count?: number | null;
+  vector_backend?: string | null;
+}
+
+export interface RAGVecSyncResponse {
+  json_count: number;
+  vec_count_before: number;
+  vec_count_after: number;
+  missing_before: number;
+  synced: number;
+  skipped: number;
+  failed: number;
+  message: string;
 }
 
 export interface RAGBatchIndexResponse {
