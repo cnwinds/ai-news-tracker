@@ -68,6 +68,44 @@ def test_extract_weekly_trends_strip_prefix_and_ignore_nested_labels():
     ]
 
 
+GROUPED_DAILY = """# 📊 2026年10月14日AI新闻总结
+
+## 🔥 重点文章
+
+### 一、大模型与前沿技术
+
+- [**谷歌正式发布Gemini 4 Argon前沿模型（Google DeepMind/TheVerge）**](/share/23628)
+  谷歌DeepMind发布最新前沿模型。
+
+### 十一、其他值得关注
+
+- [**Grace Hopper大会宣布取消（Hacker News）**](/share/23678)
+  AnitaB.org取消今年大会。
+
+---
+
+## 📌 重要趋势
+
+### 1. 智能体AI全面渗透：从工具到“数字分身”
+**AI智能体正从单一任务工具演变为自主实体**。Shopify开放商品目录。
+
+### 2. “氛围编程”从现象升级为产业战略
+**AI辅助开发正在重塑软件生产的组织方式**。
+"""
+
+
+def test_extract_grouped_articles_and_heading_trends():
+    assert extract_article_titles(GROUPED_DAILY) == [
+        "谷歌正式发布Gemini 4 Argon前沿模型",
+        "Grace Hopper大会宣布取消",
+    ]
+    assert extract_trend_titles(GROUPED_DAILY) == [
+        "智能体AI全面渗透：从工具到“数字分身”",
+        "“氛围编程”从现象升级为产业战略",
+    ]
+    assert extract_headline(GROUPED_DAILY) == "智能体AI全面渗透：从工具到“数字分身”"
+
+
 def test_extract_headline_falls_back_to_none_for_free_text():
     assert extract_headline("今天没有什么新闻。") is None
     assert extract_trend_titles("") == []

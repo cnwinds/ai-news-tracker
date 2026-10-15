@@ -9,8 +9,11 @@ from backend.app.db.models import Article, DailySummary
 from backend.app.services.analyzer.ai_analyzer import AIAnalyzer
 from backend.app.core.settings import settings
 from backend.app.services.collector.summary_prompts import (
+    DAILY_FORMAT_RULES,
     DEFAULT_DAILY_SUMMARY_PROMPT_TEMPLATE,
     DEFAULT_WEEKLY_SUMMARY_PROMPT_TEMPLATE,
+    SUMMARY_MAX_TOKENS,
+    WEEKLY_FORMAT_RULES,
 )
 from backend.app.services.collector.summary_illustrator import start_illustration
 import logging
@@ -168,14 +171,18 @@ class SummaryGenerator:
             # 周报使用专业的行业分析师角色和更高的参数
             system_prompt = """你是一名资深的行业分析师和风向洞察者，拥有超过15年的从业经验。你不仅关注新闻事件的表面，更擅长从纷繁复杂的信息中，穿透表象，识别出那些真正能够影响行业格局的潜在变化、新兴趋势和关键信号。你的分析以深刻、前瞻和高度概括性著称，旨在为决策者提供高价值的参考。
 
-请使用Markdown格式输出所有内容，包括标题、列表、加粗等Markdown语法。"""
+请使用Markdown格式输出所有内容，包括标题、列表、加粗等Markdown语法。
+
+""" + WEEKLY_FORMAT_RULES
             temperature = 0.5  # 周报需要更多创造性分析
-            max_tokens = 4000  # 周报需要更详细的分析
         else:
-            # 日报使用原有的系统提示词
-            system_prompt = "你是一个专业的AI领域新闻分析助手，擅长从大量文章中提炼关键信息和趋势。请使用Markdown格式输出所有内容，包括标题、列表、加粗等Markdown语法。"
+            system_prompt = (
+                "你是一个专业的AI领域新闻分析助手，擅长从大量文章中提炼关键信息和趋势。"
+                "请使用Markdown格式输出所有内容，包括标题、列表、加粗等Markdown语法。\n\n"
+                + DAILY_FORMAT_RULES
+            )
             temperature = 0.3
-            max_tokens = 2000
+        max_tokens = SUMMARY_MAX_TOKENS
         
         try:
             logger.info(f"🤖 调用LLM生成{summary_type}总结，模型: {self.ai_analyzer.model}, 文章数: {len(articles_data)}")

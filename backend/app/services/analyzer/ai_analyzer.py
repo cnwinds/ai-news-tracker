@@ -2,8 +2,9 @@
 AI内容分析器 - 使用OpenAI兼容接口
 """
 import json
+import re
 from typing import Dict, Any, List, Optional
-from openai import OpenAI
+from openai import BadRequestError, OpenAI
 import logging
 from datetime import datetime
 
@@ -13,6 +14,9 @@ logger = logging.getLogger(__name__)
 REASONING_MIN_TOKENS = 16_000
 REASONING_MAX_TOKENS = 32_000
 REASONING_TIMEOUT = 600.0
+# 部分模型输出上限较低（如 8192），传入更大的 max_tokens 会直接 400
+PROVIDER_SAFE_MAX_TOKENS = 8_192
+_MAX_TOKENS_ERROR = re.compile(r"max_tokens|max_completion_tokens|max_output|maximum.*tokens", re.IGNORECASE)
 
 
 class EmptyCompletionError(ValueError):
@@ -118,36 +122,53 @@ class AIAnalyzer:
         max_tokens: int,
         purpose: str,
     ) -> str:
-        """单次调用；推理模型把 max_tokens 全用在思考上导致正文为空时，放大预算重试一次。
+        """单次调用；输出被 max_tokens 截断时放大预算重试一次。
 
         推理（thinking）token 计入 max_tokens：预算不足时接口仍返回 200，
-        但 finish_reason=length 且正文为空，绝不能把空串当成功结果。
+        但 finish_reason=length，正文为空或只写了一半，都不能当成功结果。
         """
         budget = max_tokens
         for attempt in range(2):
-            response = client.chat.completions.create(
-                model=model,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=budget,
-            )
+            try:
+                response = client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                    temperature=temperature,
+                    max_tokens=budget,
+                )
+            except BadRequestError as exc:
+                if budget <= PROVIDER_SAFE_MAX_TOKENS or not _MAX_TOKENS_ERROR.search(str(exc)):
+                    raise
+                logger.warning(
+                    f"⚠️ {model} 不接受 max_tokens={budget}，降到 {PROVIDER_SAFE_MAX_TOKENS} ({purpose}): {exc}"
+                )
+                budget = PROVIDER_SAFE_MAX_TOKENS
+                response = client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                    temperature=temperature,
+                    max_tokens=budget,
+                )
             choice = response.choices[0]
             content = (choice.message.content or "").strip()
-            if content:
+            truncated = choice.finish_reason == "length"
+            if content and not truncated:
                 return content
 
             details = getattr(response.usage, "completion_tokens_details", None)
             reasoning_tokens = getattr(details, "reasoning_tokens", None) or 0
-            truncated = choice.finish_reason == "length"
             if attempt == 0 and truncated and budget < REASONING_MAX_TOKENS:
                 budget = min(max(budget * 8, REASONING_MIN_TOKENS), REASONING_MAX_TOKENS)
                 current = client.timeout if isinstance(client.timeout, (int, float)) else 0
                 client = client.with_options(timeout=max(current, REASONING_TIMEOUT))
                 logger.warning(
-                    f"⚠️ {model} 正文为空（finish_reason=length，思考 token {reasoning_tokens}），"
+                    f"⚠️ {model} 输出被截断（正文 {len(content)} 字，思考 token {reasoning_tokens}），"
                     f"放大 max_tokens 至 {budget} 重试 ({purpose})"
                 )
                 continue
+            if content:
+                logger.warning(f"⚠️ {model} 输出仍被截断，max_tokens={budget} ({purpose})")
+                return content
             raise EmptyCompletionError(
                 f"LLM 返回空内容 (model={model}, finish_reason={choice.finish_reason}, "
                 f"max_tokens={budget}, reasoning_tokens={reasoning_tokens})"

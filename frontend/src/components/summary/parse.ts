@@ -51,6 +51,7 @@ interface Section {
   title: string;
   level: number;
   lines: string[];
+  nested?: boolean;
 }
 
 interface ListNode {
@@ -109,12 +110,21 @@ function splitSections(content: string): { title: string | null; sections: Secti
       level = /^[【[]/.test(bold[1].trim()) ? 1 : 2;
     }
     if (title === null) {
-      current.lines.push(raw);
+      current.lines.push(current.nested && raw.trim() ? `  ${raw}` : raw);
       return;
     }
     const isDocTitle = level === 1 && docTitle === null && sections.length === 0 && !current.lines.some((l) => l.trim());
     if (isDocTitle) {
       docTitle = cleanHeading(title).replace(/^[【[]|[】\]]$/g, '').trim();
+      return;
+    }
+    // 文章/趋势章节下的子标题：文章分组标题丢弃；趋势子标题转成列表项，正文缩进挂到该项下
+    const parentKind = current.title ? classify(current.title) : 'other';
+    if (md && current.level > 0 && level > current.level && (parentKind === 'articles' || parentKind === 'trends')) {
+      if (parentKind === 'trends') {
+        current.lines.push(`- **${cleanHeading(title)}**`);
+        current.nested = true;
+      }
       return;
     }
     sections.push(current);

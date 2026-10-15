@@ -74,7 +74,9 @@ TREND_VIEWBOX = TREND_CANVAS.viewbox
 # 报告结构解析（与前端 components/summary/parse.ts 的规则保持一致）
 # ---------------------------------------------------------------------------
 
-_HEADING_MD = re.compile(r"^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$")
+_HEADING_MD = re.compile(r"^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$")
+_EMOJI = re.compile("[\U0001F000-\U0001FAFF\u2600-\u27BF\uFE0F]")
+_NUMBERED = re.compile(r"^[一二三四五六七八九十\d]+\s*[、.．]\s*")
 _HEADING_BOLD = re.compile(r"^\*\*(.+?)\*\*\s*$")
 _BOLD_SECTION = re.compile(r"^[【\[]|^[一二三四五六七八九十\d]+\s*[、.．]")
 _LIST_ITEM = re.compile(r"^(\s*)(?:[-*+]|\d+[.)、])\s+(.*)$")
@@ -84,24 +86,42 @@ _ARTICLE_LINK = re.compile(r"\[\*{0,2}(.+?)\*{0,2}\]\(([^)]*)\)")
 _SOURCE_SUFFIX = re.compile(r"\s*[（(]([^（）()]+)[)）]\s*$")
 _TRENDS_HEADING = re.compile(r"趋势|洞察|热点")
 _ARTICLES_HEADING = re.compile(r"文章|要闻|头条|新闻")
+_REPORT_TITLE = re.compile(r"总结|周报|日报")
+
+
+def _clean_heading(title: str) -> str:
+    title = _EMOJI.sub("", title).replace("**", "")
+    return _NUMBERED.sub("", title.strip()).strip()
 
 
 def _split_sections(content: str) -> List[Dict[str, Any]]:
     sections: List[Dict[str, Any]] = []
-    current: Dict[str, Any] = {"title": "", "lines": []}
+    current: Dict[str, Any] = {"title": "", "level": 0, "lines": [], "nested": False}
     for raw in content.replace("\r\n", "\n").split("\n"):
         md = _HEADING_MD.match(raw)
         bold = _HEADING_BOLD.match(raw) if not raw.startswith((" ", "\t")) else None
         title = None
+        level = 2
         if md:
-            title = md.group(1)
+            title = md.group(2)
+            level = len(md.group(1))
         elif bold and _BOLD_SECTION.search(bold.group(1).strip()):
             title = bold.group(1)
-        if title is not None:
-            sections.append(current)
-            current = {"title": title.strip(), "lines": []}
-        else:
-            current["lines"].append(raw)
+        if title is None:
+            nested = current["nested"] and raw.strip()
+            current["lines"].append(f"  {raw}" if nested else raw)
+            continue
+        # 文章/趋势章节下的子标题：文章分组标题丢弃；趋势子标题转成列表项，正文缩进挂到该项下
+        parent = current["title"]
+        is_articles = bool(_ARTICLES_HEADING.search(parent)) and not _REPORT_TITLE.search(parent)
+        is_trends = bool(parent) and bool(_TRENDS_HEADING.search(parent))
+        if md and 0 < current["level"] < level and (is_articles or is_trends):
+            if is_trends:
+                current["lines"].append(f"- **{_clean_heading(title)}**")
+                current["nested"] = True
+            continue
+        sections.append(current)
+        current = {"title": title.strip(), "level": level, "lines": [], "nested": False}
     sections.append(current)
     return [s for s in sections if s["title"] or any(line.strip() for line in s["lines"])]
 

@@ -1,7 +1,9 @@
 """推理模型正文为空（思考 token 挤占 max_tokens）的处理"""
 from types import SimpleNamespace
 
+import httpx
 import pytest
+from openai import BadRequestError
 
 from backend.app.services.analyzer.ai_analyzer import AIAnalyzer, EmptyCompletionError
 
@@ -55,6 +57,46 @@ def test_retries_with_larger_budget_when_reasoning_exhausts_tokens():
     assert _call(_analyzer(client)) == "report"
     assert [c["max_tokens"] for c in client.calls] == [2000, 16000]
     assert client.timeout >= 600
+
+
+def test_retries_when_partial_content_is_truncated():
+    client = FakeClient([_response("half a sent", "length", 1300), _response("full report")])
+    assert _call(_analyzer(client)) == "full report"
+    assert [c["max_tokens"] for c in client.calls] == [2000, 16000]
+
+
+def test_large_budget_truncation_returns_partial_without_retry():
+    client = FakeClient([_response("long svg", "length", 100)])
+    assert _call(_analyzer(client), max_tokens=32000) == "long svg"
+    assert len(client.calls) == 1
+
+
+def _bad_request(message):
+    request = httpx.Request("POST", "http://localhost/v1/chat/completions")
+    return BadRequestError(message, response=httpx.Response(400, request=request), body=None)
+
+
+class RejectingClient(FakeClient):
+    def _create(self, **kwargs):
+        self.calls.append(kwargs)
+        if kwargs["max_tokens"] > 8192:
+            raise _bad_request("Range of max_tokens should be [1, 8192]")
+        return self.responses.pop(0)
+
+
+def test_provider_output_cap_falls_back_to_safe_budget():
+    client = RejectingClient([_response("report")])
+    assert _call(_analyzer(client), max_tokens=32000) == "report"
+    assert [c["max_tokens"] for c in client.calls] == [32000, 8192]
+
+
+def test_unrelated_bad_request_is_raised():
+    class Broken(FakeClient):
+        def _create(self, **kwargs):
+            raise _bad_request("invalid model")
+
+    with pytest.raises(BadRequestError):
+        _call(_analyzer(Broken([])), max_tokens=32000)
 
 
 def test_empty_content_raises_instead_of_returning_blank():
