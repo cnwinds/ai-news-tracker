@@ -52,6 +52,21 @@ export default function RAGSettingsTab() {
   });
 
   // 强制重建索引 mutation（清空所有索引后重新索引）
+  const syncVecMutation = useMutation({
+    mutationFn: () => apiService.syncVecFromJson(200),
+    onSuccess: async (data) => {
+      showSuccess(data.message);
+      await refetchRAGStats();
+      queryClient.invalidateQueries({ queryKey: ['rag-stats'] });
+    },
+    onError: createErrorHandler({
+      operationName: '同步 vec0',
+      customMessages: {
+        auth: '需要登录才能同步 vec0',
+      },
+    }),
+  });
+
   const forceRebuildIndexMutation = useMutation({
     mutationFn: (batchSize: number) => apiService.rebuildAllIndexes(batchSize),
     onSuccess: async (data) => {
@@ -111,6 +126,15 @@ export default function RAGSettingsTab() {
                   <strong>已索引：</strong> {ragStats.indexed_articles}
                 </div>
                 <div>
+                  <strong>vec0 行数：</strong> {ragStats.vec_index_count ?? '不可用'}
+                  {ragStats.vector_backend ? `（${ragStats.vector_backend}）` : ''}
+                </div>
+                {typeof ragStats.vec_missing_count === 'number' && ragStats.vec_missing_count > 0 && (
+                  <div>
+                    <strong>vec0 缺失：</strong> {ragStats.vec_missing_count} 条（无需重新调用 embedding）
+                  </div>
+                )}
+                <div>
                   <strong>未索引：</strong> {ragStats.unindexed_articles}
                 </div>
                 <div>
@@ -128,6 +152,32 @@ export default function RAGSettingsTab() {
                     </ul>
                   </div>
                 )}
+              </Space>
+            </Card>
+
+            <Card title="同步 vec0（不消耗 API）" size="small">
+              <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                <Alert
+                  message="把 JSON 向量写入 sqlite-vec"
+                  description="当 vec0 行数少于 article_embeddings 时，用已有 JSON 回填，不会重新调用 embedding API，也不会 DROP 表。部署后若搜索变慢或提示缺失，先执行这一步。"
+                  type="warning"
+                  showIcon
+                />
+                <Button
+                  type="primary"
+                  icon={<SyncOutlined />}
+                  onClick={() => {
+                    if (!isAuthenticated) {
+                      showWarning('需要登录才能同步 vec0');
+                      return;
+                    }
+                    syncVecMutation.mutate();
+                  }}
+                  loading={syncVecMutation.isPending}
+                  disabled={!isAuthenticated || isIndexing}
+                >
+                  {syncVecMutation.isPending ? '正在同步 vec0...' : '同步缺失的 vec0 行'}
+                </Button>
               </Space>
             </Card>
 

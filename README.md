@@ -185,6 +185,7 @@ ai-news-tracker/
 - [交互重构需求文档](docs/xq.md)
 - [代码开发规范](docs/代码开发规范.md)
 - [功能需求说明书](docs/功能需求说明书.md)
+- [向量搜索性能分析与优化计划](docs/vector-search-optimization.md)
 
 ## 🚀 快速开始
 
@@ -527,10 +528,10 @@ docker run -d --env-file .env -p 8000:8000 ai-news-tracker
 
 如果看到警告信息：`⚠️ SQLite版本 X.X.X 过低，sqlite-vec需要3.41+，将使用Python向量计算`
 
-**这是正常的，可以忽略**：
-- ✅ 系统会自动回退到 Python 向量计算，功能完全正常
-- ✅ RAG 功能（语义搜索、智能问答）可以正常使用
-- ⚠️ 性能可能稍慢，但对于中小规模数据影响不大
+**文章过万后不要依赖 Python 回退**：
+- 已索引超过 2000 篇时，sqlite-vec 不可用会返回 503，而不是全表扫描 JSON
+- 先看 `GET /api/v1/rag/stats` 的 `vec_index_count` / `vec_missing_count`
+- 缺行时调用 `POST /api/v1/rag/index/sync-vec`（不消耗 embedding API），详见 [向量搜索优化说明](docs/vector-search-optimization.md)
 
 **如果想升级 SQLite 以获得更好性能**（可选）：
 

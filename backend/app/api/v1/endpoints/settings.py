@@ -309,8 +309,10 @@ async def update_llm_settings(
     if not success:
         raise HTTPException(status_code=500, detail="保存LLM配置失败")
     
-    # 重新加载配置
+    # 重新加载配置，丢弃进程内 AI 客户端，再热重载调度器持有的分析器
     settings.load_settings_from_db()
+    from backend.app.utils.factories import invalidate_ai_analyzer_cache
+    invalidate_ai_analyzer_cache()
     try:
         from backend.app.services.scheduler.scheduler import reload_scheduler_ai_analyzer
 
@@ -373,6 +375,8 @@ async def create_provider(
                 enabled=provider_data.enabled,
                 provider_type=provider_data.provider_type
             )
+            from backend.app.utils.factories import invalidate_ai_analyzer_cache
+            invalidate_ai_analyzer_cache()
             return LLMProvider(
                 id=provider.id,
                 name=provider.name,
@@ -434,6 +438,8 @@ async def update_provider(
         )
         if not provider:
             raise HTTPException(status_code=404, detail="提供商不存在")
+        from backend.app.utils.factories import invalidate_ai_analyzer_cache
+        invalidate_ai_analyzer_cache()
         return LLMProvider(
             id=provider.id,
             name=provider.name,
@@ -475,6 +481,8 @@ async def delete_provider(
         success = LLMProviderRepository.delete(session, provider_id)
         if not success:
             raise HTTPException(status_code=404, detail="提供商不存在")
+        from backend.app.utils.factories import invalidate_ai_analyzer_cache
+        invalidate_ai_analyzer_cache()
         return {"message": "提供商已删除"}
 
 
@@ -879,12 +887,15 @@ async def restore_database(
         db.engine = new_engine
         db.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=new_engine)
 
-        if hasattr(db, '_enable_sqlite_wal'):
-            db._enable_sqlite_wal()
-        
-        # 重新初始化sqlite-vec扩展（需要重新设置事件监听器）
+        # 先注册 sqlite-vec，再 dispose 空池，最后 WAL，避免无 vec0 的连接留在池里
         if hasattr(db, '_setup_sqlite_vec_loader'):
             db._setup_sqlite_vec_loader()
+        if hasattr(db, 'engine'):
+            db.engine.dispose()
+        if hasattr(db, '_enable_sqlite_wal'):
+            db._enable_sqlite_wal()
+        from backend.app.utils.factories import invalidate_ai_analyzer_cache
+        invalidate_ai_analyzer_cache()
         
         # 重新初始化数据库表结构（确保表存在）
         try:

@@ -3,29 +3,146 @@ RAG服务 - 实现文章向量索引、搜索和问答功能
 """
 import json
 import logging
+import os
+import time
 import numpy as np
 import struct
 from typing import List, Dict, Any, Optional
 from datetime import datetime
-from sqlalchemy.orm import Session
-from sqlalchemy import and_, or_, text
-from sqlalchemy.engine import Connection
+from sqlalchemy.orm import Session, load_only
+from sqlalchemy import text
 
 from backend.app.db.models import Article, ArticleEmbedding
 from backend.app.services.analyzer.ai_analyzer import AIAnalyzer
+from backend.app.services.rag.query_cache import query_embedding_cache
 
 logger = logging.getLogger(__name__)
+
+# 超过该规模时默认拒绝 Python 全表扫描。调试可设 RAG_ALLOW_PYTHON_FULL_SCAN=1
+PYTHON_FULL_SCAN_MAX_ROWS = 2000
+
+
+class VectorSearchUnavailable(Exception):
+    """sqlite-vec 不可用且不允许全表扫描时抛出，由 API 转成 503。"""
+
+    def __init__(self, message: str, backend: str = "refused"):
+        super().__init__(message)
+        self.backend = backend
+
+
+_VEC_COUNT_ERROR_LOGGED = False
+
+
+def _log_vec_count_error_once(error: Exception) -> None:
+    global _VEC_COUNT_ERROR_LOGGED
+    if _VEC_COUNT_ERROR_LOGGED:
+        return
+    logger.warning("COUNT vec_embeddings 失败: %s", error)
+    _VEC_COUNT_ERROR_LOGGED = True
+
+
+def _session_has_sqlite_vec(db: Session) -> bool:
+    try:
+        db.execute(text("SELECT vec_version()")).scalar()
+        return True
+    except Exception:
+        return False
+
+
+def compute_index_stats(db: Session) -> Dict[str, Any]:
+    """只做 COUNT/GROUP BY，绝不 SELECT embedding / text_content。"""
+    try:
+        total_articles = db.execute(text("SELECT COUNT(*) FROM articles")).scalar() or 0
+        indexed_articles = db.execute(
+            text("SELECT COUNT(*) FROM article_embeddings")
+        ).scalar() or 0
+        unindexed_articles = total_articles - indexed_articles
+
+        source_rows = db.execute(text("""
+            SELECT a.source, COUNT(ae.id)
+            FROM article_embeddings ae
+            JOIN articles a ON a.id = ae.article_id
+            GROUP BY a.source
+        """)).fetchall()
+        source_stats = {source: count for source, count in source_rows}
+
+        vec_index_count = None
+        sqlite_vec_ok = False
+        try:
+            vec_index_count = db.execute(
+                text("SELECT COUNT(*) FROM vec_embeddings")
+            ).scalar()
+            sqlite_vec_ok = True
+        except Exception as e:
+            _log_vec_count_error_once(e)
+            if _session_has_sqlite_vec(db):
+                try:
+                    vec_index_count = db.execute(
+                        text("SELECT COUNT(*) FROM vec_embeddings_rowids")
+                    ).scalar()
+                    sqlite_vec_ok = True
+                except Exception as rowids_error:
+                    logger.warning("COUNT vec_embeddings_rowids 也失败: %s", rowids_error)
+                    vec_index_count = None
+
+        if vec_index_count is not None:
+            vector_backend = "sqlite-vec"
+        elif indexed_articles > 0:
+            vector_backend = "python"
+        else:
+            vector_backend = "none"
+
+        vec_missing_count = None
+        if vec_index_count is not None:
+            vec_missing_count = max(0, indexed_articles - int(vec_index_count))
+
+        if indexed_articles > 0 and (
+            vec_index_count is None or vec_index_count < indexed_articles
+        ):
+            logger.warning(
+                "⚠️  vec_embeddings(%s) 少于 article_embeddings(%s)，"
+                "请调用 POST /api/v1/rag/index/sync-vec 回填",
+                vec_index_count,
+                indexed_articles,
+            )
+
+        return {
+            "total_articles": total_articles,
+            "indexed_articles": indexed_articles,
+            "unindexed_articles": unindexed_articles,
+            "index_coverage": indexed_articles / total_articles if total_articles > 0 else 0.0,
+            "source_stats": source_stats,
+            "vec_index_count": vec_index_count,
+            "vec_missing_count": vec_missing_count,
+            "vector_backend": vector_backend,
+        }
+    except Exception as e:
+        logger.error(f"❌ 获取索引统计失败: {e}")
+        return {
+            "total_articles": 0,
+            "indexed_articles": 0,
+            "unindexed_articles": 0,
+            "index_coverage": 0.0,
+            "source_stats": {},
+            "vec_index_count": None,
+            "vec_missing_count": None,
+            "vector_backend": "unknown",
+        }
+
+
+def _embedding_to_vec_string(embedding: List[float]) -> str:
+    return "[" + ",".join(map(str, embedding)) + "]"
 
 
 class RAGService:
     """RAG服务类"""
 
-    def __init__(self, ai_analyzer: AIAnalyzer, db: Session):
+    def __init__(self, ai_analyzer: Optional[AIAnalyzer], db: Session):
         """
         初始化RAG服务
 
         Args:
-            ai_analyzer: AI分析器实例（用于生成嵌入向量）
+            ai_analyzer: AI分析器实例（统计/回填可为 None）
             db: 数据库会话
         """
         self.ai_analyzer = ai_analyzer
@@ -103,21 +220,27 @@ class RAGService:
         combined_text = "\n\n".join(parts)
         return combined_text if combined_text.strip() else ""
 
-    def generate_embedding(self, text: str) -> List[float]:
+    def generate_embedding(self, text: str, use_cache: bool = True) -> List[float]:
         """
-        生成文本的嵌入向量
-
-        Args:
-            text: 要生成嵌入向量的文本
-
-        Returns:
-            嵌入向量列表
+        生成文本的嵌入向量。查询路径默认走短 TTL LRU；索引文章不要缓存。
         """
         if not text or not text.strip():
             logger.warning("⚠️  生成嵌入向量时文本为空")
             return []
-        
-        return self.ai_analyzer.generate_embedding(text)
+        if not self.ai_analyzer:
+            raise VectorSearchUnavailable("未配置AI分析器，无法生成查询向量")
+
+        model = getattr(self.ai_analyzer, "embedding_model", "") or ""
+        if use_cache:
+            cached = query_embedding_cache.get(model, text)
+            if cached is not None:
+                logger.debug("query embedding cache hit")
+                return cached
+
+        embedding = self.ai_analyzer.generate_embedding(text)
+        if embedding and use_cache:
+            query_embedding_cache.set(model, text, embedding)
+        return embedding
 
     def index_article(self, article: Article) -> bool:
         """
@@ -146,7 +269,7 @@ class RAGService:
             
             # 生成嵌入向量
             logger.info(f"📝 正在为文章 {article.id} 生成嵌入向量...")
-            embedding = self.generate_embedding(text_content)
+            embedding = self.generate_embedding(text_content, use_cache=False)
             
             if not embedding:
                 logger.error(f"❌ 文章 {article.id} 嵌入向量生成失败")
@@ -299,22 +422,41 @@ class RAGService:
         Returns:
             搜索结果列表，每个结果包含文章信息和相似度分数
         """
+        embed_ms = 0.0
         try:
             # 生成查询向量
             logger.info(f"🔍 正在搜索: {query[:50]}...")
+            embed_started = time.perf_counter()
             query_embedding = self.generate_embedding(query)
+            embed_ms = (time.perf_counter() - embed_started) * 1000
             
             if not query_embedding:
                 logger.error("❌ 查询向量生成失败")
                 return []
             
-            # 如果sqlite-vec可用，使用SQL向量搜索
+            search_started = time.perf_counter()
+            self._last_search_backend = "refused"
             if self._use_sqlite_vec:
-                return self._search_with_sqlite_vec(query_embedding, top_k, filters)
+                results = self._search_with_sqlite_vec(query_embedding, top_k, filters)
             else:
-                # 回退到Python向量计算
-                return self._search_with_python(query_embedding, top_k, filters)
+                results = self._search_or_refuse_python(
+                    query_embedding, top_k, filters,
+                    reason="sqlite-vec 不可用",
+                )
+
+            search_ms = (time.perf_counter() - search_started) * 1000
+            logger.info(
+                f"search path={self._last_search_backend} results={len(results)} "
+                f"embed_ms={embed_ms:.1f} search_ms={search_ms:.1f} "
+                f"top_k={top_k} filters={bool(filters)}"
+            )
+            return results
             
+        except VectorSearchUnavailable as e:
+            logger.error(
+                f"search path={e.backend} embed_ms={embed_ms:.1f} search_ms=0.0 refused: {e}"
+            )
+            raise
         except Exception as e:
             logger.error(f"❌ 搜索失败: {e}")
             return []
@@ -327,29 +469,14 @@ class RAGService:
     ) -> List[Dict[str, Any]]:
         """使用sqlite-vec进行向量搜索"""
         try:
-            # 检查vec_embeddings表是否有数据
-            vec_count = self.db.execute(text("SELECT COUNT(*) FROM vec_embeddings")).scalar()
-            logger.debug(f"vec_embeddings表中有 {vec_count} 条记录")
-            if vec_count == 0:
-                logger.warning("⚠️  vec_embeddings表为空，回退到Python计算")
-                return self._search_with_python(query_embedding, top_k, filters)
-            
-            # 检查查询向量维度是否与数据库中存储的向量维度匹配
-            # 从article_embeddings表获取一个样本向量来检查维度
-            query_dim = len(query_embedding)
-            sample_embedding = self.db.query(ArticleEmbedding).first()
-            if sample_embedding and sample_embedding.embedding:
-                stored_dim = len(sample_embedding.embedding)
-                logger.debug(f"查询向量维度: {query_dim}, 存储向量维度: {stored_dim}")
-                if query_dim != stored_dim:
-                    logger.warning(
-                        f"⚠️  向量维度不匹配：查询向量维度 {query_dim}，"
-                        f"存储向量维度 {stored_dim}，回退到Python计算"
-                    )
-                    return self._search_with_python(query_embedding, top_k, filters)
-            else:
-                logger.warning("⚠️  未找到已索引的文章向量，回退到Python计算")
-                return self._search_with_python(query_embedding, top_k, filters)
+            has_vec = self.db.execute(
+                text("SELECT article_id FROM vec_embeddings LIMIT 1")
+            ).fetchone()
+            if not has_vec:
+                return self._search_or_refuse_python(
+                    query_embedding, top_k, filters,
+                    reason="vec_embeddings 为空，请先调用 POST /api/v1/rag/index/sync-vec",
+                )
             
             # sqlite-vec使用MATCH操作符，需要JSON数组格式的字符串
             # 或者可以直接使用BLOB格式
@@ -414,6 +541,7 @@ class RAGService:
             result = self.db.execute(text(sql), params)
             rows = result.fetchall()
             
+            self._last_search_backend = "sqlite-vec"
             logger.info(f"查询返回 {len(rows)} 条结果")
             
             # 转换为字典格式
@@ -524,9 +652,53 @@ class RAGService:
             logger.info(f"✅ 搜索完成（使用sqlite-vec），找到 {len(search_results)} 个结果，去重后 {len(final_results)} 个")
             return final_results
             
+        except VectorSearchUnavailable:
+            raise
         except Exception as e:
-            logger.error(f"❌ sqlite-vec搜索失败: {e}，回退到Python计算")
+            logger.error(f"❌ sqlite-vec搜索失败: {e}")
+            return self._search_or_refuse_python(
+                query_embedding, top_k, filters,
+                reason=f"sqlite-vec MATCH 失败: {e}",
+            )
+
+    def _indexed_count(self) -> int:
+        return self.db.execute(
+            text("SELECT COUNT(*) FROM article_embeddings")
+        ).scalar() or 0
+
+    def _allow_python_full_scan(self, indexed_count: Optional[int] = None) -> bool:
+        if os.environ.get("RAG_ALLOW_PYTHON_FULL_SCAN") == "1":
+            return True
+        limit = getattr(self, "PYTHON_FULL_SCAN_MAX_ROWS", PYTHON_FULL_SCAN_MAX_ROWS)
+        if indexed_count is None:
+            indexed_count = self._indexed_count()
+        return indexed_count <= limit
+
+    def _search_or_refuse_python(
+        self,
+        query_embedding: List[float],
+        top_k: int,
+        filters: Optional[Dict[str, Any]],
+        reason: str,
+    ) -> List[Dict[str, Any]]:
+        indexed_count = self._indexed_count()
+        if self._allow_python_full_scan(indexed_count):
+            logger.warning(
+                "⚠️  使用 Python 全表扫描（indexed=%s <= %s）: %s",
+                indexed_count,
+                getattr(self, "PYTHON_FULL_SCAN_MAX_ROWS", PYTHON_FULL_SCAN_MAX_ROWS),
+                reason,
+            )
             return self._search_with_python(query_embedding, top_k, filters)
+
+        self._last_search_backend = "refused"
+        message = (
+            f"{reason}。当前已索引 {indexed_count} 篇，拒绝 Python 全表扫描。"
+            "请调用 POST /api/v1/rag/index/sync-vec 把 JSON 向量回填到 vec0，"
+            "或设置 RAG_ALLOW_PYTHON_FULL_SCAN=1 仅用于调试。"
+        )
+        logger.error(message)
+        raise VectorSearchUnavailable(message, backend="refused")
 
     def _search_with_python(
         self,
@@ -534,10 +706,30 @@ class RAGService:
         top_k: int,
         filters: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
-        """使用Python进行向量搜索（回退方案）"""
-        # 获取所有已索引的文章嵌入
+        """使用Python进行向量搜索（仅小规模或显式调试）"""
+        self._last_search_backend = "python"
+        logger.warning("⚠️  向量搜索走 Python 全表扫描")
+        # 只加载相似度计算和返回结果需要的列，避免把正文/索引原文整表读入内存
         query_obj = self.db.query(ArticleEmbedding, Article).join(
             Article, ArticleEmbedding.article_id == Article.id
+        ).options(
+            load_only(
+                ArticleEmbedding.id,
+                ArticleEmbedding.article_id,
+                ArticleEmbedding.embedding,
+            ),
+            load_only(
+                Article.id,
+                Article.title,
+                Article.title_zh,
+                Article.url,
+                Article.summary,
+                Article.source,
+                Article.published_at,
+                Article.importance,
+                Article.tags,
+                Article.is_favorited,
+            ),
         )
         
         # 应用过滤条件
@@ -829,6 +1021,8 @@ class RAGService:
                 logger.error(f"构建返回结果完整堆栈:\n{traceback.format_exc()}")
                 raise
             
+        except VectorSearchUnavailable:
+            raise
         except Exception as e:
             logger.error(f"❌ 问答失败: {e}", exc_info=True)
             import traceback
@@ -1049,43 +1243,106 @@ class RAGService:
             }
 
     def get_index_stats(self) -> Dict[str, Any]:
-        """
-        获取索引统计信息
+        """获取索引统计（COUNT/GROUP BY，不加载向量列）。"""
+        return compute_index_stats(self.db)
 
-        Returns:
-            统计信息字典
+    def sync_json_to_vec(self, batch_size: int = 200) -> Dict[str, Any]:
         """
+        把 article_embeddings 中缺失的 JSON 向量写入 vec_embeddings。
+        不调用 embedding API，不 DROP vec0 表，可重复执行。
+        """
+        if not self._use_sqlite_vec:
+            raise VectorSearchUnavailable(
+                "sqlite-vec / vec_embeddings 不可用，无法回填。请确认扩展已加载且未 DROP 表。"
+            )
+
+        json_count = self.db.execute(
+            text("SELECT COUNT(*) FROM article_embeddings")
+        ).scalar() or 0
         try:
-            total_articles = self.db.query(Article).count()
-            indexed_articles = self.db.query(ArticleEmbedding).count()
-            unindexed_articles = total_articles - indexed_articles
-            
-            # 按来源统计
-            source_stats = {}
-            embeddings = self.db.query(ArticleEmbedding, Article).join(
-                Article, ArticleEmbedding.article_id == Article.id
-            ).all()
-            
-            for embedding_obj, article in embeddings:
-                source = article.source
-                if source not in source_stats:
-                    source_stats[source] = 0
-                source_stats[source] += 1
-            
-            return {
-                "total_articles": total_articles,
-                "indexed_articles": indexed_articles,
-                "unindexed_articles": unindexed_articles,
-                "index_coverage": indexed_articles / total_articles if total_articles > 0 else 0.0,
-                "source_stats": source_stats
-            }
+            vec_count_before = self.db.execute(
+                text("SELECT COUNT(*) FROM vec_embeddings")
+            ).scalar() or 0
         except Exception as e:
-            logger.error(f"❌ 获取索引统计失败: {e}")
-            return {
-                "total_articles": 0,
-                "indexed_articles": 0,
-                "unindexed_articles": 0,
-                "index_coverage": 0.0,
-                "source_stats": {}
-            }
+            raise VectorSearchUnavailable(f"无法读取 vec_embeddings: {e}")
+
+        vec_ids = {
+            row[0]
+            for row in self.db.execute(text("SELECT article_id FROM vec_embeddings"))
+        }
+        json_rows = self.db.execute(
+            text("SELECT article_id FROM article_embeddings ORDER BY article_id")
+        ).fetchall()
+        missing_ids = [row[0] for row in json_rows if row[0] not in vec_ids]
+
+        logger.info(
+            "vec0 回填开始: json=%s vec=%s missing=%s batch_size=%s",
+            json_count, vec_count_before, len(missing_ids), batch_size,
+        )
+
+        synced = 0
+        skipped = 0
+        failed = 0
+
+        for offset in range(0, len(missing_ids), batch_size):
+            batch_ids = missing_ids[offset:offset + batch_size]
+            embeddings = (
+                self.db.query(ArticleEmbedding)
+                .options(
+                    load_only(ArticleEmbedding.article_id, ArticleEmbedding.embedding)
+                )
+                .filter(ArticleEmbedding.article_id.in_(batch_ids))
+                .all()
+            )
+            for item in embeddings:
+                if not item.embedding:
+                    skipped += 1
+                    continue
+                try:
+                    vector_str = _embedding_to_vec_string(item.embedding)
+                    self.db.execute(
+                        text("DELETE FROM vec_embeddings WHERE article_id = :article_id"),
+                        {"article_id": item.article_id},
+                    )
+                    self.db.execute(
+                        text("""
+                            INSERT INTO vec_embeddings (article_id, embedding)
+                            VALUES (:article_id, :embedding)
+                        """),
+                        {"article_id": item.article_id, "embedding": vector_str},
+                    )
+                    synced += 1
+                except Exception as e:
+                    failed += 1
+                    logger.warning(
+                        "回填 article_id=%s 失败: %s", item.article_id, e
+                    )
+            self.db.commit()
+            logger.info(
+                "vec0 回填进度: %s/%s (synced=%s failed=%s)",
+                min(offset + batch_size, len(missing_ids)),
+                len(missing_ids),
+                synced,
+                failed,
+            )
+
+        vec_count_after = self.db.execute(
+            text("SELECT COUNT(*) FROM vec_embeddings")
+        ).scalar() or 0
+
+        message = (
+            f"JSON→vec0 回填完成: 同步 {synced}，跳过 {skipped}，失败 {failed}，"
+            f"vec {vec_count_before} → {vec_count_after}"
+        )
+        logger.info(message)
+        return {
+            "json_count": json_count,
+            "vec_count_before": vec_count_before,
+            "vec_count_after": vec_count_after,
+            "missing_before": len(missing_ids),
+            "synced": synced,
+            "skipped": skipped,
+            "failed": failed,
+            "message": message,
+        }
 

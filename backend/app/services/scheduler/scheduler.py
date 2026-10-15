@@ -60,15 +60,6 @@ class TaskScheduler:
         self.collector = CollectionService(ai_analyzer=self.ai_analyzer)
         logger.info("✅ 采集服务初始化成功")
 
-    def reload_ai_analyzer(self) -> None:
-        """从数据库重新加载 LLM 配置并更新采集服务使用的分析器"""
-        self.ai_analyzer = create_ai_analyzer()
-        self.collector = CollectionService(ai_analyzer=self.ai_analyzer)
-        if self.ai_analyzer:
-            logger.info(f"✅ AI分析器已热重载，当前模型: {self.ai_analyzer.model}")
-        else:
-            logger.warning("⚠️  AI分析器热重载失败，未配置有效 LLM")
-
         # 通知服务（如果存在）
         try:
             from backend.app.services.notification import NotificationService
@@ -99,6 +90,15 @@ class TaskScheduler:
         # 数据库
         self.db = get_db()
         logger.info("✅ 数据库初始化成功")
+
+    def reload_ai_analyzer(self) -> None:
+        """从数据库重新加载 LLM 配置并更新采集服务使用的分析器"""
+        self.ai_analyzer = create_ai_analyzer(force_new=True)
+        self.collector = CollectionService(ai_analyzer=self.ai_analyzer)
+        if self.ai_analyzer:
+            logger.info(f"✅ AI分析器已热重载，当前模型: {self.ai_analyzer.model}")
+        else:
+            logger.warning("⚠️  AI分析器热重载失败，未配置有效 LLM")
 
     def add_collection_job(self, interval_hours: int = None):
         """
@@ -324,7 +324,7 @@ class TaskScheduler:
             logger.info("📝 开始执行每日摘要任务")
             logger.info(f"⏰ 时间: {datetime.now()}")
 
-            ai_analyzer = create_ai_analyzer()
+            ai_analyzer = create_ai_analyzer(force_new=True)
             if not ai_analyzer:
                 logger.warning("⚠️  AI分析器未配置，跳过摘要生成")
                 return
@@ -378,7 +378,7 @@ class TaskScheduler:
             logger.info("📝 开始执行每周摘要任务")
             logger.info(f"⏰ 时间: {datetime.now()}")
 
-            ai_analyzer = create_ai_analyzer()
+            ai_analyzer = create_ai_analyzer(force_new=True)
             if not ai_analyzer:
                 logger.warning("⚠️  AI分析器未配置，跳过摘要生成")
                 return

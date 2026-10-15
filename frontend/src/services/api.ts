@@ -33,6 +33,7 @@ import type {
   RAGQueryResponse,
   RAGStatsResponse,
   RAGBatchIndexResponse,
+  RAGVecSyncResponse,
   SocialMediaPost,
   SocialMediaReport,
   SocialMediaReportRequest,
@@ -830,6 +831,12 @@ class ApiService {
   async rebuildAllIndexes(batchSize: number = 10): Promise<RAGBatchIndexResponse> {
     return this.handleRequest(
       this.client.post<RAGBatchIndexResponse>(`/rag/index/rebuild?batch_size=${batchSize}`)
+    );
+  }
+
+  async syncVecFromJson(batchSize: number = 200): Promise<RAGVecSyncResponse> {
+    return this.handleRequest(
+      this.client.post<RAGVecSyncResponse>(`/rag/index/sync-vec?batch_size=${batchSize}`)
     );
   }
 
