@@ -9,6 +9,15 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
+# 推理模型正文被思考 token 挤空时的重试预算与超时
+REASONING_MIN_TOKENS = 16_000
+REASONING_MAX_TOKENS = 32_000
+REASONING_TIMEOUT = 600.0
+
+
+class EmptyCompletionError(ValueError):
+    """模型调用成功但正文为空（常见于推理模型 max_tokens 不足）"""
+
 
 class AIAnalyzer:
     """AI内容分析器"""
@@ -96,8 +105,54 @@ class AIAnalyzer:
             "429",
             "rate limit",
             "too many requests",
+            "返回空内容",
         )
         return any(signal in text for signal in signals)
+
+    @staticmethod
+    def _create_completion(
+        client: OpenAI,
+        model: str,
+        messages: List[Dict[str, str]],
+        temperature: float,
+        max_tokens: int,
+        purpose: str,
+    ) -> str:
+        """单次调用；推理模型把 max_tokens 全用在思考上导致正文为空时，放大预算重试一次。
+
+        推理（thinking）token 计入 max_tokens：预算不足时接口仍返回 200，
+        但 finish_reason=length 且正文为空，绝不能把空串当成功结果。
+        """
+        budget = max_tokens
+        for attempt in range(2):
+            response = client.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=budget,
+            )
+            choice = response.choices[0]
+            content = (choice.message.content or "").strip()
+            if content:
+                return content
+
+            details = getattr(response.usage, "completion_tokens_details", None)
+            reasoning_tokens = getattr(details, "reasoning_tokens", None) or 0
+            truncated = choice.finish_reason == "length"
+            if attempt == 0 and truncated and budget < REASONING_MAX_TOKENS:
+                budget = min(max(budget * 8, REASONING_MIN_TOKENS), REASONING_MAX_TOKENS)
+                current = client.timeout if isinstance(client.timeout, (int, float)) else 0
+                client = client.with_options(timeout=max(current, REASONING_TIMEOUT))
+                logger.warning(
+                    f"⚠️ {model} 正文为空（finish_reason=length，思考 token {reasoning_tokens}），"
+                    f"放大 max_tokens 至 {budget} 重试 ({purpose})"
+                )
+                continue
+            raise EmptyCompletionError(
+                f"LLM 返回空内容 (model={model}, finish_reason={choice.finish_reason}, "
+                f"max_tokens={budget}, reasoning_tokens={reasoning_tokens})"
+            )
+        raise EmptyCompletionError(f"LLM 返回空内容 (model={model})")
 
     def _chat_completion_text(
         self,
@@ -128,18 +183,10 @@ class AIAnalyzer:
             if overrides:
                 client = client.with_options(**overrides)
             try:
-                response = client.chat.completions.create(
-                    model=model,
-                    messages=messages,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                )
-                content = response.choices[0].message.content
-                if content is None:
-                    raise ValueError("LLM 返回空内容")
+                content = self._create_completion(client, model, messages, temperature, max_tokens, purpose)
                 if label == "fallback":
                     logger.info(f"✅ 备用模型调用成功 ({purpose}): {model}")
-                return content.strip()
+                return content
             except Exception as exc:
                 errors.append(f"{label}({model}): {exc}")
                 has_fallback = index == 0 and len(clients) > 1
