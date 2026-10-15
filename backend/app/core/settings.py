@@ -114,6 +114,8 @@ class Settings:
         self.EXPLORATION_USE_INDEPENDENT_PROVIDER: bool = False
         self.SELECTED_EXPLORATION_PROVIDER_ID: Optional[int] = None
         self.SELECTED_EXPLORATION_MODELS: List[str] = []
+        self.SELECTED_FALLBACK_LLM_PROVIDER_ID: Optional[int] = None
+        self.SELECTED_FALLBACK_LLM_MODELS: List[str] = []
         
         # 图片生成提供商选择配置（从数据库加载）
         self.SELECTED_IMAGE_PROVIDER_ID: Optional[int] = None
@@ -657,11 +659,19 @@ class Settings:
                 selected_exploration_models_str = AppSettingsRepository.get_setting(
                     session, "selected_exploration_models", ""
                 )
+                selected_fallback_llm_provider_id = AppSettingsRepository.get_setting(
+                    session, "selected_fallback_llm_provider_id", None
+                )
+                selected_fallback_llm_models_str = AppSettingsRepository.get_setting(
+                    session, "selected_fallback_llm_models", ""
+                )
                 self.SELECTED_LLM_MODELS = self._parse_models(selected_llm_models_str)
                 self.SELECTED_EMBEDDING_MODELS = self._parse_models(selected_embedding_models_str)
                 self.SELECTED_EXPLORATION_MODELS = self._parse_models(selected_exploration_models_str)
+                self.SELECTED_FALLBACK_LLM_MODELS = self._parse_models(selected_fallback_llm_models_str)
 
                 self.SELECTED_LLM_PROVIDER_ID = selected_llm_provider_id
+                self.SELECTED_FALLBACK_LLM_PROVIDER_ID = selected_fallback_llm_provider_id
                 self.SELECTED_EMBEDDING_PROVIDER_ID = selected_embedding_provider_id
 
                 if selected_llm_provider_id:
@@ -737,6 +747,8 @@ class Settings:
         exploration_use_independent_provider: Optional[bool] = None,
         selected_exploration_provider_id: Optional[int] = None,
         selected_exploration_models: Optional[List[str]] = None,
+        selected_fallback_llm_provider_id: Optional[int] = None,
+        selected_fallback_llm_models: Optional[List[str]] = None,
     ):
         """保存LLM配置到数据库（支持探索 Agent 独立模型）"""
         try:
@@ -835,11 +847,74 @@ class Settings:
                     )
                     self.SELECTED_EXPLORATION_MODELS = exploration_models
 
+                if selected_fallback_llm_provider_id is not None:
+                    AppSettingsRepository.set_setting(
+                        session,
+                        "selected_fallback_llm_provider_id",
+                        selected_fallback_llm_provider_id or 0,
+                        "int",
+                        "备用LLM提供商ID",
+                    )
+                    self.SELECTED_FALLBACK_LLM_PROVIDER_ID = (
+                        selected_fallback_llm_provider_id if selected_fallback_llm_provider_id else None
+                    )
+
+                if selected_fallback_llm_models is not None:
+                    AppSettingsRepository.set_setting(
+                        session,
+                        "selected_fallback_llm_models",
+                        ",".join(selected_fallback_llm_models),
+                        "string",
+                        "备用LLM模型列表（逗号分隔）",
+                    )
+                    self.SELECTED_FALLBACK_LLM_MODELS = selected_fallback_llm_models
+
             self.load_llm_settings()
             return True
         except Exception as e:
             logger.error(f"保存LLM配置失败: {e}")
             return False
+
+    def get_fallback_llm_provider_config(self) -> Optional[dict]:
+        """获取备用 LLM 提供商配置（与主模型相同时返回 None）"""
+        if not self.SELECTED_FALLBACK_LLM_PROVIDER_ID:
+            return None
+
+        primary = self.get_llm_provider_config()
+        try:
+            from backend.app.db import get_db
+            from backend.app.db.repositories import LLMProviderRepository
+
+            db = get_db()
+            if not hasattr(db, "engine"):
+                return None
+
+            with db.get_session() as session:
+                provider = LLMProviderRepository.get_by_id(
+                    session, self.SELECTED_FALLBACK_LLM_PROVIDER_ID
+                )
+                if not provider or not provider.enabled:
+                    return None
+
+                llm_models = self._parse_models(provider.llm_model)
+                selected_model = (
+                    self.SELECTED_FALLBACK_LLM_MODELS[0]
+                    if self.SELECTED_FALLBACK_LLM_MODELS
+                    else (llm_models[0] if llm_models else provider.llm_model)
+                )
+                if primary and primary.get("id") == provider.id and primary.get("selected_model") == selected_model:
+                    return None
+
+                return {
+                    "id": provider.id,
+                    "name": provider.name,
+                    "api_key": provider.api_key,
+                    "api_base": provider.api_base,
+                    "selected_model": selected_model,
+                }
+        except Exception as e:
+            logger.error(f"获取备用LLM提供商配置失败: {e}")
+            return None
 
     def get_llm_provider_config(self) -> Optional[dict]:
         """获取当前选定的LLM提供商配置"""

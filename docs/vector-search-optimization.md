@@ -36,7 +36,7 @@
 
 ### P2 缓存与日志
 
-- 进程内缓存 `AIAnalyzer` / embedding client；改 LLM/提供商或还原数据库时 `invalidate_ai_analyzer_cache()`
+- 进程内缓存 `AIAnalyzer` / embedding client。缓存键包含主模型、向量模型和备用 LLM。改 LLM/提供商或还原数据库时 `invalidate_ai_analyzer_cache()`；保存 LLM 配置后还会热重载调度器里的分析器（`force_new=True`）
 - query embedding 短 TTL LRU（默认 256 条 / 10 分钟）
 - 日志：`search path=sqlite-vec|python|refused embed_ms=… search_ms=…`
 

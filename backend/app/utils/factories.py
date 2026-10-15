@@ -89,6 +89,8 @@ def _analyzer_cache_key(
     llm_config: Dict,
     embedding_config: Dict,
     llm_api_key: str,
+    fallback_provider_id: Optional[int],
+    fallback_models: Tuple[str, ...],
 ) -> Tuple:
     return (
         llm_config.get("id"),
@@ -99,6 +101,8 @@ def _analyzer_cache_key(
         embedding_config.get("api_base"),
         (llm_api_key or "")[-6:],
         (embedding_config.get("api_key") or "")[-6:],
+        fallback_provider_id,
+        fallback_models,
     )
 
 
@@ -144,8 +148,13 @@ def create_ai_analyzer(
     
     llm_model = llm_provider_config["selected_model"]
     embedding_model = embedding_provider_config["selected_model"]
+    fallback_models = tuple(settings.SELECTED_FALLBACK_LLM_MODELS or [])
     cache_key = _analyzer_cache_key(
-        llm_provider_config, embedding_provider_config, llm_api_key
+        llm_provider_config,
+        embedding_provider_config,
+        llm_api_key,
+        settings.SELECTED_FALLBACK_LLM_PROVIDER_ID,
+        fallback_models,
     )
 
     with _ANALYZER_LOCK:
@@ -162,6 +171,19 @@ def create_ai_analyzer(
         f"向量提供商ID={embedding_provider_config['id']}"
     )
     
+    fallback_config = settings.get_fallback_llm_provider_config()
+    fallback_kwargs = {}
+    if fallback_config:
+        fallback_kwargs = {
+            "fallback_api_key": fallback_config["api_key"],
+            "fallback_base_url": fallback_config["api_base"],
+            "fallback_model": fallback_config["selected_model"],
+        }
+        logger.info(
+            f"备用LLM已配置: 模型={fallback_config['selected_model']}, "
+            f"提供商ID={fallback_config['id']}"
+        )
+
     if llm_provider_config["id"] != embedding_provider_config["id"]:
         analyzer = _create_analyzer_with_separate_providers(
             llm_provider_config,
@@ -177,6 +199,9 @@ def create_ai_analyzer(
             llm_model,
             embedding_model
         )
+
+    if fallback_kwargs:
+        analyzer.configure_fallback(**fallback_kwargs)
 
     with _ANALYZER_LOCK:
         _CACHED_ANALYZER = analyzer

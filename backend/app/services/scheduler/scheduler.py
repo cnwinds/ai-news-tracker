@@ -4,6 +4,7 @@
 import logging
 import uuid
 from datetime import datetime, timedelta
+from typing import Optional
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -21,6 +22,19 @@ from backend.app.utils import create_ai_analyzer, setup_logger
 load_dotenv()
 
 logger = setup_logger(__name__)
+
+_scheduler_instance: Optional["TaskScheduler"] = None
+
+
+def set_scheduler_instance(scheduler: "TaskScheduler") -> None:
+    global _scheduler_instance
+    _scheduler_instance = scheduler
+
+
+def reload_scheduler_ai_analyzer() -> None:
+    """保存 LLM 配置后热重载调度器中的 AI 分析器（避免仍使用旧模型）"""
+    if _scheduler_instance is not None:
+        _scheduler_instance.reload_ai_analyzer()
 
 
 class TaskScheduler:
@@ -76,6 +90,15 @@ class TaskScheduler:
         # 数据库
         self.db = get_db()
         logger.info("✅ 数据库初始化成功")
+
+    def reload_ai_analyzer(self) -> None:
+        """从数据库重新加载 LLM 配置并更新采集服务使用的分析器"""
+        self.ai_analyzer = create_ai_analyzer(force_new=True)
+        self.collector = CollectionService(ai_analyzer=self.ai_analyzer)
+        if self.ai_analyzer:
+            logger.info(f"✅ AI分析器已热重载，当前模型: {self.ai_analyzer.model}")
+        else:
+            logger.warning("⚠️  AI分析器热重载失败，未配置有效 LLM")
 
     def add_collection_job(self, interval_hours: int = None):
         """
@@ -301,14 +324,16 @@ class TaskScheduler:
             logger.info("📝 开始执行每日摘要任务")
             logger.info(f"⏰ 时间: {datetime.now()}")
 
-            if not self.ai_analyzer:
+            ai_analyzer = create_ai_analyzer(force_new=True)
+            if not ai_analyzer:
                 logger.warning("⚠️  AI分析器未配置，跳过摘要生成")
                 return
 
             # 使用总结生成器生成每日总结
             # 自动执行时统计昨天的内容
             from backend.app.services.collector.summary_generator import SummaryGenerator
-            summary_generator = SummaryGenerator(self.ai_analyzer)
+            logger.info(f"🤖 每日摘要使用模型: {ai_analyzer.model}")
+            summary_generator = SummaryGenerator(ai_analyzer)
             yesterday = datetime.now() - timedelta(days=1)
             summary_obj = summary_generator.generate_daily_summary(self.db, yesterday)
 
@@ -353,7 +378,8 @@ class TaskScheduler:
             logger.info("📝 开始执行每周摘要任务")
             logger.info(f"⏰ 时间: {datetime.now()}")
 
-            if not self.ai_analyzer:
+            ai_analyzer = create_ai_analyzer(force_new=True)
+            if not ai_analyzer:
                 logger.warning("⚠️  AI分析器未配置，跳过摘要生成")
                 return
 
@@ -361,7 +387,8 @@ class TaskScheduler:
             # 自动执行时统计上周的内容（上周六到上周五）
             # 由于每周总结在周六执行，需要传递上周六的日期
             from backend.app.services.collector.summary_generator import SummaryGenerator
-            summary_generator = SummaryGenerator(self.ai_analyzer)
+            logger.info(f"🤖 每周摘要使用模型: {ai_analyzer.model}")
+            summary_generator = SummaryGenerator(ai_analyzer)
             # 计算上周六的日期
             # 如果今天是周六，上周六是7天前；如果今天是其他日期，计算距离上周六的天数
             now = datetime.now()
@@ -850,6 +877,7 @@ class TaskScheduler:
 def create_scheduler() -> TaskScheduler:
     """创建并配置调度器实例"""
     scheduler = TaskScheduler()
+    set_scheduler_instance(scheduler)
     scheduler.start()
     return scheduler
 

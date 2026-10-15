@@ -219,6 +219,8 @@ export interface LLMSettings {
   exploration_use_independent_provider?: boolean;
   selected_exploration_provider_id?: number | null;
   selected_exploration_models?: string[] | null;
+  selected_fallback_llm_provider_id?: number | null;
+  selected_fallback_llm_models?: string[] | null;
 }
 
 export interface ImageProvider {

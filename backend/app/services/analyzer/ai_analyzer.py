@@ -48,9 +48,96 @@ class AIAnalyzer:
                 logger.info(f"✅ AI分析器初始化成功 (LLM: {model}, Embedding: {embedding_model} - 同一提供商)")
             
             self.embedding_model = embedding_model
+            self.fallback_client: Optional[OpenAI] = None
+            self.fallback_model: Optional[str] = None
         except Exception as e:
             logger.error(f"❌ AI分析器初始化失败: {e}")
             raise
+
+    def configure_fallback(
+        self,
+        fallback_api_key: str,
+        fallback_base_url: str,
+        fallback_model: str,
+    ) -> None:
+        """配置备用 LLM（主模型安全拦截或 503 等失败时使用）"""
+        if not fallback_api_key or not fallback_base_url or not fallback_model:
+            self.fallback_client = None
+            self.fallback_model = None
+            return
+        primary_base = str(getattr(self.client, "base_url", "") or "")
+        if fallback_model == self.model and fallback_base_url.rstrip("/") == primary_base.rstrip("/"):
+            self.fallback_client = None
+            self.fallback_model = None
+            return
+        self.fallback_client = OpenAI(
+            api_key=fallback_api_key,
+            base_url=fallback_base_url,
+            timeout=60.0,
+            max_retries=2,
+        )
+        self.fallback_model = fallback_model
+
+    @staticmethod
+    def should_retry_with_fallback(error: Exception) -> bool:
+        """判断主模型失败后是否应切换备用模型重试"""
+        text = str(error).lower()
+        signals = (
+            "不安全",
+            "敏感",
+            "content_filter",
+            "content filter",
+            "safety",
+            "moderation",
+            "policy",
+            "blocked",
+            "503",
+            "service temporarily unavailable",
+            "429",
+            "rate limit",
+            "too many requests",
+        )
+        return any(signal in text for signal in signals)
+
+    def _chat_completion_text(
+        self,
+        messages: List[Dict[str, str]],
+        *,
+        temperature: float = 0.3,
+        max_tokens: int = 200,
+        purpose: str = "llm",
+    ) -> str:
+        """调用 LLM 并在可恢复错误时自动切换备用模型"""
+        clients: List[tuple] = [("primary", self.client, self.model)]
+        if self.fallback_client and self.fallback_model:
+            clients.append(("fallback", self.fallback_client, self.fallback_model))
+
+        errors: List[str] = []
+        for index, (label, client, model) in enumerate(clients):
+            try:
+                response = client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
+                content = response.choices[0].message.content
+                if content is None:
+                    raise ValueError("LLM 返回空内容")
+                if label == "fallback":
+                    logger.info(f"✅ 备用模型调用成功 ({purpose}): {model}")
+                return content.strip()
+            except Exception as exc:
+                errors.append(f"{label}({model}): {exc}")
+                has_fallback = index == 0 and len(clients) > 1
+                if has_fallback and self.should_retry_with_fallback(exc):
+                    logger.warning(
+                        f"⚠️ 主模型调用失败，切换备用模型 ({purpose}): {exc}"
+                    )
+                    continue
+                raise
+
+        raise RuntimeError("; ".join(errors))
 
     def analyze_article(self, article: Dict[str, Any] = None, custom_prompt: str = None, **kwargs) -> Dict[str, Any]:
         """
@@ -108,10 +195,8 @@ class AIAnalyzer:
                     # 对于邮件，增加token限制以支持更长的输出
                     max_tokens = 8000 if is_email else 4000
                     
-                    # 调用OpenAI API
-                    response = self.client.chat.completions.create(
-                        model=self.model,
-                        messages=[
+                    result_text = self._chat_completion_text(
+                        [
                             {
                                 "role": "system",
                                 "content": "你是一个专业的内容改写专家，擅长将长篇文章改写成结构完整、信息齐全、逻辑严密的精简短文。你的任务是提取文章的核心思想，为时间宝贵的核心读者（如投资人、合作伙伴、高级决策者）准备浓缩精华版，使其成为一篇独立、完整、且有说服力的作品。请使用中文输出所有内容。"
@@ -122,11 +207,9 @@ class AIAnalyzer:
                             }
                         ],
                         temperature=0.3,
-                        max_tokens=max_tokens,  # 邮件使用8000，其他使用4000
+                        max_tokens=max_tokens,
+                        purpose="analyze_article",
                     )
-                    
-                    # 解析响应
-                    result_text = response.choices[0].message.content.strip()
 
                     logger.info(f"📦 AI原始响应长度: {len(result_text)} 字符")
 
@@ -391,9 +474,8 @@ class AIAnalyzer:
 
 中文翻译："""
 
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
+            translated = self._chat_completion_text(
+                [
                     {
                         "role": "system",
                         "content": "你是一个专业的翻译助手，擅长准确翻译技术文章内容。"
@@ -405,9 +487,8 @@ class AIAnalyzer:
                 ],
                 temperature=0.3,
                 max_tokens=4000,
+                purpose="translate_content",
             )
-
-            translated = response.choices[0].message.content.strip()
             return translated
 
         except Exception as e:
@@ -431,9 +512,8 @@ class AIAnalyzer:
             
             prompt = f"请将以下标题翻译成{target_language}，只返回翻译结果，不要添加任何解释：\n\n{title}"
             
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
+            return self._chat_completion_text(
+                [
                     {
                         "role": "system",
                         "content": "你是一个专业的翻译助手，擅长翻译技术文章标题。"
@@ -445,10 +525,8 @@ class AIAnalyzer:
                 ],
                 temperature=0.3,
                 max_tokens=200,
+                purpose="translate_title",
             )
-            
-            translated = response.choices[0].message.content.strip()
-            return translated
             
         except Exception as e:
             logger.warning(f"⚠️  标题翻译失败: {e}")
@@ -485,9 +563,8 @@ class AIAnalyzer:
 
 中文标题："""
             
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
+            translated = self._chat_completion_text(
+                [
                     {
                         "role": "system",
                         "content": "你是一个专业的翻译助手，擅长根据文章内容准确翻译技术文章标题。"
@@ -499,12 +576,9 @@ class AIAnalyzer:
                 ],
                 temperature=0.3,
                 max_tokens=200,
+                purpose="translate_title_with_context",
             )
-            
-            translated = response.choices[0].message.content.strip()
-            # 去除可能的引号
-            translated = translated.strip('"').strip("'").strip()
-            return translated
+            return translated.strip('"').strip("'").strip()
             
         except Exception as e:
             logger.warning(f"⚠️  标题翻译失败: {e}")

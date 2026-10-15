@@ -96,6 +96,14 @@ class LLMSettings(BaseModel):
         default=None,
         description="自主探索独立模型列表",
     )
+    selected_fallback_llm_provider_id: Optional[int] = Field(
+        default=None,
+        description="备用LLM提供商ID（主模型安全拦截或503等失败时切换）",
+    )
+    selected_fallback_llm_models: Optional[List[str]] = Field(
+        default=None,
+        description="备用LLM模型列表",
+    )
 
 
 class CollectorSettings(BaseModel):
