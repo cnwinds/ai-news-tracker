@@ -23,7 +23,7 @@ load_dotenv()
 
 logger = setup_logger(__name__)
 
-_scheduler_instance: "TaskScheduler | None" = None
+_scheduler_instance: Optional["TaskScheduler"] = None
 
 
 def set_scheduler_instance(scheduler: "TaskScheduler") -> None:
