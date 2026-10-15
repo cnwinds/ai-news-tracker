@@ -17,6 +17,7 @@ export interface LLMFormValues {
   exploration_execution_mode?: 'auto' | 'agent' | 'deterministic';
   exploration_use_independent_provider?: boolean;
   selected_exploration_provider_id?: string | null;
+  selected_fallback_llm_provider_id?: string | null;
 }
 
 export interface ImageFormValues {

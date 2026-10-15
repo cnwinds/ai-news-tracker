@@ -174,6 +174,10 @@ export default function LLMSettingsTab() {
           llmSettings.selected_exploration_provider_id,
           llmSettings.selected_exploration_models,
         ),
+        selected_fallback_llm_provider_id: toProviderAndModel(
+          llmSettings.selected_fallback_llm_provider_id,
+          llmSettings.selected_fallback_llm_models,
+        ),
         exploration_execution_mode: llmSettings.exploration_execution_mode || 'auto',
         exploration_use_independent_provider: llmSettings.exploration_use_independent_provider || false,
       });
@@ -190,6 +194,9 @@ export default function LLMSettingsTab() {
     const { providerId: selected_exploration_provider_id, models: selected_exploration_models } = parseProviderAndModel(
       values.selected_exploration_provider_id,
     );
+    const { providerId: selected_fallback_llm_provider_id, models: selected_fallback_llm_models } = parseProviderAndModel(
+      values.selected_fallback_llm_provider_id,
+    );
     
     updateLLMMutation.mutate({
       selected_llm_provider_id,
@@ -200,6 +207,8 @@ export default function LLMSettingsTab() {
       exploration_use_independent_provider: values.exploration_use_independent_provider || false,
       selected_exploration_provider_id,
       selected_exploration_models,
+      selected_fallback_llm_provider_id,
+      selected_fallback_llm_models,
     });
   };
 
@@ -400,6 +409,20 @@ export default function LLMSettingsTab() {
               />
             </Form.Item>
 
+            <Form.Item
+              name="selected_fallback_llm_provider_id"
+              label="备用大模型（可选）"
+              tooltip="主模型因安全策略拦截、503 或限流失败时，自动切换到此模型完成标题翻译与文章分析"
+            >
+              <Select
+                placeholder="不配置备用模型"
+                style={{ width: '100%' }}
+                disabled={!isAuthenticated}
+                allowClear
+                options={llmProviderOptions}
+              />
+            </Form.Item>
+
             <Card size="small" title="自主探索 Agent 模式" style={{ marginBottom: 24 }}>
               <Form.Item
                 name="exploration_execution_mode"
@@ -471,6 +494,10 @@ export default function LLMSettingsTab() {
                         selected_exploration_provider_id: toProviderAndModel(
                           llmSettings.selected_exploration_provider_id,
                           llmSettings.selected_exploration_models,
+                        ),
+                        selected_fallback_llm_provider_id: toProviderAndModel(
+                          llmSettings.selected_fallback_llm_provider_id,
+                          llmSettings.selected_fallback_llm_models,
                         ),
                         exploration_execution_mode: llmSettings.exploration_execution_mode || 'auto',
                         exploration_use_independent_provider: llmSettings.exploration_use_independent_provider || false,

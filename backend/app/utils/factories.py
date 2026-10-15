@@ -113,18 +113,35 @@ def create_ai_analyzer(api_key: Optional[str] = None) -> Optional[AIAnalyzer]:
         f"向量提供商ID={embedding_provider_config['id']}"
     )
     
+    fallback_config = settings.get_fallback_llm_provider_config()
+    fallback_kwargs = {}
+    if fallback_config:
+        fallback_kwargs = {
+            "fallback_api_key": fallback_config["api_key"],
+            "fallback_base_url": fallback_config["api_base"],
+            "fallback_model": fallback_config["selected_model"],
+        }
+        logger.info(
+            f"备用LLM已配置: 模型={fallback_config['selected_model']}, "
+            f"提供商ID={fallback_config['id']}"
+        )
+
     if llm_provider_config["id"] != embedding_provider_config["id"]:
-        return _create_analyzer_with_separate_providers(
+        analyzer = _create_analyzer_with_separate_providers(
             llm_provider_config,
             embedding_provider_config,
             llm_api_key,
             llm_model,
             embedding_model
         )
-    
-    return _create_analyzer_with_same_provider(
-        llm_provider_config,
-        llm_api_key,
-        llm_model,
-        embedding_model
-    )
+    else:
+        analyzer = _create_analyzer_with_same_provider(
+            llm_provider_config,
+            llm_api_key,
+            llm_model,
+            embedding_model
+        )
+
+    if fallback_kwargs:
+        analyzer.configure_fallback(**fallback_kwargs)
+    return analyzer

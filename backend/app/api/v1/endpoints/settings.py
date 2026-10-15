@@ -283,6 +283,8 @@ async def get_llm_settings():
         exploration_use_independent_provider=settings.EXPLORATION_USE_INDEPENDENT_PROVIDER,
         selected_exploration_provider_id=settings.SELECTED_EXPLORATION_PROVIDER_ID,
         selected_exploration_models=settings.SELECTED_EXPLORATION_MODELS,
+        selected_fallback_llm_provider_id=settings.SELECTED_FALLBACK_LLM_PROVIDER_ID,
+        selected_fallback_llm_models=settings.SELECTED_FALLBACK_LLM_MODELS,
     )
 
 
@@ -301,12 +303,21 @@ async def update_llm_settings(
         exploration_use_independent_provider=new_settings.exploration_use_independent_provider,
         selected_exploration_provider_id=new_settings.selected_exploration_provider_id,
         selected_exploration_models=new_settings.selected_exploration_models,
+        selected_fallback_llm_provider_id=new_settings.selected_fallback_llm_provider_id,
+        selected_fallback_llm_models=new_settings.selected_fallback_llm_models,
     )
     if not success:
         raise HTTPException(status_code=500, detail="保存LLM配置失败")
     
     # 重新加载配置
     settings.load_settings_from_db()
+    try:
+        from backend.app.services.scheduler.scheduler import reload_scheduler_ai_analyzer
+
+        reload_scheduler_ai_analyzer()
+    except Exception as reload_error:
+        logger.warning(f"热重载调度器 AI 分析器失败: {reload_error}")
+
     return LLMSettings(
         selected_llm_provider_id=settings.SELECTED_LLM_PROVIDER_ID,
         selected_embedding_provider_id=settings.SELECTED_EMBEDDING_PROVIDER_ID,
@@ -316,6 +327,8 @@ async def update_llm_settings(
         exploration_use_independent_provider=settings.EXPLORATION_USE_INDEPENDENT_PROVIDER,
         selected_exploration_provider_id=settings.SELECTED_EXPLORATION_PROVIDER_ID,
         selected_exploration_models=settings.SELECTED_EXPLORATION_MODELS,
+        selected_fallback_llm_provider_id=settings.SELECTED_FALLBACK_LLM_PROVIDER_ID,
+        selected_fallback_llm_models=settings.SELECTED_FALLBACK_LLM_MODELS,
     )
 
 
