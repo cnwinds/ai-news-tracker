@@ -347,6 +347,10 @@
   line-height: 1.35;
 }
 
+.m-reader .reader__head .reader__title {
+  font-size: 20px;
+}
+
 .m-reader .reader__brief {
   padding: 16px;
   margin: 0 -4px;

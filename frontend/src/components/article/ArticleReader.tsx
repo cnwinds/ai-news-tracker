@@ -65,12 +65,6 @@ function parseDetailedSummary(article: Article): string {
   return getSummaryText(article);
 }
 
-const IMPORTANCE_CHIP: Record<string, string> = {
-  high: 'chip chip--danger',
-  medium: 'chip chip--warning',
-  low: 'chip',
-};
-
 export default function ArticleReader({
   articleId,
   preview,
@@ -245,32 +239,30 @@ export default function ArticleReader({
         </div>
       </div>
 
-      <header>
-        <div className="reader__kicker">
-          {article.importance && (
-            <span className={IMPORTANCE_CHIP[article.importance] || 'chip'}>
-              <span className={`dot dot--${article.importance}`} style={{ boxShadow: 'none' }} />
-              {getImportanceLabel(article.importance)}重要度
-            </span>
-          )}
-          {article.category && <span className="chip">{article.category}</span>}
-          {article.is_processed && (
-            <span className="chip chip--accent">
-              <RobotOutlined /> AI 已分析
-            </span>
-          )}
-        </div>
+      <header className="reader__head">
         <h1 className="reader__title">{displayTitle}</h1>
         {article.title_zh && article.title_zh !== article.title && (
-          <p className="reader__subtitle">{article.title}</p>
+          <p className="reader__subtitle" title={article.title}>{article.title}</p>
         )}
         <div className="reader__meta">
+          {article.importance && (
+            <span className={`reader__meta-item reader__meta-item--${article.importance}`}>
+              <span className={`dot dot--${article.importance}`} style={{ boxShadow: 'none' }} />
+              {getImportanceLabel(article.importance)}
+            </span>
+          )}
+          {article.category && <span className="reader__meta-item">{article.category}</span>}
           {publishedAt && (
             <span className="reader__meta-item mono">{publishedAt.format('YYYY-MM-DD HH:mm')}</span>
           )}
-          {data?.author && <span className="reader__meta-item">作者 · {data.author}</span>}
-          {data?.target_audience && <span className="reader__meta-item">面向 · {data.target_audience}</span>}
-          <span className="reader__meta-item">采集于 {dayjs(article.collected_at).locale('zh-cn').fromNow()}</span>
+          {data?.author && (
+            <span className="reader__meta-item reader__meta-item--clip" title={data.author}>
+              {data.author}
+            </span>
+          )}
+          <span className="reader__meta-item" title={dayjs(article.collected_at).format('YYYY-MM-DD HH:mm')}>
+            采集于 {dayjs(article.collected_at).locale('zh-cn').fromNow()}
+          </span>
         </div>
       </header>
 
@@ -280,10 +272,10 @@ export default function ArticleReader({
         <>
           {brief && (
             <section className="reader__section">
-              <div className="reader__section-head">
-                <span className="eyebrow">{data?.detailed_summary ? 'AI 精读' : '摘要'}</span>
-              </div>
               <div className="reader__brief">
+                <span className="reader__brief-label eyebrow">
+                  {data?.detailed_summary ? 'AI 精读' : '摘要'}
+                </span>
                 <Markdown>{brief}</Markdown>
               </div>
             </section>

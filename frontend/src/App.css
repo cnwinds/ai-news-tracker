@@ -1041,8 +1041,8 @@ a {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 12px 0;
-  margin-bottom: 20px;
+  padding: 8px 0;
+  margin-bottom: 14px;
   background: color-mix(in srgb, var(--c-surface) 90%, transparent);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
@@ -1098,8 +1098,62 @@ a {
   gap: 6px;
 }
 
+/* 文章阅读器头部：标题 + 一行原标题 + 一行元信息，把纵向空间留给正文 */
+.reader__head {
+  margin-bottom: 16px;
+}
+
+.reader__head .reader__title {
+  font-size: 22px;
+  letter-spacing: -0.02em;
+  line-height: 1.35;
+}
+
+.reader__head .reader__subtitle {
+  margin-top: 4px;
+  overflow: hidden;
+  font-size: 12.5px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.reader__head .reader__meta {
+  gap: 4px 0;
+  margin: 8px 0 0;
+  padding-bottom: 0;
+  border-bottom: 0;
+  font-size: 12px;
+}
+
+.reader__head .reader__meta-item {
+  gap: 5px;
+  min-width: 0;
+}
+
+.reader__head .reader__meta-item + .reader__meta-item::before {
+  content: '·';
+  margin: 0 8px;
+  color: var(--c-border-strong);
+}
+
+.reader__meta-item--high {
+  color: var(--c-danger);
+}
+
+.reader__meta-item--medium {
+  color: var(--c-warning);
+}
+
+.reader__meta-item--clip {
+  display: inline-block;
+  max-width: 220px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 .reader__section {
-  margin-bottom: 32px;
+  margin-bottom: 24px;
 }
 
 .reader__section-head {
@@ -1110,9 +1164,15 @@ a {
   margin-bottom: 12px;
 }
 
+.reader__brief-label {
+  float: right;
+  margin: -4px -4px 6px 14px;
+  color: var(--c-accent-text);
+}
+
 .reader__brief {
   position: relative;
-  padding: 20px 22px;
+  padding: 16px 18px;
   border-radius: var(--radius-lg);
   background: linear-gradient(180deg, var(--c-accent-soft), transparent 140px), var(--c-bg-subtle);
   border: 1px solid var(--c-border);
