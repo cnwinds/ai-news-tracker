@@ -1,18 +1,20 @@
 /**
  * 密码修改标签页组件
  */
-import { Form, Input, Button, Card, Alert } from 'antd';
+import { Form, Input, Button } from 'antd';
 import { LockOutlined } from '@ant-design/icons';
 import { useMutation } from '@tanstack/react-query';
 import { apiService } from '@/services/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { useErrorHandler } from '@/hooks/useErrorHandler';
 import type { PasswordFormValues } from './types';
+import { SettingsPanel, SettingsSaveBar, useSettingsFormLayout } from './SettingsKit';
 
 export default function PasswordSettingsTab() {
   const { isAuthenticated } = useAuth();
   const { createErrorHandler, showSuccess, showError } = useErrorHandler();
   const [passwordForm] = Form.useForm();
+  const formLayout = useSettingsFormLayout();
 
   // 修改密码
   const changePasswordMutation = useMutation({
@@ -42,21 +44,15 @@ export default function PasswordSettingsTab() {
   };
 
   return (
-    <Card>
+    <SettingsPanel
+      title="登录密码"
+      description="新密码长度至少 6 位，建议包含字母、数字和特殊字符。"
+    >
       <Form
         form={passwordForm}
-        layout="vertical"
+        {...formLayout}
         onFinish={handlePasswordChange}
-        style={{ maxWidth: 500 }}
       >
-        <Alert
-          message="修改密码说明"
-          description="请确保新密码长度至少为6位，建议使用包含字母、数字和特殊字符的强密码。"
-          type="info"
-          showIcon
-          style={{ marginBottom: 24 }}
-        />
-
         <Form.Item
           name="oldPassword"
           label="当前密码"
@@ -66,6 +62,7 @@ export default function PasswordSettingsTab() {
             placeholder="请输入当前密码"
             prefix={<LockOutlined />}
             disabled={!isAuthenticated}
+            style={{ maxWidth: 360 }}
           />
         </Form.Item>
 
@@ -81,6 +78,7 @@ export default function PasswordSettingsTab() {
             placeholder="请输入新密码（至少6位）"
             prefix={<LockOutlined />}
             disabled={!isAuthenticated}
+            style={{ maxWidth: 360 }}
           />
         </Form.Item>
 
@@ -104,10 +102,11 @@ export default function PasswordSettingsTab() {
             placeholder="请再次输入新密码"
             prefix={<LockOutlined />}
             disabled={!isAuthenticated}
+            style={{ maxWidth: 360 }}
           />
         </Form.Item>
 
-        <Form.Item>
+        <SettingsSaveBar hint={isAuthenticated ? undefined : '登录后可修改'}>
           <Button
             type="primary"
             icon={<LockOutlined />}
@@ -117,8 +116,8 @@ export default function PasswordSettingsTab() {
           >
             修改密码
           </Button>
-        </Form.Item>
+        </SettingsSaveBar>
       </Form>
-    </Card>
+    </SettingsPanel>
   );
 }

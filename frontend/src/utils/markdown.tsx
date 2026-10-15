@@ -3,7 +3,7 @@
  * 统一的 ReactMarkdown 组件配置，支持主题切换
  */
 import type { ReactNode } from 'react';
-import type { Components } from 'react-markdown';
+import ReactMarkdown, { type Components } from 'react-markdown';
 import type { ThemeMode } from '@/contexts/ThemeContext';
 import { getThemeColor } from './theme';
 import remarkGfm from 'remark-gfm';
@@ -61,8 +61,9 @@ export function createMarkdownComponents(theme: ThemeMode): Components {
   const textSecondaryColor = getThemeColor(theme, 'textSecondary');
   const codeBg = getThemeColor(theme, 'codeBg');
   const codeText = getThemeColor(theme, 'codeText');
-  const borderColor = getThemeColor(theme, 'border');
-  const primaryColor = theme === 'dark' ? '#4096ff' : '#1890ff';
+  const borderColor = getThemeColor(theme, 'borderSecondary');
+  const primaryColor = 'var(--c-accent-text)';
+  const monoFont = 'var(--font-mono)';
 
   return {
     p: ({ children }: MarkdownComponentProps) => (
@@ -156,10 +157,11 @@ export function createMarkdownComponents(theme: ThemeMode): Components {
           <code style={{ 
             backgroundColor: codeBg,
             color: codeText,
-            padding: '2px 4px', 
-            borderRadius: '3px', 
-            fontSize: '0.9em',
-            fontFamily: 'monospace',
+            padding: '1px 6px',
+            borderRadius: '5px',
+            border: `1px solid ${borderColor}`,
+            fontSize: '0.86em',
+            fontFamily: monoFont,
           }}>
             {children}
           </code>
@@ -170,10 +172,11 @@ export function createMarkdownComponents(theme: ThemeMode): Components {
           display: 'block',
           backgroundColor: codeBg,
           color: codeText,
-          padding: '12px', 
-          borderRadius: '4px', 
-          fontSize: '0.9em',
-          fontFamily: 'monospace',
+          padding: '12px 14px',
+          borderRadius: '8px',
+          border: `1px solid ${borderColor}`,
+          fontSize: '0.85em',
+          fontFamily: monoFont,
           overflow: 'auto',
           marginBottom: '12px',
         }}>
@@ -183,11 +186,10 @@ export function createMarkdownComponents(theme: ThemeMode): Components {
     },
     blockquote: ({ children }: MarkdownComponentProps) => (
       <blockquote style={{ 
-        borderLeft: `3px solid ${borderColor}`,
+        borderLeft: '3px solid var(--c-accent-border)',
         paddingLeft: '1em', 
-        margin: '0.5em 0', 
+        margin: '0.75em 0',
         color: textSecondaryColor,
-        fontStyle: 'italic',
       }}>
         {children}
       </blockquote>
@@ -197,7 +199,9 @@ export function createMarkdownComponents(theme: ThemeMode): Components {
         href={href}
         style={{ 
           color: primaryColor, 
-          textDecoration: 'none' 
+          textDecoration: 'underline',
+          textDecorationColor: 'var(--c-accent-border)',
+          textUnderlineOffset: 3,
         }}
         target="_blank"
         rel="noopener noreferrer"
@@ -212,9 +216,10 @@ export function createMarkdownComponents(theme: ThemeMode): Components {
         style={{
           maxWidth: '100%',
           height: 'auto',
-          borderRadius: '6px',
+          borderRadius: '8px',
+          border: `1px solid ${borderColor}`,
           display: 'block',
-          margin: '8px 0',
+          margin: '10px 0',
         }}
         loading="lazy"
       />
@@ -272,6 +277,39 @@ export function createMarkdownComponents(theme: ThemeMode): Components {
       </td>
     ),
   };
+}
+
+const proseComponents: Components = {
+  a: ({ children, href }: MarkdownComponentProps) => (
+    <a href={href} target="_blank" rel="noopener noreferrer">
+      {children}
+    </a>
+  ),
+  img: ({ src, alt }: { src?: string; alt?: string }) => (
+    <img src={src} alt={alt || '文章图片'} loading="lazy" />
+  ),
+  table: ({ children }: MarkdownComponentProps) => (
+    <div className="prose-table">
+      <table>{children}</table>
+    </div>
+  ),
+};
+
+interface MarkdownProps {
+  children?: string | null;
+  compact?: boolean;
+  className?: string;
+}
+
+/** 长文排版：样式由全局 `.prose` 提供 */
+export function Markdown({ children, compact = false, className }: MarkdownProps) {
+  return (
+    <div className={['prose', compact ? 'prose--compact' : '', className || ''].filter(Boolean).join(' ')}>
+      <ReactMarkdown components={proseComponents} remarkPlugins={[remarkGfm]}>
+        {normalizeMarkdownImageContent(children || '')}
+      </ReactMarkdown>
+    </div>
+  );
 }
 
 /**

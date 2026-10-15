@@ -3,15 +3,12 @@
  */
 import { useEffect } from 'react';
 import {
-  Card,
   Form,
   Input,
   Button,
-  Alert,
   Spin,
   Switch,
   TimePicker,
-  Divider,
 } from 'antd';
 import { SaveOutlined } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -22,12 +19,14 @@ import { useErrorHandler } from '@/hooks/useErrorHandler';
 import { safeSetFieldsValue } from '@/utils/form';
 import type { SocialMediaSettings } from '@/types';
 import type { SocialMediaFormValues } from './types';
+import { SettingsPanel, SettingsSaveBar, SettingsSubhead, useSettingsFormLayout } from './SettingsKit';
 
 export default function SocialMediaSettingsTab() {
   const queryClient = useQueryClient();
   const { isAuthenticated } = useAuth();
   const { createErrorHandler, showSuccess } = useErrorHandler();
   const [socialMediaForm] = Form.useForm();
+  const formLayout = useSettingsFormLayout();
 
   // 获取社交平台配置
   const { data: socialMediaSettings, isLoading: socialMediaLoading } = useQuery({
@@ -83,19 +82,17 @@ export default function SocialMediaSettingsTab() {
 
   return (
     <Spin spinning={socialMediaLoading}>
-      <Card title="社交平台API密钥配置">
-        <Alert
-          message="配置说明"
-          description="请在此配置各社交平台的API密钥。如果某个平台未配置密钥，在生成日报时会自动跳过该平台。"
-          type="info"
-          showIcon
-          style={{ marginBottom: 24 }}
-        />
+      <SettingsPanel
+        title="平台 API 与定时任务"
+        description="未配置密钥的平台在生成日报时会自动跳过。"
+      >
         <Form
           form={socialMediaForm}
-          layout="vertical"
+          {...formLayout}
           onFinish={handleSocialMediaSave}
         >
+          <SettingsSubhead>API 密钥</SettingsSubhead>
+
           <Form.Item
             name="youtube_api_key"
             label="YouTube API密钥"
@@ -129,7 +126,7 @@ export default function SocialMediaSettingsTab() {
             />
           </Form.Item>
 
-          <Divider orientation="left">Reddit API配置</Divider>
+          <SettingsSubhead>Reddit</SettingsSubhead>
 
           <Form.Item
             name="reddit_client_id"
@@ -164,7 +161,7 @@ export default function SocialMediaSettingsTab() {
             />
           </Form.Item>
 
-          <Divider orientation="left">定时任务配置</Divider>
+          <SettingsSubhead>定时任务</SettingsSubhead>
 
           <Form.Item
             name="auto_report_enabled"
@@ -182,13 +179,13 @@ export default function SocialMediaSettingsTab() {
           >
             <TimePicker
               format="HH:mm"
-              style={{ width: '100%' }}
+              style={{ width: 180 }}
               disabled={!isAuthenticated}
               placeholder="请选择生成时间"
             />
           </Form.Item>
 
-          <Form.Item>
+          <SettingsSaveBar hint={isAuthenticated ? '修改后需保存才会生效' : '登录后可保存'}>
             <Button
               type="primary"
               icon={<SaveOutlined />}
@@ -198,9 +195,9 @@ export default function SocialMediaSettingsTab() {
             >
               保存配置
             </Button>
-          </Form.Item>
+          </SettingsSaveBar>
         </Form>
-      </Card>
+      </SettingsPanel>
     </Spin>
   );
 }

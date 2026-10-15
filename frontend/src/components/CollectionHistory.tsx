@@ -3,43 +3,62 @@
  */
 import { useState, useEffect } from 'react';
 import {
-  Card,
   Button,
   Table,
-  Tag,
-  Space,
-  Alert,
   Modal,
   Form,
   InputNumber,
   Tabs,
   List,
-  Typography,
-  Divider,
   Empty,
   Spin,
   Switch,
+  Tooltip,
 } from 'antd';
-import { 
-  PlayCircleOutlined, 
-  ReloadOutlined, 
-  SettingOutlined, 
+import {
+  PlayCircleOutlined,
+  ReloadOutlined,
+  SettingOutlined,
   StopOutlined,
-  CheckCircleOutlined,
-  CloseCircleOutlined 
 } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiService } from '@/services/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { useErrorHandler } from '@/hooks/useErrorHandler';
+import { useBreakpoint } from '@/hooks/useBreakpoint';
 import dayjs from 'dayjs';
 import type { CollectionTask, CollectionTaskStatus as CollectionTaskStatusResponse, AutoCollectionSettings, CollectionTaskDetail, CollectionTaskLog } from '@/types';
+import { SettingsNote, SettingsPanel, StatusDot, type StatusTone } from '@/components/settings/SettingsKit';
 
-const { Text, Paragraph } = Typography;
+const TASK_STATUS: Record<string, { tone: StatusTone; label: string }> = {
+  running: { tone: 'live', label: '运行中' },
+  completed: { tone: 'ok', label: '已完成' },
+  error: { tone: 'error', label: '失败' },
+};
+
+function TaskStatus({ status }: { status: string }) {
+  const meta = TASK_STATUS[status] ?? { tone: 'off' as StatusTone, label: status };
+  return <StatusDot tone={meta.tone}>{meta.label}</StatusDot>;
+}
+
+function formatDuration(duration?: number) {
+  return duration ? `${duration.toFixed(1)}秒` : '-';
+}
+
+function formatDateTime(time?: string, compact = false) {
+  if (!time) return '-';
+  const d = dayjs(time);
+  return (
+    <span className="settings-num" title={d.format('YYYY-MM-DD HH:mm:ss')}>
+      <span className="settings-muted">{d.format(compact ? 'MM-DD' : 'YYYY-MM-DD')}</span> {d.format('HH:mm:ss')}
+    </span>
+  );
+}
 
 export default function CollectionHistory() {
   const { isAuthenticated } = useAuth();
+  const { isMobile } = useBreakpoint();
   const [autoCollectionModalVisible, setAutoCollectionModalVisible] = useState(false);
   const [detailModalVisible, setDetailModalVisible] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
@@ -175,94 +194,76 @@ export default function CollectionHistory() {
     setDetailModalVisible(true);
   };
 
+  const countLink = (count: number, taskId: number, tab: string, danger = false) => (
+    <button
+      type="button"
+      className={`settings-num-link${!count ? ' settings-num-link--zero' : danger ? ' settings-num-link--danger' : ''}`}
+      onClick={() => handleOpenDetail(taskId, tab)}
+    >
+      {count ?? 0}
+    </button>
+  );
+
   const columns = [
     {
       title: 'ID',
       dataIndex: 'id',
       key: 'id',
-      width: 80,
+      width: 64,
+      render: (id: number) => <span className="settings-num settings-muted">#{id}</span>,
     },
     {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
-      width: 100,
-      render: (status: string) => {
-        const colors: Record<string, string> = {
-          running: 'processing',
-          completed: 'success',
-          error: 'error',
-        };
-        return <Tag color={colors[status] || 'default'}>{status}</Tag>;
-      },
+      width: 92,
+      render: (status: string) => <TaskStatus status={status} />,
     },
     {
       title: '新增文章',
       dataIndex: 'new_articles_count',
       key: 'new_articles_count',
-      width: 100,
-      render: (count: number, record: CollectionTask) => (
-        <a
-          onClick={() => handleOpenDetail(record.id, 'articles')}
-          style={{ cursor: 'pointer', color: '#1890ff' }}
-        >
-          {count}
-        </a>
-      ),
+      width: 76,
+      align: 'right' as const,
+      render: (count: number, record: CollectionTask) => countLink(count, record.id, 'articles'),
     },
     {
       title: '成功源',
       dataIndex: 'success_sources',
       key: 'success_sources',
-      width: 100,
-      render: (count: number, record: CollectionTask) => (
-        <a
-          onClick={() => handleOpenDetail(record.id, 'success')}
-          style={{ cursor: 'pointer', color: '#1890ff' }}
-        >
-          {count}
-        </a>
-      ),
+      width: 68,
+      align: 'right' as const,
+      render: (count: number, record: CollectionTask) => countLink(count, record.id, 'success'),
     },
     {
       title: '失败源',
       dataIndex: 'failed_sources',
       key: 'failed_sources',
-      width: 100,
-      render: (count: number, record: CollectionTask) => (
-        <a
-          onClick={() => handleOpenDetail(record.id, 'failed')}
-          style={{ cursor: 'pointer', color: '#1890ff' }}
-        >
-          {count}
-        </a>
-      ),
+      width: 68,
+      align: 'right' as const,
+      render: (count: number, record: CollectionTask) => countLink(count, record.id, 'failed', true),
     },
     {
       title: '耗时',
       dataIndex: 'duration',
       key: 'duration',
-      width: 100,
+      width: 84,
+      align: 'right' as const,
       render: (duration: number, record: CollectionTask) => (
-        <a
+        <button
+          type="button"
+          className="settings-num-link"
           onClick={() => handleOpenDetail(record.id, 'summary')}
-          style={{ cursor: 'pointer', color: '#1890ff' }}
         >
-          {duration ? `${duration.toFixed(1)}秒` : '-'}
-        </a>
+          {formatDuration(duration)}
+        </button>
       ),
     },
     {
       title: '开始时间',
       dataIndex: 'started_at',
       key: 'started_at',
-      width: 160,
-      render: (time: string) => (
-        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: '1.5' }}>
-          <div>{dayjs(time).format('YYYY-MM-DD')}</div>
-          <div style={{ fontSize: '12px', color: '#999' }}>{dayjs(time).format('HH:mm:ss')}</div>
-        </div>
-      ),
+      render: (time: string) => formatDateTime(time, true),
     },
   ];
 
@@ -289,12 +290,27 @@ export default function CollectionHistory() {
     });
   };
 
+  const isRunning = status?.status === 'running';
+  const autoDescription = autoCollectionSettings?.enabled
+    ? `定时采集已开启 · 每 ${autoCollectionSettings.interval_hours} 小时执行一次`
+    : '定时采集未开启';
+
   return (
     <div>
-      <Card
-        title="🚀 采集日志"
+      <SettingsPanel
+        title="采集任务"
+        description={autoDescription}
+        flush
         extra={
-          <Space>
+          <>
+            <Tooltip title="刷新">
+              <Button
+                icon={<ReloadOutlined />}
+                aria-label="刷新"
+                onClick={() => queryClient.invalidateQueries({ queryKey: ['collection-tasks'] })}
+                disabled={!isAuthenticated}
+              />
+            </Tooltip>
             <Button
               icon={<SettingOutlined />}
               onClick={() => setAutoCollectionModalVisible(true)}
@@ -302,7 +318,7 @@ export default function CollectionHistory() {
             >
               采集日志设置
             </Button>
-            {status?.status === 'running' ? (
+            {isRunning ? (
               <Button
                 icon={<StopOutlined />}
                 danger
@@ -323,24 +339,27 @@ export default function CollectionHistory() {
                 开始采集（AI分析）
               </Button>
             )}
-            <Button
-              icon={<ReloadOutlined />}
-              onClick={() => queryClient.invalidateQueries({ queryKey: ['collection-tasks'] })}
-              disabled={!isAuthenticated}
-            >
-              刷新
-            </Button>
-          </Space>
+          </>
         }
       >
+        {isRunning && (
+          <div className="collect-live" role="status">
+            <span className="dot dot--live" />
+            <strong>采集进行中</strong>
+            {status?.message && <span>{status.message}</span>}
+          </div>
+        )}
         <Table
+          className="settings-table"
+          size="small"
           columns={columns}
           dataSource={tasks}
           rowKey="id"
           loading={isLoading}
-          pagination={{ pageSize: 10 }}
+          scroll={{ x: isMobile ? 600 : 580 }}
+          pagination={{ pageSize: 10, size: 'small', showSizeChanger: false }}
         />
-      </Card>
+      </SettingsPanel>
 
       <Modal
         title="采集任务详情"
@@ -366,66 +385,49 @@ export default function CollectionHistory() {
                 key: 'summary',
                 label: '任务概览',
                 children: (
-                  <div>
-                    <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-                      <div>
-                        <Text strong>任务ID：</Text>
-                        <Text>{taskDetail.id}</Text>
+                  <div className="settings-stack">
+                    <div className="settings-metrics">
+                      <div className="metric">
+                        <span className="metric__label">新增文章</span>
+                        <span className="metric__value">{taskDetail.new_articles_count}</span>
                       </div>
-                      <div>
-                        <Text strong>状态：</Text>
-                        <Tag color={taskDetail.status === 'completed' ? 'success' : taskDetail.status === 'error' ? 'error' : 'processing'}>
-                          {taskDetail.status}
-                        </Tag>
+                      <div className="metric">
+                        <span className="metric__label"><span className="dot settings-dot--ok" />成功源</span>
+                        <span className="metric__value">{taskDetail.success_sources}</span>
                       </div>
-                      <div>
-                        <Text strong>开始时间：</Text>
-                        <div style={{ display: 'flex', flexDirection: 'column', marginTop: 4 }}>
-                          <Text>{dayjs(taskDetail.started_at).format('YYYY-MM-DD')}</Text>
-                          <Text type="secondary" style={{ fontSize: '12px' }}>{dayjs(taskDetail.started_at).format('HH:mm:ss')}</Text>
-                        </div>
-                      </div>
-                      {taskDetail.completed_at && (
-                        <div>
-                          <Text strong>完成时间：</Text>
-                          <div style={{ display: 'flex', flexDirection: 'column', marginTop: 4 }}>
-                            <Text>{dayjs(taskDetail.completed_at).format('YYYY-MM-DD')}</Text>
-                            <Text type="secondary" style={{ fontSize: '12px' }}>{dayjs(taskDetail.completed_at).format('HH:mm:ss')}</Text>
-                          </div>
-                        </div>
-                      )}
-                      <div>
-                        <Text strong>耗时：</Text>
-                        <Text>{taskDetail.duration ? `${taskDetail.duration.toFixed(1)}秒` : '-'}</Text>
-                      </div>
-                      <Divider />
-                      <div>
-                        <Text strong>新增文章：</Text>
-                        <Text>{taskDetail.new_articles_count}</Text>
-                      </div>
-                      <div>
-                        <Text strong>成功源：</Text>
-                        <Tag color="success">{taskDetail.success_sources}</Tag>
-                      </div>
-                      <div>
-                        <Text strong>失败源：</Text>
-                        <Tag color="error">{taskDetail.failed_sources}</Tag>
+                      <div className="metric">
+                        <span className="metric__label"><span className="dot settings-dot--error" />失败源</span>
+                        <span className="metric__value">{taskDetail.failed_sources}</span>
                       </div>
                       {taskDetail.ai_enabled && (
-                        <div>
-                          <Text strong>AI分析文章数：</Text>
-                          <Text>{taskDetail.ai_analyzed_count}</Text>
+                        <div className="metric">
+                          <span className="metric__label">AI分析文章数</span>
+                          <span className="metric__value">{taskDetail.ai_analyzed_count}</span>
                         </div>
                       )}
-                      {taskDetail.error_message && (
-                        <div>
-                          <Text strong>错误信息：</Text>
-                          <Paragraph style={{ color: '#ff4d4f', marginTop: 8 }}>
-                            {taskDetail.error_message}
-                          </Paragraph>
-                        </div>
+                    </div>
+                    <dl className="settings-kv">
+                      <dt>任务ID</dt>
+                      <dd className="settings-num">#{taskDetail.id}</dd>
+                      <dt>状态</dt>
+                      <dd><TaskStatus status={taskDetail.status} /></dd>
+                      <dt>开始时间</dt>
+                      <dd>{formatDateTime(taskDetail.started_at)}</dd>
+                      {taskDetail.completed_at && (
+                        <>
+                          <dt>完成时间</dt>
+                          <dd>{formatDateTime(taskDetail.completed_at)}</dd>
+                        </>
                       )}
-                    </Space>
+                      <dt>耗时</dt>
+                      <dd className="settings-num">{formatDuration(taskDetail.duration)}</dd>
+                    </dl>
+                    {taskDetail.error_message && (
+                      <div>
+                        <div className="eyebrow" style={{ marginBottom: 6 }}>错误信息</div>
+                        <p className="settings-error-text">{taskDetail.error_message}</p>
+                      </div>
+                    )}
                   </div>
                 ),
               },
@@ -434,28 +436,27 @@ export default function CollectionHistory() {
                 label: `成功源 (${taskDetail.success_sources || 0})`,
                 children: (
                   <List
+                    size="small"
                     dataSource={taskDetail?.success_logs || []}
                     renderItem={(log: CollectionTaskLog) => (
                       <List.Item>
-                        <List.Item.Meta
-                          avatar={<CheckCircleOutlined style={{ color: '#52c41a', fontSize: 20 }} />}
-                          title={
-                            <Space>
-                              <Text strong>{log.source_name}</Text>
-                              <Tag>{log.source_type}</Tag>
-                            </Space>
-                          }
-                          description={
-                            <Space>
-                              <Text type="secondary">文章数：{log.articles_count}</Text>
-                              {log.started_at && (
-                                <Text type="secondary">
-                                  {dayjs(log.started_at).format('HH:mm:ss')}
-                                </Text>
-                              )}
-                            </Space>
-                          }
-                        />
+                        <div className="settings-row" style={{ width: '100%', padding: 0 }}>
+                          <div className="settings-row__main">
+                            <div className="settings-row__title">
+                              <span className="dot settings-dot--ok" />
+                              <span>{log.source_name}</span>
+                              <span className="chip">{log.source_type}</span>
+                            </div>
+                          </div>
+                          <span className="settings-row__trail">
+                            <span className="settings-num">{log.articles_count}</span> 篇
+                            {log.started_at && (
+                              <span className="settings-num" style={{ marginLeft: 10 }}>
+                                {dayjs(log.started_at).format('HH:mm:ss')}
+                              </span>
+                            )}
+                          </span>
+                        </div>
                       </List.Item>
                     )}
                     locale={{ emptyText: <Empty description="暂无成功记录" /> }}
@@ -467,30 +468,27 @@ export default function CollectionHistory() {
                 label: `失败源 (${taskDetail.failed_sources || 0})`,
                 children: (
                   <List
+                    size="small"
                     dataSource={taskDetail?.failed_logs || []}
                     renderItem={(log: CollectionTaskLog) => (
                       <List.Item>
-                        <List.Item.Meta
-                          avatar={<CloseCircleOutlined style={{ color: '#ff4d4f', fontSize: 20 }} />}
-                          title={
-                            <Space>
-                              <Text strong>{log.source_name}</Text>
-                              <Tag>{log.source_type}</Tag>
-                            </Space>
-                          }
-                          description={
-                            <div>
-                              <div style={{ marginBottom: 4 }}>
-                                <Text type="danger">{log.error_message || '未知错误'}</Text>
-                              </div>
-                              {log.started_at && (
-                                <Text type="secondary" style={{ fontSize: 12 }}>
-                                  {dayjs(log.started_at).format('HH:mm:ss')}
-                                </Text>
-                              )}
+                        <div className="settings-row" style={{ width: '100%', padding: 0, alignItems: 'flex-start' }}>
+                          <div className="settings-row__main">
+                            <div className="settings-row__title">
+                              <span className="dot settings-dot--error" />
+                              <span>{log.source_name}</span>
+                              <span className="chip">{log.source_type}</span>
                             </div>
-                          }
-                        />
+                            <div className="settings-row__sub settings-row__sub--wrap settings-row__sub--danger">
+                              {log.error_message || '未知错误'}
+                            </div>
+                          </div>
+                          {log.started_at && (
+                            <span className="settings-row__trail settings-num">
+                              {dayjs(log.started_at).format('HH:mm:ss')}
+                            </span>
+                          )}
+                        </div>
                       </List.Item>
                     )}
                     locale={{ emptyText: <Empty description="暂无失败记录" /> }}
@@ -502,32 +500,32 @@ export default function CollectionHistory() {
                 label: `新增文章 (${taskDetail.new_articles_count || 0})`,
                 children: (
                   <List
+                    size="small"
                     dataSource={taskDetail?.new_articles || []}
                     renderItem={(article: { id: number; title: string; url: string; source: string; published_at?: string }) => (
                       <List.Item>
-                        <List.Item.Meta
-                          title={
+                        <div className="settings-row" style={{ width: '100%', padding: 0 }}>
+                          <div className="settings-row__main">
                             <a href={article.url} target="_blank" rel="noopener noreferrer">
                               {article.title}
                             </a>
-                          }
-                          description={
-                            <Space>
-                              <Tag>{article.source}</Tag>
+                            <div className="settings-row__sub">
+                              <span className="chip">{article.source}</span>
                               {article.published_at && (
-                                <Text type="secondary" style={{ fontSize: 12 }}>
+                                <span className="settings-num" style={{ marginLeft: 8 }}>
                                   {dayjs(article.published_at).format('YYYY-MM-DD HH:mm')}
-                                </Text>
+                                </span>
                               )}
-                            </Space>
-                          }
-                        />
+                            </div>
+                          </div>
+                        </div>
                       </List.Item>
                     )}
                     locale={{ emptyText: <Empty description="暂无新增文章" /> }}
                     pagination={{
                       pageSize: 10,
                       showSizeChanger: false,
+                      size: 'small',
                     }}
                   />
                 ),
@@ -555,6 +553,7 @@ export default function CollectionHistory() {
         <Form
           form={autoCollectionForm}
           layout="vertical"
+          className="settings-form"
           initialValues={{
             enabled: autoCollectionSettings?.enabled ?? false,
             interval_hours: autoCollectionSettings?.interval_hours ?? 1,
@@ -577,7 +576,7 @@ export default function CollectionHistory() {
           >
             <Switch />
           </Form.Item>
-          
+
           <Form.Item
             name="interval_hours"
             label="采集间隔（小时）"
@@ -595,7 +594,7 @@ export default function CollectionHistory() {
               addonAfter="小时"
             />
           </Form.Item>
-          
+
           <Form.Item
             name="max_articles_per_source"
             label="每源最大文章数"
@@ -613,7 +612,7 @@ export default function CollectionHistory() {
               addonAfter="篇"
             />
           </Form.Item>
-          
+
           <Form.Item
             name="request_timeout"
             label="请求超时（秒）"
@@ -631,19 +630,14 @@ export default function CollectionHistory() {
               addonAfter="秒"
             />
           </Form.Item>
-          
+
           {autoCollectionSettings?.enabled && (
-            <Alert
-              message={`当前已启用采集日志，每 ${autoCollectionSettings.interval_hours} 小时执行一次`}
-              type="info"
-              showIcon
-              style={{ marginTop: 16 }}
-            />
+            <SettingsNote>
+              当前已启用采集日志，每 <span className="settings-num">{autoCollectionSettings.interval_hours}</span> 小时执行一次
+            </SettingsNote>
           )}
         </Form>
       </Modal>
     </div>
   );
 }
-
-

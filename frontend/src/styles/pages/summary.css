@@ -1,0 +1,244 @@
+/* ==========================================================================
+   内容总结（DailySummary）
+   布局复用 .feed-split / .feed-row / .reader，这里只放页面专属样式
+   ========================================================================== */
+
+/* ── List row ── */
+.summary-row .feed-row__title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  -webkit-line-clamp: unset;
+}
+
+.summary-row__range {
+  font-family: var(--font-mono);
+  font-size: 13.5px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+  color: var(--c-text);
+  white-space: nowrap;
+}
+
+.summary-row__week {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--c-text-tertiary);
+}
+
+.summary-row__type {
+  font-size: 11.5px;
+  color: var(--c-text-tertiary);
+}
+
+.summary-row__type--weekly {
+  color: var(--c-accent-text);
+}
+
+.summary-row__stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.summary-row__stat .dot {
+  width: 6px;
+  height: 6px;
+  box-shadow: none;
+}
+
+.summary-row__stat--high {
+  color: var(--c-danger);
+}
+
+.summary-row__stat--medium {
+  color: var(--c-warning);
+}
+
+/* ── Toolbar ── */
+.summary-toolbar__actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.summary-toolbar__actions .ant-btn {
+  margin-left: 6px;
+}
+
+/* ── Reader ── */
+.summary-reader__title {
+  font-size: 26px;
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+
+.summary-reader__danger:hover {
+  color: var(--c-danger);
+  background: var(--c-danger-soft);
+}
+
+.summary-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-bottom: 32px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-lg);
+  background: var(--c-bg-subtle);
+  overflow: hidden;
+}
+
+.summary-stats__cell {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 18px;
+  min-width: 0;
+}
+
+.summary-stats__cell + .summary-stats__cell {
+  border-left: 1px solid var(--c-border);
+}
+
+.summary-stats__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--c-text-tertiary);
+}
+
+.summary-stats__label .dot {
+  box-shadow: none;
+}
+
+.summary-stats__value {
+  font-family: var(--font-mono);
+  font-size: 22px;
+  font-weight: 500;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  color: var(--c-text);
+}
+
+.summary-stats__value--high {
+  color: var(--c-danger);
+}
+
+.summary-stats__value--medium {
+  color: var(--c-warning);
+}
+
+/* ── Generate dialog ── */
+.summary-prompt {
+  margin-bottom: 16px;
+  padding: 14px 16px 4px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-lg);
+  background: var(--c-bg-subtle);
+}
+
+.summary-prompt__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.summary-prompt__hint {
+  font-size: 12px;
+  color: var(--c-text-tertiary);
+}
+
+.summary-prompt__hint code {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--c-text-secondary);
+}
+
+.summary-prompt__actions {
+  display: flex;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.summary-gen__title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-right: 32px;
+}
+
+.summary-gen__sheet-actions {
+  display: flex;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.summary-gen__sheet-actions .ant-btn {
+  flex: 1;
+  height: 42px;
+}
+
+/* Date picker cells: summarized / week highlight */
+.summary-cal-cell {
+  width: 100%;
+  padding: 2px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.summary-cal-cell--done {
+  background: var(--c-hover);
+  color: var(--c-text-tertiary);
+}
+
+.summary-cal-cell--week-hover {
+  background: var(--c-hover);
+  border-color: var(--c-border-strong);
+  cursor: pointer;
+}
+
+.summary-cal-cell--week-selected {
+  background: var(--c-accent-soft);
+  border-color: var(--c-accent-border);
+  color: var(--c-accent-text);
+}
+
+/* ── Mobile ── */
+.m-feed .summary-row__range {
+  font-size: 15px;
+}
+
+.m-reader .summary-reader__title {
+  font-size: 21px;
+}
+
+.m-reader .summary-stats {
+  margin-bottom: 24px;
+}
+
+.m-reader .summary-stats__cell {
+  padding: 12px 14px;
+}
+
+.m-reader .summary-stats__value {
+  font-size: 19px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .summary-cal-cell {
+    transition: none;
+  }
+}

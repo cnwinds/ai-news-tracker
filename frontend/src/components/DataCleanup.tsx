@@ -2,13 +2,20 @@
  * 数据维护组件
  */
 import { useMemo } from 'react';
-import { Card, Form, InputNumber, Switch, Button, Alert, Select, Divider } from 'antd';
+import { Form, InputNumber, Switch, Button, Select } from 'antd';
+import { DeleteOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { apiService } from '@/services/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { useErrorHandler } from '@/hooks/useErrorHandler';
 import { groupSourcesByType, SOURCE_TYPE_LABELS } from '@/utils/source';
 import type { DataCleanupFormValues } from '@/types';
+import {
+  SettingsAction,
+  SettingsPanel,
+  SettingsSaveBar,
+  useSettingsFormLayout,
+} from '@/components/settings/SettingsKit';
 
 const { Option, OptGroup } = Select;
 
@@ -16,6 +23,7 @@ export default function DataCleanup() {
   const [form] = Form.useForm();
   const { isAuthenticated } = useAuth();
   const { createErrorHandler, showSuccess } = useErrorHandler();
+  const formLayout = useSettingsFormLayout();
 
   // 获取所有订阅源列表
   const { data: sources } = useQuery({
@@ -58,31 +66,43 @@ export default function DataCleanup() {
   };
 
   return (
-    <div>
-      <Card title="🛠️ 数据维护">
-        <Alert
-          message="警告"
-          description="数据维护中的删除操作不可恢复，请谨慎操作！"
-          type="warning"
-          showIcon
-          style={{ marginBottom: 16 }}
-        />
+    <div className="settings-stack">
+      <SettingsPanel title="AI 分析重跑">
+        <SettingsAction
+          title="一键重跑未进行AI分析的文章"
+          description="仅重跑已有正文内容且尚未完成AI分析的文章"
+        >
+          <Button
+            icon={<ThunderboltOutlined />}
+            onClick={handleRerunUnanalyzed}
+            loading={cleanupMutation.isPending}
+            disabled={!isAuthenticated}
+          >
+            一键重跑未分析文章
+          </Button>
+        </SettingsAction>
+      </SettingsPanel>
 
-        <Form form={form} onFinish={handleCleanup} layout="vertical">
+      <SettingsPanel
+        tone="danger"
+        title="删除清理"
+        description="删除操作不可恢复，请谨慎操作！"
+      >
+        <Form form={form} onFinish={handleCleanup} {...formLayout}>
           <Form.Item
             name="delete_articles_older_than_days"
             label="删除超过多少天的文章"
-            help="设置为0表示不删除"
+            extra="设置为 0 表示不删除"
           >
-            <InputNumber min={0} style={{ width: '100%' }} disabled={!isAuthenticated} />
+            <InputNumber min={0} addonAfter="天" style={{ width: 180 }} disabled={!isAuthenticated} />
           </Form.Item>
 
           <Form.Item
             name="delete_logs_older_than_days"
             label="删除超过多少天的日志"
-            help="设置为0表示不删除"
+            extra="设置为 0 表示不删除"
           >
-            <InputNumber min={0} style={{ width: '100%' }} disabled={!isAuthenticated} />
+            <InputNumber min={0} addonAfter="天" style={{ width: 180 }} disabled={!isAuthenticated} />
           </Form.Item>
 
           <Form.Item
@@ -93,30 +113,10 @@ export default function DataCleanup() {
             <Switch disabled={!isAuthenticated} />
           </Form.Item>
 
-
-          <Divider orientation="left" style={{ margin: '16px 0' }}>
-            AI分析重跑
-          </Divider>
-
-          <Form.Item label="一键重跑未进行AI分析的文章" help="仅重跑已有正文内容且尚未完成AI分析的文章">
-            <Button
-              type="default"
-              onClick={handleRerunUnanalyzed}
-              loading={cleanupMutation.isPending}
-              disabled={!isAuthenticated}
-            >
-              一键重跑未分析文章
-            </Button>
-          </Form.Item>
-
-          <Divider orientation="left" style={{ margin: '16px 0' }}>
-            删除清理
-          </Divider>
-
           <Form.Item
             name="delete_articles_by_sources"
             label="删除指定订阅源的文章"
-            help="选择订阅源或输入关键词匹配文章（使用标题/内容搜索）"
+            extra="选择订阅源或输入关键词匹配文章（使用标题/内容搜索）"
           >
             <Select
               mode="tags"
@@ -148,20 +148,20 @@ export default function DataCleanup() {
             </Select>
           </Form.Item>
 
-          <Form.Item>
+          <SettingsSaveBar hint="按上方条件执行删除">
             <Button
               type="primary"
               danger
+              icon={<DeleteOutlined />}
               htmlType="submit"
               loading={cleanupMutation.isPending}
               disabled={!isAuthenticated}
             >
               执行清理
             </Button>
-          </Form.Item>
+          </SettingsSaveBar>
         </Form>
-      </Card>
+      </SettingsPanel>
     </div>
   );
 }
-

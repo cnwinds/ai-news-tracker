@@ -1,12 +1,6 @@
 import type { ReactNode } from 'react';
-import {
-  ApartmentOutlined,
-  AppstoreOutlined,
-  FileTextOutlined,
-  ReadOutlined,
-} from '@ant-design/icons';
-import { useTheme } from '@/contexts/ThemeContext';
-import { getThemeColor } from '@/utils/theme';
+import { AppstoreOutlined } from '@ant-design/icons';
+import { PAGE_MAP } from '@/components/layout/navigation';
 
 export type MobileNavKey = 'articles' | 'summary' | 'industry-graph' | 'more';
 
@@ -15,52 +9,31 @@ interface MobileBottomNavProps {
   onChange: (key: MobileNavKey) => void;
 }
 
-interface NavItem {
-  key: MobileNavKey;
-  label: string;
-  icon: ReactNode;
-}
-
-const NAV_ITEMS: NavItem[] = [
-  { key: 'articles', label: '资讯', icon: <FileTextOutlined /> },
-  { key: 'summary', label: '总结', icon: <ReadOutlined /> },
-  { key: 'industry-graph', label: '趋势', icon: <ApartmentOutlined /> },
+const NAV_ITEMS: { key: MobileNavKey; label: string; icon: ReactNode }[] = [
+  { key: 'articles', label: PAGE_MAP.articles.shortLabel, icon: PAGE_MAP.articles.icon },
+  { key: 'summary', label: PAGE_MAP.summary.shortLabel, icon: PAGE_MAP.summary.icon },
+  { key: 'industry-graph', label: PAGE_MAP['industry-graph'].shortLabel, icon: PAGE_MAP['industry-graph'].icon },
   { key: 'more', label: '更多', icon: <AppstoreOutlined /> },
 ];
 
 export default function MobileBottomNav({ activeKey, onChange }: MobileBottomNavProps) {
-  const { theme } = useTheme();
-  const inactiveColor = getThemeColor(theme, 'textSecondary');
-  const activeColor = getThemeColor(theme, 'primary');
-
   return (
-    <nav className="mobile-bottom-nav" aria-label="主导航">
-      <div
-        className="mobile-bottom-nav__pill"
-        style={{
-          border: `1px solid ${getThemeColor(theme, 'borderSecondary')}`,
-        }}
-      >
-        {NAV_ITEMS.map((item) => {
-          const active = activeKey === item.key;
-          return (
-            <button
-              key={item.key}
-              type="button"
-              className={`mobile-bottom-nav__item${active ? ' mobile-bottom-nav__item--active' : ''}`}
-              onClick={() => onChange(item.key)}
-              aria-current={active ? 'page' : undefined}
-              aria-label={item.label}
-              style={{
-                color: active ? activeColor : inactiveColor,
-              }}
-            >
-              <span className="mobile-bottom-nav__icon">{item.icon}</span>
-              <span className="mobile-bottom-nav__label">{item.label}</span>
-            </button>
-          );
-        })}
-      </div>
+    <nav className="m-tabbar" aria-label="主导航">
+      {NAV_ITEMS.map((item) => {
+        const active = activeKey === item.key;
+        return (
+          <button
+            key={item.key}
+            type="button"
+            className={`m-tabbar__item${active ? ' m-tabbar__item--active' : ''}`}
+            onClick={() => onChange(item.key)}
+            aria-current={active ? 'page' : undefined}
+          >
+            <span className="m-tabbar__icon">{item.icon}</span>
+            <span className="m-tabbar__label">{item.label}</span>
+          </button>
+        );
+      })}
     </nav>
   );
 }

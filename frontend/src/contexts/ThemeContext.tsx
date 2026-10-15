@@ -1,7 +1,8 @@
-import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
-import { ThemeConfig, theme } from 'antd';
+import { createContext, useContext, useState, useLayoutEffect, useMemo, type ReactNode } from 'react';
+import type { ThemeConfig } from 'antd';
+import { applyCssVariables, buildAntdTheme, type ThemeMode } from '@/theme/tokens';
 
-export type ThemeMode = 'light' | 'dark';
+export type { ThemeMode };
 
 interface ThemeContextType {
   theme: ThemeMode;
@@ -18,108 +19,32 @@ const getInitialTheme = (): ThemeMode => {
   if (savedTheme === 'light' || savedTheme === 'dark') {
     return savedTheme;
   }
-  
+
   if (window.matchMedia?.('(prefers-color-scheme: dark)').matches) {
     return 'dark';
   }
-  
+
   return 'light';
-};
-
-const lightThemeConfig: ThemeConfig = {
-  token: {
-    colorPrimary: '#1890ff',
-    colorBgBase: '#ffffff',
-    colorTextBase: '#000000',
-    borderRadius: 6,
-  },
-};
-
-const darkThemeConfig: ThemeConfig = {
-  token: {
-    // 主色调 - 使用更柔和的蓝色
-    colorPrimary: '#4096ff',
-    // 基础背景色 - 使用统一的深灰色，避免纯黑色
-    colorBgBase: '#1a1a1a',
-    // 容器背景色 - 稍浅的深灰色，形成层次
-    colorBgContainer: '#262626',
-    // 文本颜色 - 提高对比度，确保可读性
-    colorTextBase: '#ffffff',
-    colorText: '#ffffff',
-    colorTextSecondary: '#e0e0e0', // 从 #bfbfbf 提高到 #e0e0e0，提高对比度
-    colorTextTertiary: '#b3b3b3', // 从 #8c8c8c 提高到 #b3b3b3，提高对比度
-    colorTextHeading: '#ffffff', // 标题文字颜色
-    // 边框颜色
-    colorBorder: '#434343',
-    colorBorderSecondary: '#303030',
-    // 选项卡相关
-    colorBgElevated: '#1f1f1f',
-    // 圆角
-    borderRadius: 6,
-  },
-  algorithm: theme.darkAlgorithm, // 使用暗色算法
-  components: {
-    // 优化 Tabs 组件在深色模式下的样式
-    Tabs: {
-      itemSelectedColor: '#4096ff', // 选中项文字颜色
-      itemHoverColor: '#69b7ff', // 悬停文字颜色
-      itemActiveColor: '#4096ff', // 激活文字颜色
-      inkBarColor: '#4096ff', // 指示条颜色
-    },
-    // 优化 Card 组件
-    Card: {
-      colorBgContainer: '#1f1f1f',
-      colorBorderSecondary: '#303030',
-      colorTextHeading: '#ffffff', // 卡片标题文字颜色
-      colorText: '#ffffff', // 卡片正文文字颜色
-      colorTextDescription: '#e0e0e0', // 卡片描述文字颜色
-    },
-    // 优化 Typography 组件
-    Typography: {
-      colorText: '#ffffff', // 主要文字颜色
-      colorTextSecondary: '#e0e0e0', // 次要文字颜色
-      colorTextTertiary: '#b3b3b3', // 辅助文字颜色
-      colorTextHeading: '#ffffff', // 标题文字颜色
-    },
-    // 优化 Button 组件
-    Button: {
-      colorPrimary: '#4096ff',
-      colorPrimaryHover: '#69b7ff',
-      colorPrimaryActive: '#0958d9',
-    },
-    // 优化 Modal 组件
-    Modal: {
-      contentBg: '#1f1f1f',
-      headerBg: '#1f1f1f',
-      titleColor: '#ffffff',
-      colorText: '#ffffff',
-      colorTextHeading: '#ffffff',
-      colorBorder: '#303030',
-    },
-  },
 };
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<ThemeMode>(getInitialTheme);
 
-  useEffect(() => {
-    const root = document.documentElement;
-    root.classList.toggle('dark-theme', theme === 'dark');
-    root.classList.toggle('light-theme', theme === 'light');
+  useLayoutEffect(() => {
+    applyCssVariables(theme);
     localStorage.setItem(THEME_STORAGE_KEY, theme);
   }, [theme]);
 
-  const toggleTheme = (): void => {
-    setTheme((prev) => (prev === 'light' ? 'dark' : 'light'));
-  };
-
-  const themeConfig = theme === 'dark' ? darkThemeConfig : lightThemeConfig;
-
-  return (
-    <ThemeContext.Provider value={{ theme, toggleTheme, themeConfig }}>
-      {children}
-    </ThemeContext.Provider>
+  const value = useMemo<ThemeContextType>(
+    () => ({
+      theme,
+      toggleTheme: () => setTheme((prev) => (prev === 'light' ? 'dark' : 'light')),
+      themeConfig: buildAntdTheme(theme),
+    }),
+    [theme]
   );
+
+  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
 
 export function useTheme() {

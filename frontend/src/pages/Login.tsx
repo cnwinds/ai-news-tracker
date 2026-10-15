@@ -2,23 +2,20 @@
  * 登录页面
  */
 import { useState } from 'react';
-import { Form, Input, Button, Card, Typography } from 'antd';
-import { UserOutlined, LockOutlined } from '@ant-design/icons';
+import { Form, Input, Button, Tooltip } from 'antd';
+import { UserOutlined, LockOutlined, ArrowLeftOutlined, SunOutlined, MoonOutlined } from '@ant-design/icons';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useMessage } from '@/hooks/useMessage';
-import { useBreakpoint } from '@/hooks/useBreakpoint';
-
-const { Title, Text } = Typography;
+import '@/styles/pages/auth.css';
 
 export default function Login() {
   const [loading, setLoading] = useState(false);
   const { login } = useAuth();
   const navigate = useNavigate();
-  const { theme } = useTheme();
+  const { theme, toggleTheme } = useTheme();
   const message = useMessage();
-  const { isMobile } = useBreakpoint();
 
   const onFinish = async (values: { username: string; password: string }) => {
     setLoading(true);
@@ -31,8 +28,8 @@ export default function Login() {
         message.error('登录失败，请检查用户名和密码');
       }
     } catch (error) {
-      const errorMessage = error instanceof Error 
-        ? error.message 
+      const errorMessage = error instanceof Error
+        ? error.message
         : '登录失败，请检查用户名和密码';
       message.error(errorMessage);
     } finally {
@@ -40,37 +37,37 @@ export default function Login() {
     }
   };
 
-  const cardStyle: React.CSSProperties = {
-    maxWidth: 400,
-    margin: isMobile ? '40px auto' : '100px auto',
-    boxShadow: theme === 'dark' 
-      ? '0 4px 12px rgba(0, 0, 0, 0.5)' 
-      : '0 4px 12px rgba(0, 0, 0, 0.1)',
-  };
-
-  const containerStyle: React.CSSProperties = {
-    minHeight: '100vh',
-    background: theme === 'dark' 
-      ? 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)' 
-      : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-    padding: isMobile ? '12px' : '20px',
-  };
-
   return (
-    <div style={containerStyle}>
-      <Card style={cardStyle}>
-        <div style={{ textAlign: 'center', marginBottom: 32 }}>
-          <Title level={2} style={{ marginBottom: 8 }}>
-            🤖 AI News Tracker
-          </Title>
-          <Text type="secondary">请登录以修改系统设置</Text>
+    <div className="auth">
+      <div className="auth__topbar">
+        <button type="button" className="auth__back" onClick={() => navigate('/')}>
+          <ArrowLeftOutlined /> 返回首页
+        </button>
+        <Tooltip title={theme === 'dark' ? '切换到浅色主题' : '切换到深色主题'}>
+          <button type="button" className="icon-btn" onClick={toggleTheme} aria-label="切换主题">
+            {theme === 'dark' ? <SunOutlined /> : <MoonOutlined />}
+          </button>
+        </Tooltip>
+      </div>
+
+      <main className="auth-card">
+        <div className="auth-brand">
+          <img className="auth-brand__mark" src="/favicon.svg" alt="" width={44} height={44} />
+          <div>
+            <div className="auth-brand__name">
+              AI <span>News</span>
+            </div>
+            <p className="auth-brand__desc">请登录以修改系统设置</p>
+          </div>
         </div>
 
         <Form
           name="login"
+          className="auth-form"
           onFinish={onFinish}
           autoComplete="off"
           size="large"
+          requiredMark={false}
         >
           <Form.Item
             name="username"
@@ -79,6 +76,7 @@ export default function Login() {
             <Input
               prefix={<UserOutlined />}
               placeholder="用户名"
+              autoFocus
             />
           </Form.Item>
 
@@ -92,7 +90,7 @@ export default function Login() {
             />
           </Form.Item>
 
-          <Form.Item>
+          <Form.Item className="auth-form__submit">
             <Button
               type="primary"
               htmlType="submit"
@@ -104,12 +102,12 @@ export default function Login() {
           </Form.Item>
         </Form>
 
-        <div style={{ marginTop: 16, textAlign: 'center' }}>
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            默认账号: admin / admin123
-          </Text>
+        <div className="auth-hint">
+          默认账号 <span className="kbd">admin</span> / <span className="kbd">admin123</span>
         </div>
-      </Card>
+      </main>
+
+      <div className="auth-footer">AI News Tracker</div>
     </div>
   );
 }

@@ -1,0 +1,260 @@
+/* ==========================================================================
+   数据统计 / 访问统计
+   ========================================================================== */
+
+.stats {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.stats-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 120px;
+}
+
+.stats-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.stats-metrics--3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.stats-metric__icon {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  background: var(--c-hover);
+  color: var(--c-text-secondary);
+  font-size: 11px;
+}
+
+.stats-metric__icon--accent {
+  background: var(--c-accent-soft);
+  color: var(--c-accent-text);
+}
+
+.stats-metric__value--danger {
+  color: var(--c-danger);
+}
+
+.stats-metric__value--accent {
+  color: var(--c-accent-text);
+}
+
+.stats-metric__foot-num {
+  font-family: var(--font-mono);
+  color: var(--c-text-secondary);
+}
+
+.stats-bar {
+  height: 3px;
+  margin-top: 4px;
+  border-radius: 999px;
+  background: var(--c-hover);
+  overflow: hidden;
+}
+
+.stats-bar__fill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--c-accent);
+  transition: width 0.26s cubic-bezier(0.2, 0, 0, 1);
+}
+
+.stats-bar__fill--danger {
+  background: var(--c-danger);
+}
+
+.stats-bar__fill--warning {
+  background: var(--c-warning);
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: 16px;
+}
+
+.stats-panel {
+  min-width: 0;
+}
+
+.stats-panel .panel__body {
+  padding: 16px 18px 18px;
+}
+
+.stats-panel__hint {
+  font-size: 12px;
+  color: var(--c-text-tertiary);
+}
+
+/* Legend list under charts */
+.stats-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--c-border);
+}
+
+.stats-legend__row {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 0;
+  font-size: 13px;
+  color: var(--c-text-secondary);
+}
+
+.stats-legend__swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.stats-legend__value {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--c-text);
+}
+
+.stats-legend__pct {
+  min-width: 48px;
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--c-text-tertiary);
+}
+
+/* ── Access analytics ── */
+.access-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.access-toolbar__live {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--c-text-tertiary);
+}
+
+.access-trend {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+
+.access-trend--up {
+  color: var(--c-success);
+}
+
+.access-trend--down {
+  color: var(--c-danger);
+}
+
+.access-cell {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.access-cell__value {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--c-text);
+}
+
+.access-date {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--c-text-secondary);
+}
+
+.access-table .ant-table {
+  background: transparent;
+}
+
+.access-table .ant-table-pagination.ant-pagination {
+  margin: 14px 16px;
+}
+
+.stats-skeleton {
+  height: 92px;
+}
+
+@media (max-width: 1100px) {
+  .stats-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 767px) {
+  .stats {
+    gap: 12px;
+    padding: 12px 12px 4px;
+  }
+
+  .stats-metrics,
+  .stats-metrics--3 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .stats-metrics .metric {
+    padding: 14px;
+    border-radius: 14px;
+  }
+
+  .stats-metrics .metric__value {
+    font-size: 22px;
+  }
+
+  .stats-grid {
+    gap: 12px;
+  }
+
+  .stats-panel {
+    border-radius: 14px;
+  }
+
+  .stats-panel .panel__head {
+    padding: 12px 14px;
+  }
+
+  .stats-panel .panel__body {
+    padding: 12px 14px 14px;
+  }
+}
+
+/* 设置抽屉内（访问统计）更紧凑 */
+.settings-drawer .stats {
+  padding: 0;
+}
+
+.settings-drawer .stats-metrics {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+@media (max-width: 767px) {
+  .settings-drawer .stats-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

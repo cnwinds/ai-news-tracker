@@ -1,51 +1,51 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { Button, Input, Modal, Select, Tooltip } from 'antd';
 import {
-  Avatar,
-  Button,
-  Collapse,
-  Empty,
-  Input,
-  List,
-  Modal,
-  Select,
-  Space,
-  Spin,
-  Tag,
-  Typography,
-} from 'antd';
-import {
+  ArrowUpOutlined,
   CloseOutlined,
-  DeleteOutlined,
   DownOutlined,
   HistoryOutlined,
-  RobotOutlined,
-  SendOutlined,
-  UpOutlined,
-  UserOutlined,
+  LinkOutlined,
+  MenuFoldOutlined,
+  MenuUnfoldOutlined,
+  PlusOutlined,
 } from '@ant-design/icons';
-import ReactMarkdown from 'react-markdown';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 
 import { apiService } from '@/services/api';
 import { useAIConversation, type Message } from '@/contexts/AIConversationContext';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
-import { useTheme } from '@/contexts/ThemeContext';
-import { getThemeColor, getMessageBubbleStyle } from '@/utils/theme';
-import { createMarkdownComponents, remarkGfm } from '@/utils/markdown';
+import { Markdown } from '@/utils/markdown';
+import {
+  AssistantMark,
+  ComposerHint,
+  HistoryList,
+  ReferenceCards,
+  ThinkingIndicator,
+} from '@/components/assistant/ChatParts';
 import type {
   AIQueryEngine,
   ArticleSearchResult,
   RAGQueryRequest,
 } from '@/types';
+import '@/styles/pages/assistant.css';
 
 dayjs.extend(relativeTime);
 
 const { TextArea } = Input;
-const { Text } = Typography;
 
 type ReferenceArticle = ArticleSearchResult;
+
+const RAIL_COLLAPSED_KEY = 'ai_conversation_rail_collapsed';
+const HISTORY_DRAWER_ANIMATION_MS = 260;
+
+const SUGGESTIONS = [
+  '最近一周有哪些重要的大模型发布？',
+  '总结今天值得关注的 AI 行业动态',
+  '最近有哪些热门的开源 AI 项目？',
+];
 
 function buildErrorText(message: string) {
   return `抱歉，处理当前问题时出现错误：${message}`;
@@ -56,7 +56,6 @@ function getReferenceArticles(message: Message): ReferenceArticle[] {
 }
 
 export default function AIConversationModal() {
-  const { theme } = useTheme();
   const {
     isModalOpen,
     closeModal,
@@ -78,6 +77,13 @@ export default function AIConversationModal() {
   const [isHistoryDrawerOpen, setIsHistoryDrawerOpen] = useState(false);
   const [isHistoryDrawerClosing, setIsHistoryDrawerClosing] = useState(false);
   const [expandedPanels, setExpandedPanels] = useState<Record<string, boolean>>({});
+  const [isRailCollapsed, setIsRailCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem(RAIL_COLLAPSED_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
   const { isMobile } = useBreakpoint();
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -91,6 +97,31 @@ export default function AIConversationModal() {
   useEffect(() => {
     scrollToBottom();
   }, [currentMessages, isStreaming, scrollToBottom]);
+
+  const toggleRail = useCallback(() => {
+    setIsRailCollapsed((previous) => {
+      const next = !previous;
+      try {
+        localStorage.setItem(RAIL_COLLAPSED_KEY, next ? '1' : '0');
+      } catch {
+        // ignore storage errors
+      }
+      return next;
+    });
+  }, []);
+
+  const openHistoryDrawer = useCallback(() => {
+    setIsHistoryDrawerClosing(false);
+    setIsHistoryDrawerOpen(true);
+  }, []);
+
+  const closeHistoryDrawer = useCallback(() => {
+    setIsHistoryDrawerClosing(true);
+    setTimeout(() => {
+      setIsHistoryDrawerOpen(false);
+      setIsHistoryDrawerClosing(false);
+    }, HISTORY_DRAWER_ANIMATION_MS);
+  }, []);
 
   const finishAssistantMessage = useCallback((
     chatId: string,
@@ -288,25 +319,147 @@ export default function AIConversationModal() {
     }
   };
 
-  const modalStyle: React.CSSProperties = {
-    top: 0,
-    paddingBottom: 0,
-    maxWidth: isMobile ? '100%' : '980px',
-    margin: isMobile ? 0 : '0 auto',
-  };
-
-  const modalBodyStyle: React.CSSProperties = {
-    padding: 0,
-    height: '100vh',
-    display: 'flex',
-    flexDirection: 'column',
-    background: theme === 'dark' ? 'rgba(26, 26, 26, 0.95)' : 'rgba(255, 255, 255, 0.96)',
-    backdropFilter: 'blur(10px)',
-  };
-
   if (!isModalOpen) {
     return null;
   }
+
+  const conversationTitle =
+    currentMessages.find((message) => message.type === 'user')?.content || 'AI 对话';
+  const lastMessageId = currentMessages[currentMessages.length - 1]?.id;
+  const showRail = !isMobile && !isRailCollapsed;
+
+  const handleSelectHistory = (chatId: string) => {
+    loadChatHistory(chatId);
+    if (isHistoryDrawerOpen) {
+      closeHistoryDrawer();
+    }
+  };
+
+  const handleNewChat = () => {
+    createNewChat();
+    if (isHistoryDrawerOpen) {
+      closeHistoryDrawer();
+    }
+  };
+
+  const renderRail = (inDrawer: boolean) => (
+    <aside className={`ai-rail${inDrawer ? ' ai-rail--drawer' : ''}`}>
+      <div className="ai-rail__head">
+        <span className="eyebrow">对话历史</span>
+        <span className="ai-rail__head-actions">
+          {inDrawer ? (
+            <button type="button" className="icon-btn" aria-label="关闭历史" onClick={closeHistoryDrawer}>
+              <CloseOutlined />
+            </button>
+          ) : (
+            <Tooltip title="收起侧栏">
+              <button type="button" className="icon-btn" aria-label="收起侧栏" onClick={toggleRail}>
+                <MenuFoldOutlined />
+              </button>
+            </Tooltip>
+          )}
+        </span>
+      </div>
+      <div className="ai-rail__new">
+        <Button block icon={<PlusOutlined />} onClick={handleNewChat}>
+          新建对话
+        </Button>
+      </div>
+      <div className="ai-rail__list">
+        <HistoryList
+          histories={chatHistories}
+          currentChatId={currentChatId}
+          onSelect={handleSelectHistory}
+          onDelete={(chatId) => deleteChatHistory(chatId)}
+        />
+      </div>
+    </aside>
+  );
+
+  const renderReferences = (message: Message, referenceArticles: ReferenceArticle[]) => {
+    const expanded = !!expandedPanels[message.id];
+    const sourceNames = Array.from(new Set(referenceArticles.map((article) => article.source))).slice(0, 4);
+
+    return (
+      <div className={`ai-refs${expanded ? ' ai-refs--open' : ''}`}>
+        <button
+          type="button"
+          className="ai-refs__toggle"
+          aria-expanded={expanded}
+          onClick={() => {
+            setExpandedPanels((previous) => ({
+              ...previous,
+              [message.id]: !previous[message.id],
+            }));
+          }}
+        >
+          <LinkOutlined className="ai-refs__icon" />
+          <span>参考来源</span>
+          <span className="mono u-tnum ai-refs__count">{referenceArticles.length}</span>
+          {!expanded && (
+            <span className="ai-refs__sources">
+              {sourceNames.map((source) => (
+                <span key={source} className="chip">{source}</span>
+              ))}
+            </span>
+          )}
+          <DownOutlined className="ai-refs__chevron" />
+        </button>
+
+        {expanded && <ReferenceCards articles={referenceArticles} />}
+      </div>
+    );
+  };
+
+  const renderMessage = (message: Message) => {
+    const isUser = message.type === 'user';
+    const timestamp = dayjs(message.timestamp).format('YYYY-MM-DD HH:mm:ss');
+
+    if (isUser) {
+      return (
+        <div key={message.id} className="ai-msg ai-msg--user">
+          <div className="ai-bubble">{message.content}</div>
+          <span className="ai-msg__time mono u-tnum">{timestamp}</span>
+        </div>
+      );
+    }
+
+    const referenceArticles = getReferenceArticles(message);
+    const isLive = isStreaming && message.id === lastMessageId;
+    const isThinking = isLive && !message.content;
+
+    return (
+      <div key={message.id} className="ai-msg ai-msg--assistant">
+        <AssistantMark />
+        <div className="ai-msg__main">
+          <div className="ai-msg__head">
+            <span className="ai-msg__name">AI 助手</span>
+            {message.engine && <span className="chip mono">{message.engine}</span>}
+            {message.resolvedMode && (
+              <span className="chip chip--accent mono">实际模式 {message.resolvedMode}</span>
+            )}
+            {typeof message.contextNodeCount === 'number' && message.contextNodeCount > 0 && (
+              <span className="chip mono u-tnum">节点 {message.contextNodeCount}</span>
+            )}
+            {typeof message.contextEdgeCount === 'number' && message.contextEdgeCount > 0 && (
+              <span className="chip mono u-tnum">边 {message.contextEdgeCount}</span>
+            )}
+            <span className="ai-msg__time mono u-tnum">{timestamp}</span>
+          </div>
+
+          {referenceArticles.length > 0 && renderReferences(message, referenceArticles)}
+
+          {isThinking ? (
+            <ThinkingIndicator label={referenceArticles.length > 0 ? '正在整理答案…' : '正在检索资讯…'} />
+          ) : (
+            <div className={`ai-answer${isLive ? ' ai-answer--streaming' : ''}`}>
+              <Markdown>{message.content}</Markdown>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
 
   const modalContent = (
     <Modal
@@ -314,452 +467,135 @@ export default function AIConversationModal() {
       onCancel={closeModal}
       footer={null}
       closable={false}
-      width="100%"
-      style={modalStyle}
-      styles={{
-        body: modalBodyStyle,
-        mask: {
-          backgroundColor: theme === 'dark' ? 'rgba(0, 0, 0, 0.6)' : 'rgba(0, 0, 0, 0.4)',
-          backdropFilter: 'blur(10px)',
-        },
-      }}
+      centered={!isMobile}
+      width={isMobile ? '100%' : 'min(1180px, calc(100vw - 48px))'}
+      className={`ai-modal${isMobile ? ' ai-modal--mobile' : ''}`}
+      styles={{ mask: { backdropFilter: 'blur(6px)' } }}
     >
-      <div
-        style={{
-          padding: '16px 24px',
-          borderBottom: `1px solid ${getThemeColor(theme, 'border')}`,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          background: getThemeColor(theme, 'bgElevated'),
-          position: 'sticky',
-          top: 0,
-          zIndex: 10,
-          gap: 12,
-        }}
-      >
-        <Space>
-          <Button
-            type="text"
-            icon={<HistoryOutlined />}
-            onClick={() => {
-              setIsHistoryDrawerClosing(false);
-              setIsHistoryDrawerOpen(true);
-            }}
-          >
-            历史
-          </Button>
-          <Text strong style={{ color: getThemeColor(theme, 'text') }}>
-            {currentMessages.find((message) => message.type === 'user')?.content || 'AI 对话'}
-          </Text>
-        </Space>
-        <Button type="text" icon={<CloseOutlined />} onClick={closeModal} />
-      </div>
+      <div className={`ai-chat${showRail ? ' ai-chat--with-rail' : ''}`}>
+        {showRail && renderRail(false)}
 
-      <div
-        style={{
-          position: 'relative',
-          flex: 1,
-          overflow: 'hidden',
-          display: 'flex',
-          flexDirection: 'column',
-        }}
-      >
-        <div
-          style={{
-            flex: 1,
-            overflowY: 'auto',
-            padding: isMobile ? '16px' : '24px',
-            maxWidth: isMobile ? '100%' : '860px',
-            margin: '0 auto',
-            width: '100%',
-          }}
-        >
-          {currentMessages.length === 0 ? (
-            <Empty
-              description="开始和 AI 对话，或从历史记录继续之前的话题"
-              style={{ marginTop: 120 }}
-            />
-          ) : (
-            <List
-              dataSource={currentMessages}
-              renderItem={(message) => {
-                const isUser = message.type === 'user';
-                const referenceArticles = getReferenceArticles(message);
+        <section className="ai-main">
+          <header className="ai-main__head">
+            {isMobile ? (
+              <button type="button" className="icon-btn" aria-label="对话历史" onClick={openHistoryDrawer}>
+                <HistoryOutlined />
+              </button>
+            ) : isRailCollapsed ? (
+              <Tooltip title="展开对话历史">
+                <button type="button" className="icon-btn" aria-label="展开对话历史" onClick={toggleRail}>
+                  <MenuUnfoldOutlined />
+                </button>
+              </Tooltip>
+            ) : null}
+            <div className="ai-main__title-wrap">
+              <span className="eyebrow">AI 助手</span>
+              <span className="ai-main__title" title={conversationTitle}>{conversationTitle}</span>
+            </div>
+            <span className="ai-main__actions">
+              {(isMobile || isRailCollapsed) && (
+                <Tooltip title="新建对话">
+                  <button type="button" className="icon-btn" aria-label="新建对话" onClick={handleNewChat}>
+                    <PlusOutlined />
+                  </button>
+                </Tooltip>
+              )}
+              {!isMobile && <span className="kbd">Esc</span>}
+              <button type="button" className="icon-btn" aria-label="关闭" onClick={closeModal}>
+                <CloseOutlined />
+              </button>
+            </span>
+          </header>
 
-                return (
-                  <List.Item style={{ border: 'none', padding: '16px 0' }}>
-                    <div
-                      style={{
-                        width: '100%',
-                        display: 'flex',
-                        flexDirection: isUser ? 'row-reverse' : 'row',
-                        gap: 12,
-                      }}
-                    >
-                      <Avatar
-                        icon={isUser ? <UserOutlined /> : <RobotOutlined />}
-                        style={{
-                          backgroundColor: isUser
-                            ? getThemeColor(theme, 'userAvatarBg')
-                            : getThemeColor(theme, 'assistantAvatarBg'),
-                          flexShrink: 0,
-                        }}
-                      />
-
-                      <div
-                        style={{
-                          flex: 1,
-                          maxWidth: '78%',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          alignItems: isUser ? 'flex-end' : 'flex-start',
-                        }}
+          <div className="ai-thread">
+            <div className="ai-thread__inner">
+              {currentMessages.length === 0 ? (
+                <div className="ai-welcome">
+                  <AssistantMark size="lg" />
+                  <h2 className="ai-welcome__title">有什么想了解的？</h2>
+                  <p className="ai-welcome__desc">
+                    开始和 AI 对话，或从历史记录继续之前的话题。回答基于已采集并索引的资讯，并附上参考来源。
+                  </p>
+                  <div className="ai-welcome__suggestions">
+                    {SUGGESTIONS.map((suggestion) => (
+                      <button
+                        key={suggestion}
+                        type="button"
+                        className="ai-suggestion"
+                        onClick={() => setInputValue(suggestion)}
                       >
-                        {!isUser && (
-                          <Space wrap size={[6, 6]} style={{ marginBottom: 8 }}>
-                            {message.engine && <Tag>{message.engine}</Tag>}
-                            {message.resolvedMode && <Tag color="blue">实际模式: {message.resolvedMode}</Tag>}
-                            {typeof message.contextNodeCount === 'number' && message.contextNodeCount > 0 && (
-                              <Tag>节点 {message.contextNodeCount}</Tag>
-                            )}
-                            {typeof message.contextEdgeCount === 'number' && message.contextEdgeCount > 0 && (
-                              <Tag>边 {message.contextEdgeCount}</Tag>
-                            )}
-                          </Space>
-                        )}
+                        {suggestion}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                currentMessages.map(renderMessage)
+              )}
 
-                        {!isUser && referenceArticles.length > 0 && (
-                          <div style={{ marginBottom: 8, width: '100%' }}>
-                            <Collapse
-                              ghost
-                              size="small"
-                              activeKey={expandedPanels[message.id] ? ['refs'] : []}
-                              onChange={(keys) => {
-                                setExpandedPanels((previous) => ({
-                                  ...previous,
-                                  [message.id]: keys.includes('refs'),
-                                }));
-                              }}
-                              items={[
-                                {
-                                  key: 'refs',
-                                  label: (
-                                    <Space size={6}>
-                                      <Text type="secondary">参考上下文 ({referenceArticles.length})</Text>
-                                      {expandedPanels[message.id] ? (
-                                        <UpOutlined style={{ fontSize: 10 }} />
-                                      ) : (
-                                        <DownOutlined style={{ fontSize: 10 }} />
-                                      )}
-                                    </Space>
-                                  ),
-                                  children: (
-                                    <List
-                                      size="small"
-                                      dataSource={referenceArticles}
-                                      renderItem={(article) => {
-                                        const hasRelationCount = 'relation_count' in article;
-                                        const hasSimilarity = 'similarity' in article;
-                                        return (
-                                          <List.Item style={{ paddingInline: 0 }}>
-                                            <Space direction="vertical" size={0} style={{ width: '100%' }}>
-                                              <a href={article.url} target="_blank" rel="noreferrer">
-                                                {article.title_zh || article.title}
-                                              </a>
-                                              <Text type="secondary">
-                                                {article.source}
-                                                {hasRelationCount ? ` · 关系数 ${article.relation_count}` : ''}
-                                                {hasSimilarity && article.similarity
-                                                  ? ` · 相似度 ${Math.round(article.similarity * 100)}%`
-                                                  : ''}
-                                              </Text>
-                                            </Space>
-                                          </List.Item>
-                                        );
-                                      }}
-                                    />
-                                  ),
-                                },
-                              ]}
-                            />
-                          </div>
-                        )}
+              {isStreaming && currentMessages[currentMessages.length - 1]?.type !== 'assistant' && (
+                <div className="ai-msg ai-msg--assistant">
+                  <AssistantMark />
+                  <div className="ai-msg__main">
+                    <ThinkingIndicator label="正在生成回答…" />
+                  </div>
+                </div>
+              )}
 
-                        <div
-                          style={{
-                            ...getMessageBubbleStyle(theme, message.type),
-                            padding: '12px 16px',
-                            borderRadius: 12,
-                            width: '100%',
-                            wordBreak: 'break-word',
-                          }}
-                        >
-                          {isUser ? (
-                            <Text style={{ color: getThemeColor(theme, 'userMessageText') }}>
-                              {message.content}
-                            </Text>
-                          ) : (
-                            <div>
-                              <ReactMarkdown
-                                components={createMarkdownComponents(theme)}
-                                remarkPlugins={[remarkGfm]}
-                              >
-                                {message.content}
-                              </ReactMarkdown>
-                              {isStreaming && message.id === currentMessages[currentMessages.length - 1]?.id && (
-                                <span
-                                  style={{
-                                    display: 'inline-block',
-                                    width: 2,
-                                    height: '1em',
-                                    backgroundColor: getThemeColor(theme, 'assistantMessageText'),
-                                    marginLeft: 2,
-                                    animation: 'blink 1s step-end infinite',
-                                  }}
-                                />
-                              )}
-                            </div>
-                          )}
-                        </div>
-
-                        <Text type="secondary" style={{ fontSize: 11, marginTop: 4 }}>
-                          {dayjs(message.timestamp).format('YYYY-MM-DD HH:mm:ss')}
-                        </Text>
-                      </div>
-                    </div>
-                  </List.Item>
-                );
-              }}
-            />
-          )}
-
-          {isStreaming && currentMessages[currentMessages.length - 1]?.type !== 'assistant' && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 0' }}>
-              <Avatar
-                icon={<RobotOutlined />}
-                style={{ backgroundColor: getThemeColor(theme, 'assistantAvatarBg') }}
-              />
-              <div
-                style={{
-                  ...getMessageBubbleStyle(theme, 'assistant'),
-                  padding: '12px 16px',
-                  borderRadius: 12,
-                }}
-              >
-                <Spin size="small" />
-                <Text style={{ marginLeft: 8 }}>正在生成回答...</Text>
-              </div>
+              <div ref={messagesEndRef} />
             </div>
-          )}
+          </div>
 
-          <div ref={messagesEndRef} />
-        </div>
-
-        {(isHistoryDrawerOpen || isHistoryDrawerClosing) && (
-          <>
-            <div
-              style={{
-                position: 'absolute',
-                inset: 0,
-                backgroundColor: 'rgba(0, 0, 0, 0.15)',
-                zIndex: 1000,
-                animation: isHistoryDrawerClosing ? 'fadeOut 0.3s ease-out forwards' : 'fadeIn 0.3s ease-out',
-              }}
-              onClick={() => {
-                setIsHistoryDrawerClosing(true);
-                setTimeout(() => {
-                  setIsHistoryDrawerOpen(false);
-                  setIsHistoryDrawerClosing(false);
-                }, 300);
-              }}
-            />
-            <div
-              style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                bottom: 0,
-                width: 320,
-                backgroundColor: getThemeColor(theme, 'bgElevated'),
-                borderRight: `1px solid ${getThemeColor(theme, 'border')}`,
-                zIndex: 1001,
-                display: 'flex',
-                flexDirection: 'column',
-                boxShadow: '2px 0 8px rgba(0, 0, 0, 0.15)',
-                animation: isHistoryDrawerClosing
-                  ? 'slideOutLeft 0.3s ease-out forwards'
-                  : 'slideInLeft 0.3s ease-out',
-              }}
-            >
-              <div
-                style={{
-                  padding: 16,
-                  borderBottom: `1px solid ${getThemeColor(theme, 'border')}`,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                }}
-              >
-                <Text strong style={{ fontSize: 16 }}>
-                  对话历史
-                </Text>
-                <Button
-                  type="text"
-                  icon={<CloseOutlined />}
-                  onClick={() => {
-                    setIsHistoryDrawerClosing(true);
-                    setTimeout(() => {
-                      setIsHistoryDrawerOpen(false);
-                      setIsHistoryDrawerClosing(false);
-                    }, 300);
-                  }}
-                />
-              </div>
-
-              <div style={{ flex: 1, overflowY: 'auto', padding: 16 }}>
-                <Button
-                  type="primary"
-                  block
-                  onClick={() => {
-                    createNewChat();
-                    setIsHistoryDrawerClosing(true);
-                    setTimeout(() => {
-                      setIsHistoryDrawerOpen(false);
-                      setIsHistoryDrawerClosing(false);
-                    }, 300);
-                  }}
-                  style={{ marginBottom: 16 }}
-                >
-                  新建对话
-                </Button>
-
-                <List
-                  dataSource={chatHistories}
-                  renderItem={(history) => (
-                    <List.Item
-                      style={{
-                        padding: '8px 12px',
-                        cursor: 'pointer',
-                        borderRadius: 4,
-                        backgroundColor:
-                          currentChatId === history.id ? getThemeColor(theme, 'selectedBg') : 'transparent',
-                      }}
-                      onClick={() => {
-                        loadChatHistory(history.id);
-                        setIsHistoryDrawerClosing(true);
-                        setTimeout(() => {
-                          setIsHistoryDrawerOpen(false);
-                          setIsHistoryDrawerClosing(false);
-                        }, 300);
-                      }}
-                    >
-                      <div style={{ width: '100%' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                          <Text strong={currentChatId === history.id} ellipsis style={{ flex: 1 }}>
-                            {history.title}
-                          </Text>
-                          <Button
-                            type="text"
-                            size="small"
-                            icon={<DeleteOutlined />}
-                            danger
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              deleteChatHistory(history.id);
-                            }}
-                          />
-                        </div>
-                        <Text type="secondary" style={{ fontSize: 11 }}>
-                          {dayjs(history.updatedAt).fromNow()}
-                        </Text>
-                      </div>
-                    </List.Item>
-                  )}
-                />
-              </div>
-            </div>
-          </>
-        )}
-
-        <div
-          style={{
-            padding: '16px 24px',
-            borderTop: `1px solid ${getThemeColor(theme, 'border')}`,
-            background: getThemeColor(theme, 'bgElevated'),
-            position: 'sticky',
-            bottom: 0,
-            zIndex: 10,
-            flexShrink: 0,
-          }}
-        >
-          <Space direction="vertical" size="small" style={{ width: '100%', maxWidth: 860, margin: '0 auto' }}>
-            <Space wrap>
-              <Text type="secondary">问答引擎</Text>
-              <Select<AIQueryEngine>
-                value={selectedEngine}
-                onChange={setSelectedEngine}
-                style={{ minWidth: 180 }}
-                options={[
-                  { label: '自动', value: 'auto' },
-                  { label: 'RAG', value: 'rag' },
-                ]}
-              />
-            </Space>
-
-            <Space.Compact style={{ width: '100%' }}>
+          <footer className="ai-composer">
+            <div className={`ai-composer__box${isStreaming ? ' ai-composer__box--busy' : ''}`}>
               <TextArea
+                className="ai-composer__input"
+                variant="borderless"
                 value={inputValue}
                 onChange={(event) => setInputValue(event.target.value)}
                 onPressEnter={handleKeyPress}
-                placeholder="继续提问..."
-                autoSize={{ minRows: 1, maxRows: 4 }}
+                placeholder={currentMessages.length > 0 ? '继续提问…' : '问点什么，例如：本周最值得关注的 AI 新闻？'}
+                autoSize={{ minRows: 1, maxRows: 6 }}
                 disabled={isStreaming}
-                style={{ flex: 1 }}
               />
-              <Button
-                type="primary"
-                icon={<SendOutlined />}
-                onClick={handleSend}
-                loading={isStreaming}
-                disabled={!inputValue.trim() || isStreaming}
-                style={{ height: 'auto' }}
-              >
-                发送
-              </Button>
-            </Space.Compact>
-          </Space>
-        </div>
+              <div className="ai-composer__bar">
+                <Select<AIQueryEngine>
+                  className="ai-composer__engine"
+                  size="small"
+                  variant="borderless"
+                  value={selectedEngine}
+                  onChange={setSelectedEngine}
+                  popupMatchSelectWidth={false}
+                  options={[
+                    { label: '引擎 · 自动', value: 'auto' },
+                    { label: '引擎 · RAG', value: 'rag' },
+                  ]}
+                />
+                <ComposerHint />
+                <Button
+                  type="primary"
+                  shape="circle"
+                  className="ai-composer__send"
+                  icon={<ArrowUpOutlined />}
+                  aria-label="发送"
+                  onClick={handleSend}
+                  loading={isStreaming}
+                  disabled={!inputValue.trim() || isStreaming}
+                />
+              </div>
+            </div>
+          </footer>
+        </section>
+
+        {isMobile && (isHistoryDrawerOpen || isHistoryDrawerClosing) && (
+          <div className={`ai-drawer${isHistoryDrawerClosing ? ' ai-drawer--closing' : ''}`}>
+            <div className="ai-drawer__mask" onClick={closeHistoryDrawer} />
+            {renderRail(true)}
+          </div>
+        )}
       </div>
     </Modal>
   );
 
-  return (
-    <>
-      <style>{`
-        @keyframes slideInLeft {
-          from { transform: translateX(-100%); opacity: 0; }
-          to { transform: translateX(0); opacity: 1; }
-        }
-        @keyframes slideOutLeft {
-          from { transform: translateX(0); opacity: 1; }
-          to { transform: translateX(-100%); opacity: 0; }
-        }
-        @keyframes fadeIn {
-          from { opacity: 0; }
-          to { opacity: 1; }
-        }
-        @keyframes fadeOut {
-          from { opacity: 1; }
-          to { opacity: 0; }
-        }
-        @keyframes blink {
-          from { opacity: 1; }
-          50% { opacity: 0; }
-          to { opacity: 1; }
-        }
-      `}</style>
-      {createPortal(modalContent, document.body)}
-    </>
-  );
+  return createPortal(modalContent, document.body);
 }

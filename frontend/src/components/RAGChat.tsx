@@ -2,19 +2,23 @@
  * RAG AI对话组件
  */
 import { useState, useRef, useEffect } from 'react';
-import { Card, Input, Button, List, Typography, Empty, Spin, Alert, Space, Tag, Avatar, Select, Tooltip } from 'antd';
-import { SendOutlined, UserOutlined, RobotOutlined, PlusOutlined, DeleteOutlined } from '@ant-design/icons';
+import { Input, Button, Alert, Select } from 'antd';
+import { ArrowUpOutlined, LinkOutlined, PlusOutlined } from '@ant-design/icons';
 import { useMutation } from '@tanstack/react-query';
-import ReactMarkdown from 'react-markdown';
 import { apiService } from '@/services/api';
 import type { RAGQueryRequest, ArticleSearchResult } from '@/types';
 import dayjs from 'dayjs';
-import { useTheme } from '@/contexts/ThemeContext';
-import { createMarkdownComponents, remarkGfm } from '@/utils/markdown';
-import { getMessageBubbleStyle, getSelectedStyle, getThemeColor } from '@/utils/theme';
+import { Markdown } from '@/utils/markdown';
+import {
+  AssistantMark,
+  ComposerHint,
+  HistoryList,
+  ReferenceCards,
+  ThinkingIndicator,
+} from '@/components/assistant/ChatParts';
+import '@/styles/pages/assistant.css';
 
 const { TextArea } = Input;
-const { Text } = Typography;
 
 interface Message {
   id: string;
@@ -43,7 +47,6 @@ export default function RAGChat() {
   const [chatHistories, setChatHistories] = useState<ChatHistory[]>([]);
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
-  const { theme } = useTheme();
 
   // 问答mutation（保留用于非流式查询，作为后备）
   const queryMutation = useMutation({
@@ -387,315 +390,170 @@ export default function RAGChat() {
     return processed;
   };
 
+  const lastMessage = messages[messages.length - 1];
+  const isBusy = queryMutation.isPending || isStreaming;
+  const showThinking =
+    queryMutation.isPending ||
+    (isStreaming && messages.length > 0 && lastMessage?.type === 'assistant' && !lastMessage?.content);
+
   return (
-    <div style={{ display: 'flex', gap: 16, height: 'calc(100vh - 200px)' }}>
+    <div className="rag-chat">
+      {/* 历史记录侧栏 */}
+      <aside className="ai-rail">
+        <div className="ai-rail__head">
+          <span className="eyebrow">聊天记录</span>
+          <span className="ai-rail__head-actions mono u-tnum u-muted">{chatHistories.length}</span>
+        </div>
+        <div className="ai-rail__new">
+          <Button block icon={<PlusOutlined />} onClick={createNewChat}>
+            新对话
+          </Button>
+        </div>
+        <div className="ai-rail__list">
+          <HistoryList
+            histories={chatHistories}
+            currentChatId={currentChatId}
+            onSelect={loadChatHistory}
+            onDelete={deleteChatHistory}
+            showCount
+            emptyText="暂无聊天记录"
+          />
+        </div>
+      </aside>
+
       {/* 主聊天区域 */}
-      <Card
-        title="💬 AI智能问答"
-        extra={
-          <Space>
-            <Button
-              type="text"
-              icon={<PlusOutlined />}
-              onClick={createNewChat}
-              title="新建对话"
-            >
-              新对话
-            </Button>
-            <Text type="secondary">检索数量：</Text>
-            <Select
-              value={topK}
-              onChange={setTopK}
-              style={{ width: 80 }}
-              options={[
-                { label: '3', value: 3 },
-                { label: '5', value: 5 },
-                { label: '10', value: 10 },
-              ]}
-            />
-          </Space>
-        }
-        style={{ flex: 1, minHeight: 600, display: 'flex', flexDirection: 'column' }}
-        styles={{ body: { flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' } }}
-      >
+      <section className="ai-main">
+        <header className="ai-main__head">
+          <div className="ai-main__title-wrap">
+            <span className="eyebrow">AI 智能问答</span>
+            <span className="ai-main__title">
+              {messages.find((message) => message.type === 'user')?.content || '新对话'}
+            </span>
+          </div>
+        </header>
+
         {/* 消息列表 */}
-        <div
-          style={{
-            flex: 1,
-            overflowY: 'auto',
-            marginBottom: 16,
-            padding: '0 8px',
-          }}
-        >
-          {messages.length === 0 ? (
-            <Empty
-              description="开始与AI对话，询问关于文章内容的问题"
-              style={{ marginTop: 100 }}
-            />
-          ) : (
-            <List
-              dataSource={messages}
-              renderItem={(message) => (
-                <List.Item style={{ border: 'none', padding: '12px 0' }}>
-                  <div
-                    style={{
-                      width: '100%',
-                      display: 'flex',
-                      flexDirection: message.type === 'user' ? 'row-reverse' : 'row',
-                      gap: 12,
-                    }}
-                  >
-                    <Avatar
-                      icon={message.type === 'user' ? <UserOutlined /> : <RobotOutlined />}
-                      style={{
-                        backgroundColor: message.type === 'user' ? getThemeColor(theme, 'userAvatarBg') : getThemeColor(theme, 'assistantAvatarBg'),
-                        flexShrink: 0,
-                      }}
-                    />
-                    <div
-                      style={{
-                        flex: 1,
-                        maxWidth: '75%',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: message.type === 'user' ? 'flex-end' : 'flex-start',
-                      }}
-                    >
-                      <div
-                        style={{
-                          ...getMessageBubbleStyle(theme, message.type),
-                          padding: '12px 16px',
-                          borderRadius: '12px',
-                          wordBreak: 'break-word',
-                        }}
-                      >
-                        {message.type === 'assistant' ? (
-                          <div>
-                            <ReactMarkdown 
-                              components={createMarkdownComponents(theme)}
-                              remarkPlugins={[remarkGfm]}
-                            >
-                              {processAnswerText(message.content)}
-                            </ReactMarkdown>
-                            {isStreaming && message.id === messages[messages.length - 1]?.id && (
-                              <span
-                                style={{
-                                  display: 'inline-block',
-                                  width: '2px',
-                                  height: '1em',
-                                  backgroundColor: getThemeColor(theme, 'assistantMessageText'),
-                                  marginLeft: '2px',
-                                  verticalAlign: 'baseline',
-                                  animation: 'blink 1s step-end infinite',
-                                }}
-                              />
-                            )}
-                          </div>
-                        ) : (
-                          <Text style={{ color: getThemeColor(theme, 'userMessageText') }}>
-                            {message.content}
-                          </Text>
-                        )}
+        <div className="ai-thread">
+          <div className="ai-thread__inner">
+            {messages.length === 0 ? (
+              <div className="ai-welcome">
+                <AssistantMark size="lg" />
+                <h2 className="ai-welcome__title">询问资讯库</h2>
+                <p className="ai-welcome__desc">开始与 AI 对话，询问关于文章内容的问题。</p>
+              </div>
+            ) : (
+              messages.map((message) => {
+                const timestamp = dayjs(message.timestamp).format('YYYY-MM-DD HH:mm:ss');
+
+                if (message.type === 'user') {
+                  return (
+                    <div key={message.id} className="ai-msg ai-msg--user">
+                      <div className="ai-bubble">{message.content}</div>
+                      <span className="ai-msg__time mono u-tnum">{timestamp}</span>
+                    </div>
+                  );
+                }
+
+                const isLive = isStreaming && message.id === lastMessage?.id;
+                if (isLive && !message.content) {
+                  return null;
+                }
+
+                return (
+                  <div key={message.id} className="ai-msg ai-msg--assistant">
+                    <AssistantMark />
+                    <div className="ai-msg__main">
+                      <div className="ai-msg__head">
+                        <span className="ai-msg__name">AI 助手</span>
+                        <span className="ai-msg__time mono u-tnum">{timestamp}</span>
+                      </div>
+
+                      <div className={`ai-answer${isLive ? ' ai-answer--streaming' : ''}`}>
+                        <Markdown>{processAnswerText(message.content)}</Markdown>
                       </div>
 
                       {/* 引用来源 */}
-                      {message.type === 'assistant' && message.articles && message.articles.length > 0 && (
-                        <div style={{ marginTop: 8, width: '100%' }}>
-                          <Text
-                            type="secondary"
-                            style={{
-                              fontSize: 12,
-                              marginBottom: 4,
-                              display: 'inline',
-                              color: getThemeColor(theme, 'textSecondary'),
-                              marginRight: 8,
-                            }}
-                          >
-                            参考来源：
-                          </Text>
-                          <Space size={[8, 4]} wrap style={{ display: 'inline-flex' }}>
-                            {message.articles.map((article, idx) => {
-                              const articleNumber = idx + 1;
-                              const primaryColor = getThemeColor(theme, 'primary');
-                              return (
-                                <span key={idx} style={{ display: 'inline-flex', alignItems: 'center' }}>
-                                  <a
-                                    href={article.url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    style={{
-                                      color: primaryColor,
-                                      textDecoration: 'none',
-                                      fontWeight: 500,
-                                      fontSize: 12,
-                                      marginRight: 4,
-                                    }}
-                                    onMouseEnter={(e) => {
-                                      e.currentTarget.style.textDecoration = 'underline';
-                                    }}
-                                    onMouseLeave={(e) => {
-                                      e.currentTarget.style.textDecoration = 'none';
-                                    }}
-                                  >
-                                    [{articleNumber}]
-                                  </a>
-                                  {article.title_zh ? (
-                                    <Tooltip title={article.title} placement="top">
-                                      <Text style={{
-                                        fontSize: 12,
-                                        color: getThemeColor(theme, 'textSecondary'),
-                                        cursor: 'help',
-                                        marginRight: 4,
-                                      }}>
-                                        {article.title_zh}
-                                      </Text>
-                                    </Tooltip>
-                                  ) : (
-                                    <Text style={{
-                                      fontSize: 12,
-                                      color: getThemeColor(theme, 'textSecondary'),
-                                      marginRight: 4,
-                                    }}>
-                                      {article.title}
-                                    </Text>
-                                  )}
-                                  <Tag color="blue" style={{ fontSize: 11, padding: '0 4px', margin: 0, lineHeight: '18px' }}>
-                                    {article.source}
-                                  </Tag>
-                                </span>
-                              );
-                            })}
-                          </Space>
+                      {message.articles && message.articles.length > 0 && (
+                        <div className="ai-refs ai-refs--open">
+                          <div className="ai-refs__toggle ai-refs__toggle--static">
+                            <LinkOutlined className="ai-refs__icon" />
+                            <span>参考来源</span>
+                            <span className="mono u-tnum ai-refs__count">{message.articles.length}</span>
+                          </div>
+                          <ReferenceCards articles={message.articles} />
                         </div>
                       )}
-
-                      <Text
-                        type="secondary"
-                        style={{
-                          fontSize: 11,
-                          marginTop: 4,
-                          textAlign: message.type === 'user' ? 'right' : 'left',
-                        }}
-                      >
-                        {dayjs(message.timestamp).format('YYYY-MM-DD HH:mm:ss')}
-                      </Text>
                     </div>
                   </div>
-                </List.Item>
-              )}
-            />
-          )}
-          {(queryMutation.isPending || (isStreaming && messages.length > 0 && messages[messages.length - 1]?.type === 'assistant' && !messages[messages.length - 1]?.content)) && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 0' }}>
-              <Avatar icon={<RobotOutlined />} style={{ backgroundColor: getThemeColor(theme, 'assistantAvatarBg'), flexShrink: 0 }} />
-              <div style={{
-                ...getMessageBubbleStyle(theme, 'assistant'),
-                padding: '12px 16px',
-                borderRadius: '12px',
-              }}>
-                <Spin size="small" />
-                <Text style={{
-                  marginLeft: 8,
-                  color: getThemeColor(theme, 'assistantMessageText'),
-                }}>
-                  {isStreaming ? '正在生成回答...' : '正在思考...'}
-                </Text>
+                );
+              })
+            )}
+
+            {showThinking && (
+              <div className="ai-msg ai-msg--assistant">
+                <AssistantMark />
+                <div className="ai-msg__main">
+                  <ThinkingIndicator label={isStreaming ? '正在生成回答…' : '正在思考…'} />
+                </div>
               </div>
-            </div>
-          )}
-          <div ref={messagesEndRef} />
+            )}
+            <div ref={messagesEndRef} />
+          </div>
         </div>
 
         {/* 输入区域 */}
-        <div>
+        <footer className="ai-composer">
           {queryMutation.error && (
             <Alert
+              className="ai-composer__alert"
               message="请求失败"
               description={queryMutation.error instanceof Error ? queryMutation.error.message : '未知错误'}
               type="error"
               showIcon
-              style={{ marginBottom: 12 }}
             />
           )}
-          <Space.Compact style={{ width: '100%' }}>
+          <div className="ai-composer__box">
             <TextArea
+              variant="borderless"
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               onPressEnter={handleKeyPress}
               placeholder="输入您的问题，例如：最近有哪些关于大语言模型的重要突破？"
-              autoSize={{ minRows: 2, maxRows: 4 }}
-              disabled={queryMutation.isPending || isStreaming}
+              autoSize={{ minRows: 2, maxRows: 6 }}
+              disabled={isBusy}
             />
-            <Button
-              type="primary"
-              icon={<SendOutlined />}
-              onClick={handleSend}
-              loading={queryMutation.isPending || isStreaming}
-              disabled={!inputValue.trim() || queryMutation.isPending || isStreaming}
-              style={{ height: 'auto' }}
-            >
-              发送
-            </Button>
-          </Space.Compact>
-        </div>
-      </Card>
-
-      {/* 历史记录侧边栏 */}
-      <Card
-        title="💭 聊天记录"
-        style={{ width: 300, display: 'flex', flexDirection: 'column' }}
-        styles={{ body: { flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', padding: 0 } }}
-      >
-        <div style={{ flex: 1, overflowY: 'auto', padding: '8px' }}>
-          {chatHistories.length === 0 ? (
-            <Empty
-              description="暂无聊天记录"
-              style={{ marginTop: 50 }}
-              image={Empty.PRESENTED_IMAGE_SIMPLE}
-            />
-          ) : (
-            <List
-              dataSource={chatHistories}
-              renderItem={(history) => (
-                <List.Item
-                  style={{
-                    padding: '8px 12px',
-                    cursor: 'pointer',
-                    ...(currentChatId === history.id ? getSelectedStyle(theme) : {}),
-                  }}
-                  onClick={() => loadChatHistory(history.id)}
-                >
-                  <div style={{ width: '100%' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                      <Text
-                        strong={currentChatId === history.id}
-                        ellipsis
-                        style={{ flex: 1, fontSize: 13 }}
-                      >
-                        {history.title}
-                      </Text>
-                      <Button
-                        type="text"
-                        size="small"
-                        icon={<DeleteOutlined />}
-                        danger
-                        onClick={(e) => deleteChatHistory(history.id, e)}
-                        style={{ flexShrink: 0, marginLeft: 8 }}
-                      />
-                    </div>
-                    <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 4 }}>
-                      {dayjs(history.updatedAt).format('MM-DD HH:mm')}
-                    </Text>
-                    <Text type="secondary" style={{ fontSize: 11, display: 'block' }}>
-                      {history.messages.length} 条消息
-                    </Text>
-                  </div>
-                </List.Item>
-              )}
-            />
-          )}
-        </div>
-      </Card>
+            <div className="ai-composer__bar">
+              <span className="ai-composer__field">
+                <span>检索数量</span>
+                <Select
+                  className="ai-composer__engine"
+                  size="small"
+                  variant="borderless"
+                  value={topK}
+                  onChange={setTopK}
+                  popupMatchSelectWidth={false}
+                  options={[
+                    { label: '3', value: 3 },
+                    { label: '5', value: 5 },
+                    { label: '10', value: 10 },
+                  ]}
+                />
+              </span>
+              <ComposerHint />
+              <Button
+                type="primary"
+                shape="circle"
+                className="ai-composer__send"
+                icon={<ArrowUpOutlined />}
+                aria-label="发送"
+                onClick={handleSend}
+                loading={isBusy}
+                disabled={!inputValue.trim() || isBusy}
+              />
+            </div>
+          </div>
+        </footer>
+      </section>
     </div>
   );
 }

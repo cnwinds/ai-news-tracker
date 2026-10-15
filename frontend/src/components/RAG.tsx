@@ -2,13 +2,14 @@
  * RAG主组件 - 整合搜索和对话功能
  */
 import { useState } from 'react';
-import { Tabs, Card, Statistic, Row, Col, Alert, Button, Modal } from 'antd';
+import { Tabs, Alert, Button, Modal } from 'antd';
 import { SearchOutlined, MessageOutlined, DatabaseOutlined, SyncOutlined } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useErrorHandler } from '@/hooks/useErrorHandler';
 import RAGSearch from './RAGSearch';
 import RAGChat from './RAGChat';
 import { apiService } from '@/services/api';
+import '@/styles/pages/assistant.css';
 
 export default function RAG() {
   const [activeTab, setActiveTab] = useState('search');
@@ -82,45 +83,28 @@ export default function RAG() {
 
   return (
     <div>
-      {/* 统计信息卡片 */}
+      {/* 统计信息 */}
       {stats && (
-        <Card style={{ marginBottom: 16 }}>
-          <Row gutter={16}>
-            <Col span={6}>
-              <Statistic
-                title="总文章数"
-                value={stats.total_articles}
-                prefix={<DatabaseOutlined />}
-                loading={statsLoading}
-              />
-            </Col>
-            <Col span={6}>
-              <Statistic
-                title="已索引"
-                value={stats.indexed_articles}
-                prefix={<DatabaseOutlined />}
-                loading={statsLoading}
-              />
-            </Col>
-            <Col span={6}>
-              <Statistic
-                title="未索引"
-                value={stats.unindexed_articles}
-                prefix={<DatabaseOutlined />}
-                loading={statsLoading}
-              />
-            </Col>
-            <Col span={6}>
-              <Statistic
-                title="索引覆盖率"
-                value={stats.index_coverage * 100}
-                precision={1}
-                suffix="%"
-                loading={statsLoading}
-              />
-            </Col>
-          </Row>
-        </Card>
+        <div className="rag-metrics">
+          <div className="metric">
+            <span className="metric__label"><DatabaseOutlined /> 总文章数</span>
+            <span className="metric__value">{statsLoading ? '—' : stats.total_articles}</span>
+          </div>
+          <div className="metric">
+            <span className="metric__label"><DatabaseOutlined /> 已索引</span>
+            <span className="metric__value">{statsLoading ? '—' : stats.indexed_articles}</span>
+          </div>
+          <div className="metric">
+            <span className="metric__label"><DatabaseOutlined /> 未索引</span>
+            <span className="metric__value">{statsLoading ? '—' : stats.unindexed_articles}</span>
+          </div>
+          <div className="metric">
+            <span className="metric__label">索引覆盖率</span>
+            <span className="metric__value">
+              {statsLoading ? '—' : `${(stats.index_coverage * 100).toFixed(1)}%`}
+            </span>
+          </div>
+        </div>
       )}
 
       {/* 提示信息和操作按钮 */}

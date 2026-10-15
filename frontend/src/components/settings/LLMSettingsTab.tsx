@@ -3,18 +3,16 @@
  */
 import { useEffect, useState } from 'react';
 import {
-  Card,
   Form,
   Input,
   Button,
-  Space,
-  Alert,
   Spin,
   Select,
   Switch,
   Table,
   Modal,
   Popconfirm,
+  Tooltip,
 } from 'antd';
 import { SaveOutlined, ReloadOutlined, PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -24,6 +22,14 @@ import { useErrorHandler } from '@/hooks/useErrorHandler';
 import { safeSetFieldsValue } from '@/utils/form';
 import type { LLMSettings, LLMProvider, LLMProviderCreate, LLMProviderUpdate } from '@/types';
 import type { LLMFormValues } from './types';
+import {
+  ModelChips,
+  SettingsPanel,
+  SettingsSaveBar,
+  SettingsSubhead,
+  StatusDot,
+  useSettingsFormLayout,
+} from './SettingsKit';
 
 const toProviderAndModel = (
   providerId?: number | null,
@@ -77,6 +83,7 @@ export default function LLMSettingsTab() {
   const [providerForm] = Form.useForm();
   const [providerModalVisible, setProviderModalVisible] = useState(false);
   const [editingProvider, setEditingProvider] = useState<LLMProvider | null>(null);
+  const formLayout = useSettingsFormLayout();
 
   // 获取LLM配置
   const { data: llmSettings, isLoading: llmLoading } = useQuery({
@@ -245,10 +252,11 @@ export default function LLMSettingsTab() {
 
   return (
     <Spin spinning={llmLoading || providersLoading}>
-      <Space direction="vertical" size="large" style={{ width: '100%' }}>
+      <div className="settings-stack">
         {/* 提供商管理 */}
-        <Card
-          title="提供商管理"
+        <SettingsPanel
+          title="提供商"
+          description="可配置多个 AI 提供商，分别选择其大模型与向量模型；部分提供商可能只有大模型。"
           extra={
             <Button
               type="primary"
@@ -259,86 +267,65 @@ export default function LLMSettingsTab() {
               添加提供商
             </Button>
           }
+          flush
         >
-          <Alert
-            message="提供商管理说明"
-            description="可以配置多个AI提供商，并分别选择使用哪个提供商的大模型和向量模型。某些提供商可能只提供大模型而没有向量模型。"
-            type="info"
-            showIcon
-            style={{ marginBottom: 16 }}
-          />
           <Table
+            className="settings-table"
+            size="small"
             dataSource={providers}
             rowKey="id"
+            scroll={{ x: 560 }}
             columns={[
               {
                 title: '名称',
                 dataIndex: 'name',
                 key: 'name',
-              },
-              {
-                title: '类型',
-                dataIndex: 'provider_type',
-                key: 'provider_type',
+                render: (name: string, record) => (
+                  <>
+                    <span className="settings-cell-title">{name}</span>
+                    <span className="settings-cell-sub">{record.provider_type}</span>
+                  </>
+                ),
               },
               {
                 title: '大模型',
                 dataIndex: 'llm_model',
                 key: 'llm_model',
-                render: (text: string) => {
-                  const models = text.split(',').map(m => m.trim()).filter(m => m);
-                  return (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      {models.map((model, index) => (
-                        <div key={index}>{model}</div>
-                      ))}
-                    </div>
-                  );
-                },
+                render: (text: string) => <ModelChips value={text} />,
               },
               {
                 title: '向量模型',
                 dataIndex: 'embedding_model',
                 key: 'embedding_model',
-                render: (text: string) => {
-                  if (!text) return '-';
-                  const models = text.split(',').map(m => m.trim()).filter(m => m);
-                  return (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      {models.map((model, index) => (
-                        <div key={index}>{model}</div>
-                      ))}
-                    </div>
-                  );
-                },
+                render: (text: string) => <ModelChips value={text} />,
               },
               {
                 title: '状态',
                 dataIndex: 'enabled',
                 key: 'enabled',
-                align: 'center',
-                width: 80,
-                render: (enabled) => (
-                  <Switch checked={enabled} disabled />
+                width: 88,
+                render: (enabled: boolean) => (
+                  <StatusDot tone={enabled ? 'ok' : 'off'}>{enabled ? '启用' : '停用'}</StatusDot>
                 ),
               },
               {
-                title: '操作',
+                title: '',
                 key: 'action',
-                width: 80,
-                align: 'center',
+                width: 84,
+                align: 'right',
                 render: (_, record) => (
-                  <Space direction="vertical" size={0}>
-                    <Button
-                      type="link"
-                      icon={<EditOutlined />}
-                      onClick={() => handleProviderEdit(record)}
-                      disabled={!isAuthenticated}
-                      size="small"
-                      style={{ padding: 0 }}
-                    >
-                      编辑
-                    </Button>
+                  <span className="settings-icon-actions">
+                    <Tooltip title="编辑">
+                      <Button
+                        type="text"
+                        size="small"
+                        className="settings-icon-action"
+                        aria-label="编辑"
+                        icon={<EditOutlined />}
+                        onClick={() => handleProviderEdit(record)}
+                        disabled={!isAuthenticated}
+                      />
+                    </Tooltip>
                     <Popconfirm
                       title="确定要删除此提供商吗？"
                       onConfirm={() => handleProviderDelete(record.id)}
@@ -346,41 +333,36 @@ export default function LLMSettingsTab() {
                       cancelText="取消"
                       disabled={!isAuthenticated}
                     >
-                      <Button
-                        type="link"
-                        danger
-                        icon={<DeleteOutlined />}
-                        disabled={!isAuthenticated}
-                        size="small"
-                        style={{ padding: 0 }}
-                      >
-                        删除
-                      </Button>
+                      <Tooltip title="删除">
+                        <Button
+                          type="text"
+                          size="small"
+                          className="settings-icon-action settings-icon-action--danger"
+                          aria-label="删除"
+                          icon={<DeleteOutlined />}
+                          disabled={!isAuthenticated}
+                        />
+                      </Tooltip>
                     </Popconfirm>
-                  </Space>
+                  </span>
                 ),
               },
             ]}
             pagination={false}
           />
-        </Card>
+        </SettingsPanel>
 
         {/* 提供商选择 */}
-        <Card title="提供商选择">
+        <SettingsPanel
+          title="默认模型"
+          description="选择大模型与向量模型的提供商；至少选择一个提供商才能正常使用 AI 功能。"
+        >
           <Form
             form={llmForm}
-            layout="vertical"
+            {...formLayout}
             onFinish={handleLLMSave}
             initialValues={llmSettings}
           >
-            <Alert
-              message="提供商选择说明"
-              description="选择要使用的大模型提供商和向量模型提供商。请确保至少选择一个提供商才能正常使用AI功能。"
-              type="info"
-              showIcon
-              style={{ marginBottom: 24 }}
-            />
-
             <Form.Item
               name="selected_llm_provider_id"
               label="大模型提供商"
@@ -423,94 +405,91 @@ export default function LLMSettingsTab() {
               />
             </Form.Item>
 
-            <Card size="small" title="自主探索 Agent 模式" style={{ marginBottom: 24 }}>
+            <SettingsSubhead>自主探索 Agent</SettingsSubhead>
+            <Form.Item
+              name="exploration_execution_mode"
+              label="执行模式"
+              tooltip="auto: 按配置自动选择，agent: 强制Agent模式，deterministic: 规则模式"
+              rules={[{ required: true, message: '请选择执行模式' }]}
+            >
+              <Select
+                disabled={!isAuthenticated}
+                options={[
+                  { label: '自动（推荐）', value: 'auto' },
+                  { label: 'Agent模式', value: 'agent' },
+                  { label: '规则模式', value: 'deterministic' },
+                ]}
+              />
+            </Form.Item>
+
+            <Form.Item
+              name="exploration_use_independent_provider"
+              label="使用独立模型"
+              valuePropName="checked"
+              tooltip="开启后，自主探索可使用不同于全局LLM的独立模型配置"
+            >
+              <Switch disabled={!isAuthenticated} />
+            </Form.Item>
+
+            {explorationUseIndependentProvider && (
               <Form.Item
-                name="exploration_execution_mode"
-                label="执行模式"
-                tooltip="auto: 按配置自动选择，agent: 强制Agent模式，deterministic: 规则模式"
-                rules={[{ required: true, message: '请选择执行模式' }]}
+                name="selected_exploration_provider_id"
+                label="自主探索模型提供商"
+                tooltip="选择自主探索 Agent 专用提供商和模型"
+                rules={[{ required: true, message: '请选择自主探索模型提供商' }]}
               >
                 <Select
+                  placeholder="选择自主探索模型提供商"
+                  style={{ width: '100%' }}
                   disabled={!isAuthenticated}
-                  options={[
-                    { label: '自动（推荐）', value: 'auto' },
-                    { label: 'Agent模式', value: 'agent' },
-                    { label: '规则模式', value: 'deterministic' },
-                  ]}
+                  options={llmProviderOptions}
                 />
               </Form.Item>
+            )}
 
-              <Form.Item
-                name="exploration_use_independent_provider"
-                label="使用独立模型"
-                valuePropName="checked"
-                tooltip="开启后，自主探索可使用不同于全局LLM的独立模型配置"
+            <SettingsSaveBar hint={isAuthenticated ? '修改后需保存才会生效' : '登录后可保存'}>
+              <Button
+                icon={<ReloadOutlined />}
+                onClick={() => {
+                  if (llmSettings) {
+                    safeSetFieldsValue(llmForm, {
+                      ...llmSettings,
+                      selected_llm_provider_id: toProviderAndModel(
+                        llmSettings.selected_llm_provider_id,
+                        llmSettings.selected_llm_models,
+                      ),
+                      selected_embedding_provider_id: toProviderAndModel(
+                        llmSettings.selected_embedding_provider_id,
+                        llmSettings.selected_embedding_models,
+                      ),
+                      selected_exploration_provider_id: toProviderAndModel(
+                        llmSettings.selected_exploration_provider_id,
+                        llmSettings.selected_exploration_models,
+                      ),
+                      selected_fallback_llm_provider_id: toProviderAndModel(
+                        llmSettings.selected_fallback_llm_provider_id,
+                        llmSettings.selected_fallback_llm_models,
+                      ),
+                      exploration_execution_mode: llmSettings.exploration_execution_mode || 'auto',
+                      exploration_use_independent_provider: llmSettings.exploration_use_independent_provider || false,
+                    });
+                  }
+                }}
               >
-                <Switch disabled={!isAuthenticated} />
-              </Form.Item>
-
-              {explorationUseIndependentProvider && (
-                <Form.Item
-                  name="selected_exploration_provider_id"
-                  label="自主探索模型提供商"
-                  tooltip="选择自主探索 Agent 专用提供商和模型"
-                  rules={[{ required: true, message: '请选择自主探索模型提供商' }]}
-                >
-                  <Select
-                    placeholder="选择自主探索模型提供商"
-                    style={{ width: '100%' }}
-                    disabled={!isAuthenticated}
-                    options={llmProviderOptions}
-                  />
-                </Form.Item>
-              )}
-            </Card>
-
-            <Form.Item>
-              <Space>
-                <Button
-                  type="primary"
-                  icon={<SaveOutlined />}
-                  htmlType="submit"
-                  loading={updateLLMMutation.isPending}
-                  disabled={!isAuthenticated}
-                >
-                  保存配置
-                </Button>
-                <Button
-                  icon={<ReloadOutlined />}
-                  onClick={() => {
-                    if (llmSettings) {
-                      safeSetFieldsValue(llmForm, {
-                        ...llmSettings,
-                        selected_llm_provider_id: toProviderAndModel(
-                          llmSettings.selected_llm_provider_id,
-                          llmSettings.selected_llm_models,
-                        ),
-                        selected_embedding_provider_id: toProviderAndModel(
-                          llmSettings.selected_embedding_provider_id,
-                          llmSettings.selected_embedding_models,
-                        ),
-                        selected_exploration_provider_id: toProviderAndModel(
-                          llmSettings.selected_exploration_provider_id,
-                          llmSettings.selected_exploration_models,
-                        ),
-                        selected_fallback_llm_provider_id: toProviderAndModel(
-                          llmSettings.selected_fallback_llm_provider_id,
-                          llmSettings.selected_fallback_llm_models,
-                        ),
-                        exploration_execution_mode: llmSettings.exploration_execution_mode || 'auto',
-                        exploration_use_independent_provider: llmSettings.exploration_use_independent_provider || false,
-                      });
-                    }
-                  }}
-                >
-                  重置
-                </Button>
-              </Space>
-            </Form.Item>
+                重置
+              </Button>
+              <Button
+                type="primary"
+                icon={<SaveOutlined />}
+                htmlType="submit"
+                loading={updateLLMMutation.isPending}
+                disabled={!isAuthenticated}
+              >
+                保存配置
+              </Button>
+            </SettingsSaveBar>
           </Form>
-        </Card>
+        </SettingsPanel>
 
         {/* 提供商编辑/创建模态框 */}
         <Modal
@@ -528,6 +507,7 @@ export default function LLMSettingsTab() {
           <Form
             form={providerForm}
             layout="vertical"
+            className="settings-form"
             onFinish={handleProviderSubmit}
           >
             <Form.Item
@@ -596,7 +576,7 @@ export default function LLMSettingsTab() {
             </Form.Item>
           </Form>
         </Modal>
-      </Space>
+      </div>
     </Spin>
   );
 }

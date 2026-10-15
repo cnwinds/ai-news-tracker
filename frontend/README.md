@@ -18,6 +18,12 @@ npm run dev
 
 访问 http://localhost:5173
 
+开发时可将 API 代理指向任意后端（默认 `http://localhost:8000`）：
+
+```powershell
+$env:VITE_PROXY_TARGET='https://your-backend.example.com'; npm run dev
+```
+
 ### 构建生产版本
 
 ```bash
@@ -46,32 +52,24 @@ npm run preview
 ## 项目结构
 
 ```
-frontend/
-├── src/
-│   ├── components/      # React组件
-│   │   ├── ArticleList.tsx
-│   │   ├── ArticleCard.tsx
-│   │   ├── CollectionHistory.tsx
-│   │   ├── DailySummary.tsx
-│   │   ├── Statistics.tsx
-│   │   ├── SourceManagement.tsx
-│   │   └── DataCleanup.tsx
-│   ├── pages/           # 页面组件
-│   │   └── Dashboard.tsx
-│   ├── services/        # API服务
-│   │   ├── api.ts
-│   │   └── websocket.ts
-│   ├── hooks/           # 自定义Hooks
-│   │   ├── useArticles.ts
-│   │   └── useWebSocket.ts
-│   ├── types/           # TypeScript类型
-│   │   └── index.ts
-│   ├── App.tsx          # 主应用组件
-│   └── main.tsx         # 入口文件
-├── package.json
-├── tsconfig.json
-└── vite.config.ts
+frontend/src/
+├── theme/tokens.ts        # 设计令牌（颜色/字体/圆角）唯一来源
+├── App.css                # 全局样式与样式原语
+├── styles/                # 手机端样式、各页面样式（styles/pages/*.css）
+├── components/
+│   ├── layout/            # 桌面框架：侧栏、命令搜索、页面定义
+│   ├── mobile/            # 手机框架：头部、底栏、更多面板
+│   ├── article/           # 文章阅读器
+│   ├── settings/          # 系统设置各分区
+│   └── *.tsx              # 各业务页面
+├── features/industryGraph # 行业趋势图谱
+├── pages/                 # 路由页面：Dashboard / Login / Share*
+├── services/              # API 与 WebSocket
+├── hooks/  contexts/  utils/  types/
+└── main.tsx
 ```
+
+界面规范见 [`docs/前端设计系统.md`](../docs/前端设计系统.md)。
 
 ## 环境变量
 
@@ -84,6 +82,9 @@ VITE_WS_BASE_URL=/api/v1/ws
 
 ## 功能特性
 
+- 🖥️ 桌面端侧栏 + 分栏阅读（列表 / 阅读器），快捷键 `1-6` 切页、`J/K` 切文章、`⌘/Ctrl+K` 搜索、`[` 折叠侧栏
+- 📱 手机端悬浮底栏 + 全屏阅读页
+- 🌗 深浅主题，基于设计令牌统一管理
 - 📰 文章列表 - 支持筛选、分页、AI分析
 - 🚀 采集历史 - 实时查看采集任务状态
 - 📊 每日摘要 - 查看和生成AI摘要

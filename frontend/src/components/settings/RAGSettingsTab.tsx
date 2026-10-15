@@ -3,19 +3,16 @@
  */
 import { useState } from 'react';
 import {
-  Card,
-  Alert,
   Spin,
-  Space,
   Button,
   Select,
-  Form,
 } from 'antd';
 import { SyncOutlined, DatabaseOutlined } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiService } from '@/services/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { useErrorHandler } from '@/hooks/useErrorHandler';
+import { SettingsAction, SettingsNote, SettingsPanel, StatusDot } from './SettingsKit';
 
 export default function RAGSettingsTab() {
   const queryClient = useQueryClient();
@@ -104,67 +101,88 @@ export default function RAGSettingsTab() {
     forceRebuildIndexMutation.mutate(batchSize);
   };
 
+  const coverage = ragStats ? Math.round(ragStats.index_coverage * 100) : 0;
+  const sourceStats = ragStats ? Object.entries(ragStats.source_stats) : [];
+
   return (
     <Spin spinning={ragStatsLoading}>
-      <Card>
-        <Alert
-          message="RAG索引说明"
-          description="RAG索引用于语义搜索功能。重建索引会重新处理所有文章，生成向量嵌入。此操作可能需要较长时间，且会消耗API调用额度。"
-          type="info"
-          showIcon
-          style={{ marginBottom: 24 }}
-        />
+      <div className="settings-stack">
+        <SettingsNote>
+          RAG 索引用于语义搜索。重建索引会重新处理文章并生成向量嵌入，可能耗时较长并消耗 API 调用额度。
+        </SettingsNote>
 
         {ragStats && (
-          <Space direction="vertical" size="large" style={{ width: '100%' }}>
-            <Card title="索引统计" size="small">
-              <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-                <div>
-                  <strong>总文章数：</strong> {ragStats.total_articles}
+          <>
+            <SettingsPanel title="索引统计">
+              <div className="settings-metrics">
+                <div className="metric">
+                  <span className="metric__label">总文章数</span>
+                  <span className="metric__value">{ragStats.total_articles}</span>
                 </div>
-                <div>
-                  <strong>已索引：</strong> {ragStats.indexed_articles}
+                <div className="metric">
+                  <span className="metric__label">已索引</span>
+                  <span className="metric__value">{ragStats.indexed_articles}</span>
                 </div>
-                <div>
-                  <strong>vec0 行数：</strong> {ragStats.vec_index_count ?? '不可用'}
-                  {ragStats.vector_backend ? `（${ragStats.vector_backend}）` : ''}
+                <div className="metric">
+                  <span className="metric__label">未索引</span>
+                  <span className="metric__value">{ragStats.unindexed_articles}</span>
                 </div>
-                {typeof ragStats.vec_missing_count === 'number' && ragStats.vec_missing_count > 0 && (
-                  <div>
-                    <strong>vec0 缺失：</strong> {ragStats.vec_missing_count} 条（无需重新调用 embedding）
+                <div className="metric">
+                  <span className="metric__label">索引覆盖率</span>
+                  <span className="metric__value">{coverage}%</span>
+                  <div className="settings-progress" aria-hidden>
+                    <div className="settings-progress__bar" style={{ width: `${Math.min(coverage, 100)}%` }} />
                   </div>
-                )}
-                <div>
-                  <strong>未索引：</strong> {ragStats.unindexed_articles}
                 </div>
-                <div>
-                  <strong>索引覆盖率：</strong> {Math.round(ragStats.index_coverage * 100)}%
-                </div>
-                {Object.keys(ragStats.source_stats).length > 0 && (
-                  <div>
-                    <strong>按来源统计：</strong>
-                    <ul style={{ marginTop: 8, marginBottom: 0 }}>
-                      {Object.entries(ragStats.source_stats).map(([source, count]) => (
-                        <li key={source}>
-                          {source}: {count} 篇
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </Space>
-            </Card>
+              </div>
 
-            <Card title="同步 vec0（不消耗 API）" size="small">
-              <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-                <Alert
-                  message="把 JSON 向量写入 sqlite-vec"
-                  description="当 vec0 行数少于 article_embeddings 时，用已有 JSON 回填，不会重新调用 embedding API，也不会 DROP 表。部署后若搜索变慢或提示缺失，先执行这一步。"
-                  type="warning"
-                  showIcon
-                />
+              <dl className="settings-kv" style={{ marginTop: 16 }}>
+                <dt>vec0 行数</dt>
+                <dd>
+                  <span className="settings-num">{ragStats.vec_index_count ?? '不可用'}</span>
+                  {ragStats.vector_backend && <span className="settings-muted">（{ragStats.vector_backend}）</span>}
+                </dd>
+                {typeof ragStats.vec_missing_count === 'number' && ragStats.vec_missing_count > 0 && (
+                  <>
+                    <dt>vec0 缺失</dt>
+                    <dd>
+                      <StatusDot tone="warn">
+                        <span className="settings-num">{ragStats.vec_missing_count}</span> 条（无需重新调用 embedding）
+                      </StatusDot>
+                    </dd>
+                  </>
+                )}
+              </dl>
+
+              {sourceStats.length > 0 && (
+                <>
+                  <div className="settings-subhead" style={{ marginTop: 20, marginBottom: 6 }}>
+                    <span className="eyebrow">按来源统计</span>
+                  </div>
+                  <div className="settings-rows">
+                    {sourceStats.map(([source, count]) => (
+                      <div key={source} className="settings-row">
+                        <div className="settings-row__main">
+                          <div className="settings-row__title">
+                            <span>{source}</span>
+                          </div>
+                        </div>
+                        <span className="settings-row__trail">
+                          <span className="settings-num">{count}</span> 篇
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </SettingsPanel>
+
+            <SettingsPanel title="索引维护">
+              <SettingsAction
+                title="同步 vec0（不消耗 API）"
+                description="当 vec0 行数少于 article_embeddings 时，用已有 JSON 向量回填 sqlite-vec，不会重新调用 embedding API，也不会 DROP 表。部署后若搜索变慢或提示缺失，先执行这一步。"
+              >
                 <Button
-                  type="primary"
                   icon={<SyncOutlined />}
                   onClick={() => {
                     if (!isAuthenticated) {
@@ -178,30 +196,26 @@ export default function RAGSettingsTab() {
                 >
                   {syncVecMutation.isPending ? '正在同步 vec0...' : '同步缺失的 vec0 行'}
                 </Button>
-              </Space>
-            </Card>
+              </SettingsAction>
 
-            <Card title="重建索引" size="small">
-              <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-                <Alert
-                  message="重建索引说明"
-                  description="重建索引只会索引未索引的文章，不会清空已有索引。如果需要完全重建，请使用下方的强制重建索引功能。"
-                  type="info"
-                  showIcon
+              <SettingsAction
+                title="重建索引"
+                description={
+                  ragStats?.unindexed_articles === 0 ? (
+                    <StatusDot tone="ok">所有文章已索引，无需重建</StatusDot>
+                  ) : (
+                    '只索引未索引的文章，不会清空已有索引。如需完全重建，请使用下方的强制重建。'
+                  )
+                }
+              >
+                <Select
+                  aria-label="批处理大小"
+                  value={batchSize}
+                  onChange={setBatchSize}
+                  style={{ width: 120 }}
+                  disabled={isIndexing || !isAuthenticated}
+                  options={[5, 10, 20, 50].map((n) => ({ value: n, label: `批量 ${n}` }))}
                 />
-                <Form.Item label="批处理大小">
-                  <Select
-                    value={batchSize}
-                    onChange={setBatchSize}
-                    style={{ width: 200 }}
-                    disabled={isIndexing || !isAuthenticated}
-                  >
-                    <Select.Option value={5}>5</Select.Option>
-                    <Select.Option value={10}>10</Select.Option>
-                    <Select.Option value={20}>20</Select.Option>
-                    <Select.Option value={50}>50</Select.Option>
-                  </Select>
-                </Form.Item>
                 <Button
                   type="primary"
                   icon={<SyncOutlined />}
@@ -211,22 +225,18 @@ export default function RAGSettingsTab() {
                 >
                   {isIndexing && !forceRebuildIndexMutation.isPending ? '正在重建索引...' : '重建未索引文章'}
                 </Button>
-                {ragStats?.unindexed_articles === 0 && (
-                  <div style={{ color: '#52c41a' }}>
-                    ✓ 所有文章已索引，无需重建
-                  </div>
-                )}
-              </Space>
-            </Card>
+              </SettingsAction>
+            </SettingsPanel>
 
-            <Card title="强制重建索引" size="small">
-              <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-                <Alert
-                  message="强制重建索引警告"
-                  description="强制重建索引会先清空所有现有的索引（article_embeddings 和 vec_embeddings 表），然后重新索引所有文章。此操作会消耗大量API调用额度，请谨慎操作！"
-                  type="error"
-                  showIcon
-                />
+            <SettingsPanel
+              tone="danger"
+              title="强制重建索引"
+              description="先清空所有现有索引（article_embeddings 和 vec_embeddings 表），再重新索引全部文章。会消耗大量 API 调用额度，请谨慎操作。"
+            >
+              <SettingsAction
+                title="清空并重建全部索引"
+                description={<>使用上方选择的批处理大小（<span className="settings-num">{batchSize}</span>）</>}
+              >
                 <Button
                   type="primary"
                   icon={<DatabaseOutlined />}
@@ -234,15 +244,14 @@ export default function RAGSettingsTab() {
                   loading={forceRebuildIndexMutation.isPending}
                   disabled={!isAuthenticated || rebuildIndexMutation.isPending}
                   danger
-                  block
                 >
                   {forceRebuildIndexMutation.isPending ? '正在强制重建索引...' : '强制重建所有索引'}
                 </Button>
-              </Space>
-            </Card>
-          </Space>
+              </SettingsAction>
+            </SettingsPanel>
+          </>
         )}
-      </Card>
+      </div>
     </Spin>
   );
 }

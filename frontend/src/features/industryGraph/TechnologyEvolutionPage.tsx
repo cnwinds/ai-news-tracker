@@ -11,7 +11,6 @@ import {
 } from 'react';
 import {
   Alert,
-  Avatar,
   Button,
   Drawer,
   Input,
@@ -20,10 +19,7 @@ import {
   Popover,
   Space,
   Spin,
-  Statistic,
-  Tag,
   Tooltip,
-  Typography,
 } from 'antd';
 import {
   ApartmentOutlined,
@@ -45,10 +41,9 @@ import dayjs from 'dayjs';
 
 import { apiService } from '@/services/api';
 import { useAuth } from '@/contexts/AuthContext';
-import { useTheme, type ThemeMode } from '@/contexts/ThemeContext';
 import { useMessage } from '@/hooks/useMessage';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
-import { getThemeColor } from '@/utils/theme';
+import { token } from '@/utils/theme';
 import type {
   IndustryGraphConversation,
   IndustryGraphContentBlock,
@@ -62,7 +57,8 @@ import type {
   IndustryGraphTrend,
 } from '@/types';
 
-const { Text } = Typography;
+import './industryGraph.css';
+
 const { TextArea } = Input;
 
 interface ChatMessage {
@@ -76,17 +72,27 @@ interface ChatMessage {
 }
 
 const entityTypeColors: Record<string, string> = {
-  Technology: '#1677ff',
-  Product: '#52c41a',
-  Company: '#fa8c16',
-  Paper: '#722ed1',
-  Concept: '#13c2c2',
-  Person: '#eb2f96',
-  Benchmark: '#2f54eb',
-  Feature: '#a0d911',
-  Industry: '#faad14',
-  Event: '#f5222d',
+  Technology: token('chart1'),
+  Product: token('chart2'),
+  Company: token('chart3'),
+  Paper: token('chart5'),
+  Concept: token('accentHover'),
+  Person: token('chart4'),
+  Benchmark: token('info'),
+  Feature: token('success'),
+  Industry: token('warning'),
+  Event: token('danger'),
 };
+
+const fallbackEntityColor = token('textTertiary');
+
+function getEntityColor(type: string) {
+  return entityTypeColors[type] || fallbackEntityColor;
+}
+
+function entityColorStyle(type: string): CSSProperties {
+  return { '--ig-type': getEntityColor(type) } as CSSProperties;
+}
 
 const entityTypeLabels: Record<string, string> = {
   Technology: '技术',
@@ -99,93 +105,6 @@ const entityTypeLabels: Record<string, string> = {
   Feature: '特性',
   Industry: '行业',
   Event: '事件',
-};
-
-function getCardPalette(theme: ThemeMode) {
-  if (theme === 'dark') {
-    return {
-      surface: '#202327',
-      surfaceSoft: '#242932',
-      surfaceMuted: '#1b1d21',
-      border: '#3a414b',
-      borderSoft: '#2f353d',
-      text: '#f5f7fa',
-      textSecondary: '#c7d0dc',
-      textMuted: '#95a1b2',
-      link: '#79b7ff',
-      graphBg: '#171a1f',
-      graphGrid: '#252b33',
-      metricBg: '#182b44',
-      metricText: '#d7e8ff',
-      quoteBg: '#181b20',
-      shadow: '0 14px 34px rgba(0, 0, 0, 0.28)',
-    };
-  }
-  return {
-    surface: '#ffffff',
-    surfaceSoft: '#f7f9fc',
-    surfaceMuted: '#f2f5f9',
-    border: '#d9e2ee',
-    borderSoft: '#e7edf5',
-    text: '#111827',
-    textSecondary: '#4b5563',
-    textMuted: '#6b7280',
-    link: '#0958d9',
-    graphBg: '#f8fafc',
-    graphGrid: '#e8eef7',
-    metricBg: '#edf5ff',
-    metricText: '#123c69',
-    quoteBg: '#f7f9fc',
-    shadow: '0 12px 28px rgba(15, 23, 42, 0.08)',
-  };
-}
-
-const industryPageStyles: Record<string, CSSProperties> = {
-  shell: {
-    display: 'grid',
-    gridTemplateColumns: '320px minmax(0, 1fr)',
-    gap: 16,
-    minHeight: 'calc(100vh - 168px)',
-  },
-  sidebar: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 12,
-    minWidth: 0,
-  },
-  report: {
-    display: 'flex',
-    flexDirection: 'column',
-    minHeight: 620,
-    overflow: 'hidden',
-  },
-  reportBody: {
-    flex: 1,
-    overflowY: 'auto',
-    padding: 20,
-  },
-  composer: {
-    padding: 16,
-    borderTop: '1px solid transparent',
-  },
-  messageRow: {
-    display: 'flex',
-    gap: 12,
-    marginBottom: 18,
-  },
-  userRow: {
-    flexDirection: 'row-reverse',
-  },
-  messageBody: {
-    maxWidth: '880px',
-    minWidth: 0,
-    flex: 1,
-  },
-  blockStack: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 12,
-  },
 };
 
 function shortText(value: string, maxLength: number) {
@@ -241,301 +160,126 @@ function getEvidenceBlocks(blocks: IndustryGraphContentBlock[]) {
     .map((block) => block.data as IndustryGraphEvidence);
 }
 
-function CardShell({
-  children,
-  theme,
-  tone = 'default',
-}: {
-  children: ReactNode;
-  theme: ThemeMode;
-  tone?: 'default' | 'trend' | 'evidence' | 'graph';
-}) {
-  const palette = getCardPalette(theme);
-  const toneBackground = {
-    default: palette.surface,
-    trend: theme === 'dark' ? '#1f2730' : '#ffffff',
-    evidence: theme === 'dark' ? '#20242a' : '#ffffff',
-    graph: palette.surface,
-  }[tone];
+function CardShell({ children }: { children: ReactNode }) {
+  return <div className="ig-card">{children}</div>;
+}
 
+function SectionEyebrow({ children }: { children: ReactNode }) {
+  return <span className="eyebrow ig-section-label">{children}</span>;
+}
+
+function StatCell({ label, value }: { label: string; value: number | string }) {
   return (
-    <div
-      style={{
-        border: `1px solid ${palette.border}`,
-        borderRadius: 8,
-        padding: 16,
-        background: toneBackground,
-        boxShadow: palette.shadow,
-        color: palette.text,
-      }}
-    >
-      {children}
+    <div className="ig-stat">
+      <div className="ig-stat__label">{label}</div>
+      <div className="ig-stat__value">{value}</div>
     </div>
   );
 }
 
-function SectionEyebrow({ children, theme }: { children: ReactNode; theme: ThemeMode }) {
-  const palette = getCardPalette(theme);
+function ConfidenceBadge({ score }: { score: number }) {
   return (
-    <span
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 6,
-        color: palette.textMuted,
-        fontSize: 12,
-        fontWeight: 600,
-        letterSpacing: 0,
-      }}
-    >
-      {children}
-    </span>
-  );
-}
-
-function MetricPill({
-  label,
-  value,
-  theme,
-}: {
-  label: string;
-  value: number | string;
-  theme: ThemeMode;
-}) {
-  const palette = getCardPalette(theme);
-  return (
-    <div
-      style={{
-        minWidth: 96,
-        padding: '9px 11px',
-        borderRadius: 6,
-        background: palette.metricBg,
-        border: `1px solid ${palette.borderSoft}`,
-      }}
-    >
-      <div style={{ color: palette.textMuted, fontSize: 12 }}>
-        {label}
-      </div>
-      <div style={{ color: palette.metricText, fontWeight: 700, marginTop: 2 }}>{value}</div>
-    </div>
-  );
-}
-
-function ConfidenceBadge({
-  score,
-  theme,
-}: {
-  score: number;
-  theme: ThemeMode;
-}) {
-  const palette = getCardPalette(theme);
-  const isHigh = score >= 0.9;
-  return (
-    <span
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        height: 24,
-        padding: '0 8px',
-        borderRadius: 6,
-        background: isHigh
-          ? (theme === 'dark' ? 'rgba(82, 196, 26, 0.18)' : '#f0f9eb')
-          : palette.surfaceMuted,
-        color: isHigh
-          ? (theme === 'dark' ? '#95de64' : '#237804')
-          : palette.textSecondary,
-        border: `1px solid ${isHigh ? 'rgba(82, 196, 26, 0.35)' : palette.borderSoft}`,
-        fontSize: 12,
-        fontWeight: 700,
-      }}
-    >
+    <span className={`ig-conf${score >= 0.9 ? ' ig-conf--high' : ''}`}>
       {Math.round(score * 100)}%
     </span>
   );
 }
 
-function EntityTypeBadge({ type, theme }: { type: string; theme: ThemeMode }) {
-  const color = entityTypeColors[type] || '#64748b';
+function EntityTypeBadge({ type }: { type: string }) {
   return (
-    <span
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        height: 22,
-        padding: '0 7px',
-        borderRadius: 6,
-        background: theme === 'dark' ? `${color}26` : `${color}14`,
-        color: theme === 'dark' ? '#f5f7fa' : color,
-        border: `1px solid ${theme === 'dark' ? `${color}55` : `${color}33`}`,
-        fontSize: 11,
-        fontWeight: 700,
-        whiteSpace: 'nowrap',
-      }}
-    >
+    <span className="ig-type" style={entityColorStyle(type)}>
       {entityTypeLabels[type] || type || '实体'}
     </span>
   );
 }
 
-function TrendCard({ trend, theme }: { trend: IndustryGraphTrend; theme: ThemeMode }) {
-  const palette = getCardPalette(theme);
+function TrendCard({ trend }: { trend: IndustryGraphTrend }) {
   return (
-    <CardShell theme={theme} tone="trend">
-      <Space direction="vertical" size={12} style={{ width: '100%' }}>
-        <Space align="start" style={{ justifyContent: 'space-between', width: '100%', gap: 16 }}>
-          <div style={{ minWidth: 0 }}>
-            <SectionEyebrow theme={theme}>
-              <LineChartOutlined />
-              趋势信号
-            </SectionEyebrow>
-            <div style={{ color: palette.text, fontSize: 17, fontWeight: 700, marginTop: 4 }}>
-              {trend.technology}
-            </div>
-            {trend.summary && (
-              <div style={{ color: palette.textSecondary, lineHeight: 1.6, marginTop: 6 }}>
-                {trend.summary}
-              </div>
-            )}
-          </div>
-          <div
-            style={{
-              flexShrink: 0,
-              minWidth: 78,
-              padding: '7px 10px',
-              borderRadius: 8,
-              background: theme === 'dark' ? '#0f355f' : '#e6f4ff',
-              border: `1px solid ${theme === 'dark' ? '#1d5f9f' : '#bae0ff'}`,
-              color: theme === 'dark' ? '#d6ebff' : '#0958d9',
-              textAlign: 'center',
-              fontWeight: 800,
-            }}
-          >
-            <div style={{ fontSize: 11, fontWeight: 600 }}>趋势分</div>
-            <div>{trend.trend_score.toFixed(2)}</div>
-          </div>
-        </Space>
-        <Space size={[8, 8]} wrap>
-          <MetricPill theme={theme} label="证据" value={trend.evidence_count} />
-          <MetricPill theme={theme} label="文档" value={trend.document_count} />
-          <MetricPill theme={theme} label="论文" value={trend.paper_count} />
-          <MetricPill theme={theme} label="产品" value={trend.product_count} />
-          <MetricPill theme={theme} label="公司" value={trend.company_count} />
-        </Space>
-      </Space>
+    <CardShell>
+      <div className="ig-card__head">
+        <div>
+          <SectionEyebrow>
+            <LineChartOutlined />
+            趋势信号
+          </SectionEyebrow>
+          <div className="ig-card__title">{trend.technology}</div>
+        </div>
+        <div className="ig-score">
+          <span className="eyebrow">趋势分</span>
+          <span className="ig-score__value">{trend.trend_score.toFixed(2)}</span>
+        </div>
+      </div>
+      {trend.summary && <div className="ig-card__text">{trend.summary}</div>}
+      <div className="ig-stats">
+        <StatCell label="证据" value={trend.evidence_count} />
+        <StatCell label="文档" value={trend.document_count} />
+        <StatCell label="论文" value={trend.paper_count} />
+        <StatCell label="产品" value={trend.product_count} />
+        <StatCell label="公司" value={trend.company_count} />
+      </div>
     </CardShell>
   );
 }
 
 function EvidenceCard({
   evidence,
-  theme,
   indexLabel,
 }: {
   evidence: IndustryGraphEvidence;
-  theme: ThemeMode;
   indexLabel?: string;
 }) {
-  const palette = getCardPalette(theme);
+  const title = evidence.title_zh || evidence.title;
+  const hasPath = Boolean(evidence.source_entity || evidence.target_entity || evidence.relation_type);
   return (
-    <CardShell theme={theme} tone="evidence">
-      <Space direction="vertical" size={10} style={{ width: '100%' }}>
-        <Space align="start" style={{ justifyContent: 'space-between', width: '100%', gap: 14 }}>
-          <div style={{ minWidth: 0 }}>
-            <SectionEyebrow theme={theme}>
-              <FileSearchOutlined />
-              {indexLabel || '证据来源'}
-            </SectionEyebrow>
-          </div>
-          <ConfidenceBadge score={evidence.confidence_score} theme={theme} />
-        </Space>
-        <div style={{ minWidth: 0 }}>
+    <CardShell>
+      <div className="ig-card__head">
+        <div>
+          <SectionEyebrow>
+            <FileSearchOutlined />
+            {indexLabel || '证据来源'}
+          </SectionEyebrow>
           {evidence.url ? (
-            <a
-              href={evidence.url}
-              target="_blank"
-              rel="noreferrer"
-              style={{
-                color: palette.link,
-                fontWeight: 700,
-                lineHeight: 1.5,
-                textDecoration: 'none',
-              }}
-            >
-              {evidence.title_zh || evidence.title}
+            <a className="ig-card__title" href={evidence.url} target="_blank" rel="noreferrer">
+              {title}
             </a>
           ) : (
-            <div style={{ color: palette.text, fontWeight: 700, lineHeight: 1.5 }}>
-              {evidence.title_zh || evidence.title}
-            </div>
+            <div className="ig-card__title">{title}</div>
           )}
         </div>
-        <Space size={8} wrap>
-          {evidence.source && (
-            <span style={{ color: palette.textMuted, fontSize: 13 }}>{evidence.source}</span>
-          )}
+        <ConfidenceBadge score={evidence.confidence_score} />
+      </div>
+      {(evidence.source || evidence.published_at) && (
+        <div className="ig-card__meta">
+          {evidence.source && <span>{evidence.source}</span>}
           {evidence.published_at && (
-            <span style={{ color: palette.textMuted, fontSize: 13 }}>
-              {dayjs(evidence.published_at).format('YYYY-MM-DD')}
-            </span>
+            <span className="mono">{dayjs(evidence.published_at).format('YYYY-MM-DD')}</span>
           )}
-        </Space>
-        {(evidence.source_entity || evidence.target_entity || evidence.relation_type) && (
-          <div style={{ color: palette.textMuted, fontSize: 13 }}>
-            {[evidence.source_entity, evidence.relation_type, evidence.target_entity].filter(Boolean).join('  →  ')}
-          </div>
-        )}
-        {evidence.evidence_snippet && (
-          <div
-            style={{
-              color: palette.textSecondary,
-              background: palette.quoteBg,
-              border: `1px solid ${palette.borderSoft}`,
-              borderRadius: 8,
-              padding: '10px 12px',
-              lineHeight: 1.65,
-            }}
-          >
-            {evidence.evidence_snippet}
-          </div>
-        )}
-      </Space>
+        </div>
+      )}
+      {hasPath && (
+        <div className="ig-path">
+          {evidence.source_entity && <span>{evidence.source_entity}</span>}
+          {evidence.relation_type && <span className="ig-path__rel">—{evidence.relation_type}→</span>}
+          {evidence.target_entity && <span>{evidence.target_entity}</span>}
+        </div>
+      )}
+      {evidence.evidence_snippet && <div className="ig-quote">{evidence.evidence_snippet}</div>}
     </CardShell>
   );
 }
 
-function EvidencePreviewCard({ evidence, theme }: { evidence: IndustryGraphEvidence; theme: ThemeMode }) {
-  const palette = getCardPalette(theme);
+function EvidencePreviewCard({ evidence }: { evidence: IndustryGraphEvidence }) {
   return (
-    <div
-      style={{
-        width: 360,
-        color: palette.text,
-        lineHeight: 1.55,
-      }}
-    >
-      <div style={{ fontWeight: 800, marginBottom: 6 }}>
-        {evidence.title_zh || evidence.title}
-      </div>
-      <Space size={8} wrap style={{ marginBottom: evidence.evidence_snippet ? 8 : 0 }}>
-        {evidence.source && <span style={{ color: palette.textMuted }}>{evidence.source}</span>}
+    <div className="ig-preview">
+      <div className="ig-preview__title">{evidence.title_zh || evidence.title}</div>
+      <div className="ig-preview__meta">
+        {evidence.source && <span>{evidence.source}</span>}
         {evidence.published_at && (
-          <span style={{ color: palette.textMuted }}>{dayjs(evidence.published_at).format('YYYY-MM-DD')}</span>
+          <span className="mono">{dayjs(evidence.published_at).format('YYYY-MM-DD')}</span>
         )}
-        <ConfidenceBadge score={evidence.confidence_score} theme={theme} />
-      </Space>
-      {evidence.evidence_snippet && (
-        <div
-          style={{
-            padding: '8px 10px',
-            borderRadius: 6,
-            border: `1px solid ${palette.borderSoft}`,
-            background: palette.quoteBg,
-            color: palette.textSecondary,
-          }}
-        >
-          {evidence.evidence_snippet}
-        </div>
-      )}
+        <span className="mono">置信 {Math.round(evidence.confidence_score * 100)}%</span>
+      </div>
+      {evidence.evidence_snippet && <div className="ig-preview__quote">{evidence.evidence_snippet}</div>}
     </div>
   );
 }
@@ -543,39 +287,18 @@ function EvidencePreviewCard({ evidence, theme }: { evidence: IndustryGraphEvide
 function AnswerText({
   text,
   evidence,
-  theme,
 }: {
   text: string;
   evidence: IndustryGraphEvidence[];
-  theme: ThemeMode;
 }) {
-  const palette = getCardPalette(theme);
   const parts = text.split(/(\[证据\d+\])/g);
 
   if (parts.length === 1) {
-    return (
-      <div
-        style={{
-          color: palette.text,
-          lineHeight: 1.75,
-          fontSize: 15,
-          whiteSpace: 'pre-wrap',
-        }}
-      >
-        {text}
-      </div>
-    );
+    return <div className="ig-answer">{text}</div>;
   }
 
   return (
-    <div
-      style={{
-        color: palette.text,
-        lineHeight: 1.75,
-        fontSize: 15,
-        whiteSpace: 'pre-wrap',
-      }}
-    >
+    <div className="ig-answer">
       {parts.map((part, index) => {
         if (!part) {
           return null;
@@ -592,21 +315,12 @@ function AnswerText({
         return (
           <Tooltip
             key={`${part}-${index}`}
-            title={<EvidencePreviewCard evidence={item} theme={theme} />}
+            title={<EvidencePreviewCard evidence={item} />}
             placement="top"
             mouseEnterDelay={0.15}
-            styles={{ root: { maxWidth: 420 } }}
+            styles={{ root: { maxWidth: 380 } }}
           >
-            <span
-              style={{
-                color: palette.link,
-                cursor: 'help',
-                fontWeight: 800,
-                borderBottom: `1px dotted ${palette.link}`,
-              }}
-            >
-              {part}
-            </span>
+            <span className="ig-cite">{part}</span>
           </Tooltip>
         );
       })}
@@ -614,8 +328,7 @@ function AnswerText({
   );
 }
 
-function LocalGraph({ subgraph, theme }: { subgraph: IndustryGraphSubgraph; theme: ThemeMode }) {
-  const palette = getCardPalette(theme);
+function LocalGraph({ subgraph }: { subgraph: IndustryGraphSubgraph }) {
   const rawPatternId = useId();
   const patternId = useMemo(() => `industry-graph-grid-${rawPatternId.replace(/:/g, '')}`, [rawPatternId]);
   const visibleNodes = useMemo(() => subgraph.nodes.slice(0, 18), [subgraph.nodes]);
@@ -660,51 +373,36 @@ function LocalGraph({ subgraph, theme }: { subgraph: IndustryGraphSubgraph; them
     return null;
   }
 
+  const showOuterLabels = visibleNodes.length <= 10;
+
   return (
-    <CardShell theme={theme} tone="graph">
-      <Space direction="vertical" size={14} style={{ width: '100%' }}>
-        <Space align="start" style={{ justifyContent: 'space-between', width: '100%', gap: 14 }}>
-          <div>
-            <SectionEyebrow theme={theme}>
-              <ApartmentOutlined />
-              图谱解释
-            </SectionEyebrow>
-            <div style={{ color: palette.text, fontSize: 16, fontWeight: 800, marginTop: 4 }}>
-              局部解释图
-            </div>
-          </div>
-          <div style={{ color: palette.textMuted, fontSize: 13, whiteSpace: 'nowrap' }}>
-            {subgraph.nodes.length} 节点 / {subgraph.edges.length} 边
-          </div>
-        </Space>
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'minmax(0, 1fr) minmax(180px, 220px)',
-            gap: 14,
-            alignItems: 'stretch',
-          }}
-        >
+    <CardShell>
+      <div className="ig-card__head">
+        <div>
+          <SectionEyebrow>
+            <ApartmentOutlined />
+            图谱解释
+          </SectionEyebrow>
+          <div className="ig-card__title">局部解释图</div>
+        </div>
+        <span className="chip mono">
+          {subgraph.nodes.length} 节点 / {subgraph.edges.length} 边
+        </span>
+      </div>
+      <div className="ig-graph">
+        <div className="ig-graph__canvas">
           <svg
+            className="ig-graph__svg"
             viewBox="0 0 620 344"
             role="img"
             aria-label="行业图谱局部解释图"
-            style={{
-              width: '100%',
-              minHeight: 320,
-              display: 'block',
-              borderRadius: 8,
-              border: `1px solid ${palette.borderSoft}`,
-              background: palette.graphBg,
-            }}
           >
             <defs>
-              <pattern id={patternId} width="32" height="32" patternUnits="userSpaceOnUse">
-                <path d="M 32 0 L 0 0 0 32" fill="none" stroke={palette.graphGrid} strokeWidth="1" opacity="0.55" />
+              <pattern id={patternId} width="28" height="28" patternUnits="userSpaceOnUse">
+                <path className="ig-graph__grid" d="M 28 0 L 0 0 0 28" fill="none" strokeWidth="1" opacity="0.6" />
               </pattern>
             </defs>
-            <rect x="0" y="0" width="620" height="344" rx="8" fill={palette.graphBg} />
-            <rect x="0" y="0" width="620" height="344" rx="8" fill={`url(#${patternId})`} />
+            <rect x="0" y="0" width="620" height="344" fill={`url(#${patternId})`} />
             {visibleEdges.map((edge) => {
               const source = nodePositions.get(edge.source_id);
               const target = nodePositions.get(edge.target_id);
@@ -714,110 +412,80 @@ function LocalGraph({ subgraph, theme }: { subgraph: IndustryGraphSubgraph; them
               return (
                 <g key={edge.id}>
                   <line
+                    className="ig-graph__edge"
                     x1={source.x}
                     y1={source.y}
                     x2={target.x}
                     y2={target.y}
-                    stroke={theme === 'dark' ? '#708195' : '#9aa9bd'}
                     strokeWidth={Math.max(1, Math.min(3.5, edge.evidence_count + 1))}
-                    opacity="0.48"
+                    strokeLinecap="round"
                   />
                   <title>{edge.relation_type}</title>
                 </g>
               );
             })}
-            {visibleNodes.map((node: IndustryGraphNode) => {
+            {visibleNodes.map((node: IndustryGraphNode, index) => {
               const position = nodePositions.get(node.id);
               if (!position) {
                 return null;
               }
-              const color = entityTypeColors[node.entity_type] || '#64748b';
-              const radius = position.isCenter ? 26 : 18;
+              const color = getEntityColor(node.entity_type);
+              const radius = position.isCenter ? 22 : 13;
+              const labelAbove = !position.isCenter && position.y < 172;
               return (
                 <g key={node.id} transform={`translate(${position.x}, ${position.y})`}>
-                  <circle r={radius + 8} fill={color} opacity={theme === 'dark' ? '0.18' : '0.16'} />
-                  <circle r={radius} fill={color} opacity="0.95" />
-                  <circle r={radius} fill="none" stroke={theme === 'dark' ? '#f8fafc' : '#ffffff'} opacity="0.75" strokeWidth="2" />
-                  {position.isCenter && (
-                    <>
+                  <g className="ig-graph__node" style={{ animationDelay: `${index * 24}ms` }}>
+                    <circle className="ig-graph__halo" r={radius + (position.isCenter ? 12 : 7)} style={{ fill: color }} />
+                    <circle r={radius} style={{ fill: color }} />
+                    <circle className="ig-graph__ring" r={radius} />
+                    {position.isCenter ? (
+                      <>
+                        <text className="ig-graph__label" y={radius + 24} textAnchor="middle">
+                          {shortText(node.label, 18)}
+                        </text>
+                        <text className="ig-graph__sublabel" y={radius + 39} textAnchor="middle">
+                          {entityTypeLabels[node.entity_type] || node.entity_type}
+                        </text>
+                      </>
+                    ) : showOuterLabels ? (
                       <text
-                        y="48"
+                        className="ig-graph__label ig-graph__label--minor"
+                        y={labelAbove ? -radius - 8 : radius + 16}
                         textAnchor="middle"
-                        fill={palette.text}
-                        fontSize="12"
-                        fontWeight="800"
                       >
-                        {shortText(node.label, 18)}
+                        {shortText(node.label, 12)}
                       </text>
-                      <text y="64" textAnchor="middle" fill={palette.textMuted} fontSize="11">
-                        {entityTypeLabels[node.entity_type] || node.entity_type}
-                      </text>
-                    </>
-                  )}
+                    ) : null}
+                  </g>
                   <title>{`${node.label} / ${node.entity_type}`}</title>
                 </g>
               );
             })}
           </svg>
-          <div
-            style={{
-              border: `1px solid ${palette.borderSoft}`,
-              borderRadius: 8,
-              background: palette.surfaceSoft,
-              padding: 12,
-              minWidth: 0,
-            }}
-          >
-            <div style={{ color: palette.text, fontWeight: 800, marginBottom: 10 }}>节点摘要</div>
-            <Space size={[6, 6]} wrap style={{ marginBottom: 12 }}>
-              {typeCounts.map(([type, count]) => (
-                <span key={type} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                  <span
-                    style={{
-                      width: 8,
-                      height: 8,
-                      borderRadius: 99,
-                      background: entityTypeColors[type] || '#64748b',
-                    }}
-                  />
-                  <span style={{ color: palette.textMuted, fontSize: 12 }}>
-                    {entityTypeLabels[type] || type} {count}
-                  </span>
+        </div>
+        <div className="ig-graph__legend">
+          <span className="eyebrow">节点摘要</span>
+          <div className="ig-graph__types">
+            {typeCounts.map(([type, count]) => (
+              <span key={type} className="ig-graph__type" style={entityColorStyle(type)}>
+                <span className="ig-swatch" />
+                {entityTypeLabels[type] || type}
+                <span className="mono">{count}</span>
+              </span>
+            ))}
+          </div>
+          <div className="ig-graph__nodes">
+            {visibleNodes.slice(0, 8).map((node) => (
+              <div key={node.id} className="ig-graph__node-row">
+                <span className="ig-graph__node-name" title={node.label}>
+                  {node.label}
                 </span>
-              ))}
-            </Space>
-            <Space direction="vertical" size={8} style={{ width: '100%' }}>
-              {visibleNodes.slice(0, 8).map((node) => (
-                <div
-                  key={node.id}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: 8,
-                    minWidth: 0,
-                  }}
-                >
-                  <span
-                    title={node.label}
-                    style={{
-                      color: palette.textSecondary,
-                      minWidth: 0,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                      fontSize: 13,
-                    }}
-                  >
-                    {node.label}
-                  </span>
-                  <EntityTypeBadge type={node.entity_type} theme={theme} />
-                </div>
-              ))}
-            </Space>
+                <EntityTypeBadge type={node.entity_type} />
+              </div>
+            ))}
           </div>
         </div>
-      </Space>
+      </div>
     </CardShell>
   );
 }
@@ -825,51 +493,43 @@ function LocalGraph({ subgraph, theme }: { subgraph: IndustryGraphSubgraph; them
 function ReportBlock({
   block,
   onAsk,
-  theme,
   evidenceIndex,
 }: {
   block: IndustryGraphContentBlock;
   onAsk: (question: string) => void;
-  theme: ThemeMode;
   evidenceIndex?: number;
 }) {
-  const palette = getCardPalette(theme);
   if (block.type === 'text') {
     const text = 'text' in block.data && typeof block.data.text === 'string' ? block.data.text : '';
-    return text ? <div style={{ color: palette.textSecondary, lineHeight: 1.7 }}>{text}</div> : null;
+    return text ? <div className="ig-card__text">{text}</div> : null;
   }
 
   if (block.type === 'report_section') {
     const title = 'title' in block.data && typeof block.data.title === 'string' ? block.data.title : '';
     const summary = 'summary' in block.data && typeof block.data.summary === 'string' ? block.data.summary : '';
     return (
-      <CardShell theme={theme}>
-        {title && (
-          <div style={{ color: palette.text, fontSize: 16, fontWeight: 800, marginBottom: summary ? 6 : 0 }}>
-            {title}
-          </div>
-        )}
-        {summary && <div style={{ color: palette.textSecondary, lineHeight: 1.65 }}>{summary}</div>}
+      <CardShell>
+        {title && <div className="ig-card__title">{title}</div>}
+        {summary && <div className="ig-card__text">{summary}</div>}
       </CardShell>
     );
   }
 
   if (block.type === 'trend_card') {
-    return <TrendCard trend={block.data as IndustryGraphTrend} theme={theme} />;
+    return <TrendCard trend={block.data as IndustryGraphTrend} />;
   }
 
   if (block.type === 'evidence_card') {
     return (
       <EvidenceCard
         evidence={block.data as IndustryGraphEvidence}
-        theme={theme}
         indexLabel={evidenceIndex ? `证据${evidenceIndex}` : undefined}
       />
     );
   }
 
   if (block.type === 'local_graph') {
-    return <LocalGraph subgraph={block.data as IndustryGraphSubgraph} theme={theme} />;
+    return <LocalGraph subgraph={block.data as IndustryGraphSubgraph} />;
   }
 
   if (block.type === 'followup_questions') {
@@ -880,25 +540,13 @@ function ReportBlock({
       return null;
     }
     return (
-      <Space size={[8, 8]} wrap style={{ paddingTop: 2 }}>
+      <div className="ig-followups">
         {questions.map((question) => (
-          <Button
-            key={question}
-            size="small"
-            onClick={() => onAsk(question)}
-            style={{
-              height: 30,
-              borderRadius: 6,
-              background: palette.surfaceSoft,
-              borderColor: palette.border,
-              color: palette.text,
-              fontWeight: 600,
-            }}
-          >
+          <button key={question} type="button" className="ig-followup" onClick={() => onAsk(question)}>
             {question}
-          </Button>
+          </button>
         ))}
-      </Space>
+      </div>
     );
   }
 
@@ -919,13 +567,10 @@ function isFollowupBlock(block: IndustryGraphContentBlock) {
 function ReferenceMaterials({
   blocks,
   onAsk,
-  theme,
 }: {
   blocks: IndustryGraphContentBlock[];
   onAsk: (question: string) => void;
-  theme: ThemeMode;
 }) {
-  const palette = getCardPalette(theme);
   const [openSections, setOpenSections] = useState({
     trends: false,
     evidence: false,
@@ -973,63 +618,38 @@ function ReferenceMaterials({
   }
 
   return (
-    <div
-      style={{
-        border: `1px solid ${palette.border}`,
-        borderRadius: 8,
-        background: theme === 'dark' ? '#1d2025' : '#fbfcfe',
-        padding: 10,
-      }}
-    >
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-          gap: 8,
-        }}
-      >
+    <div className="ig-refs">
+      <div className="ig-refs__tabs">
         {sectionMeta.map((section) => {
           const isOpen = openSections[section.key];
           return (
-            <Button
+            <button
               key={section.key}
+              type="button"
+              className="ig-refs__tab"
               aria-label={`${section.label} ${section.count}`}
-              icon={section.icon}
+              aria-pressed={isOpen}
               disabled={section.count === 0}
-              type={isOpen ? 'primary' : 'default'}
               onClick={() => setOpenSections((previous) => ({
                 ...previous,
                 [section.key]: !previous[section.key],
               }))}
-              style={{
-                height: 34,
-                borderRadius: 6,
-                fontWeight: 700,
-              }}
             >
-              {section.label} {section.count}
-            </Button>
+              {section.icon}
+              <span>{section.label}</span>
+              <span className="ig-refs__count">{section.count}</span>
+            </button>
           );
         })}
       </div>
 
       {sectionMeta.some((section) => openSections[section.key]) && (
-        <Space
-          direction="vertical"
-          size={12}
-          style={{
-            width: '100%',
-            borderTop: `1px solid ${palette.borderSoft}`,
-            marginTop: 10,
-            paddingTop: 10,
-          }}
-        >
+        <div className="ig-refs__content">
           {openSections.trends && groupedBlocks.trends.map((block, index) => (
             <ReportBlock
               key={`reference-trend-${index}`}
               block={block}
               onAsk={onAsk}
-              theme={theme}
             />
           ))}
           {openSections.evidence && groupedBlocks.evidence.map((block, index) => (
@@ -1037,7 +657,6 @@ function ReferenceMaterials({
               key={`reference-evidence-${index}`}
               block={block}
               onAsk={onAsk}
-              theme={theme}
               evidenceIndex={index + 1}
             />
           ))}
@@ -1046,10 +665,9 @@ function ReferenceMaterials({
               key={`reference-graph-${index}`}
               block={block}
               onAsk={onAsk}
-              theme={theme}
             />
           ))}
-        </Space>
+        </div>
       )}
     </div>
   );
@@ -1060,84 +678,44 @@ function SuggestedQuestionPrompt({
   loading,
   isStreaming,
   onAsk,
-  theme,
 }: {
   items: IndustryGraphSuggestedQuestion[];
   loading: boolean;
   isStreaming: boolean;
   onAsk: (question: string) => void;
-  theme: ThemeMode;
 }) {
-  const palette = getCardPalette(theme);
-
   return (
-    <div
-      style={{
-        minHeight: '100%',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '72px 24px',
-      }}
-    >
-      <div
-        style={{
-          width: 'min(760px, 100%)',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 14,
-        }}
-      >
-        <Space size={10} style={{ justifyContent: 'center' }}>
-          <Avatar
-            icon={<BulbOutlined />}
-            style={{ background: theme === 'dark' ? '#0f355f' : '#1677ff' }}
-          />
-          <Text strong style={{ fontSize: 17, color: palette.text }}>
-            今日可问
-          </Text>
-        </Space>
+    <div className="ig-empty">
+      <div className="ig-empty__inner">
+        <div className="ig-empty__head">
+          <span className="ig-mark ig-empty__mark">
+            <BulbOutlined />
+          </span>
+          <span className="eyebrow">Industry graph · last 3 months</span>
+          <div className="ig-empty__title">今日可问</div>
+          <div className="ig-empty__desc">基于行业知识图谱追问技术演进、技术融合与论文到产品的路径</div>
+        </div>
 
         {loading ? (
-          <div style={{ display: 'flex', justifyContent: 'center', padding: 18 }}>
+          <div className="ig-empty__loading">
             <Spin />
           </div>
         ) : items.length > 0 ? (
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-              gap: 10,
-            }}
-          >
+          <div className="ig-suggest">
             {items.map((item) => (
-              <Button
+              <button
                 key={item.id}
+                type="button"
+                className="ig-suggest__item"
                 onClick={() => onAsk(item.question)}
                 disabled={isStreaming}
-                style={{
-                  height: 'auto',
-                  minHeight: 52,
-                  whiteSpace: 'normal',
-                  textAlign: 'left',
-                  justifyContent: 'flex-start',
-                  padding: '10px 12px',
-                  borderRadius: 8,
-                  background: palette.surfaceSoft,
-                  borderColor: palette.border,
-                  color: palette.text,
-                  fontWeight: 650,
-                  lineHeight: 1.45,
-                }}
               >
                 {item.question}
-              </Button>
+              </button>
             ))}
           </div>
         ) : (
-          <Text type="secondary" style={{ textAlign: 'center' }}>
-            暂无推荐问题，可以直接输入你的分析问题
-          </Text>
+          <div className="ig-empty__none">暂无推荐问题，可以直接输入你的分析问题</div>
         )}
       </div>
     </div>
@@ -1145,7 +723,6 @@ function SuggestedQuestionPrompt({
 }
 
 export default function TechnologyEvolutionPage() {
-  const { theme } = useTheme();
   const { isAuthenticated } = useAuth();
   const queryClient = useQueryClient();
   const message = useMessage();
@@ -1158,13 +735,6 @@ export default function TechnologyEvolutionPage() {
   const [processBatchSize, setProcessBatchSize] = useState(5);
   const [processResult, setProcessResult] = useState<IndustryGraphProcessResponse | null>(null);
   const reportBodyRef = useRef<HTMLDivElement>(null);
-  const chatPalette = getCardPalette(theme);
-
-  const panelStyle: CSSProperties = {
-    border: `1px solid ${getThemeColor(theme, 'borderSecondary')}`,
-    borderRadius: 8,
-    background: getThemeColor(theme, 'bgElevated'),
-  };
 
   const { data: stats, isLoading: statsLoading } = useQuery({
     queryKey: ['industry-graph-stats'],
@@ -1480,594 +1050,433 @@ export default function TechnologyEvolutionPage() {
     }
   };
 
+  const overviewMetrics: { label: string; value: number; icon?: ReactNode; wide?: boolean }[] = [
+    { label: '文档', value: stats?.total_documents ?? 0, icon: <DatabaseOutlined /> },
+    { label: '已解析', value: stats?.processed_documents ?? 0 },
+    { label: '待解析', value: stats?.pending_documents ?? 0 },
+    { label: '失败', value: stats?.failed_documents ?? 0 },
+    { label: '实体', value: stats?.total_entities ?? 0, icon: <NodeIndexOutlined /> },
+    { label: '关系', value: stats?.total_relations ?? 0, icon: <ApartmentOutlined /> },
+    { label: '证据', value: stats?.total_evidence ?? 0, icon: <FileSearchOutlined />, wide: true },
+  ];
+
   const statsOverview = (
-    <div style={{ width: 260 }}>
-      <Space direction="vertical" size={12} style={{ width: '100%' }}>
-        <Space>
-          <Avatar icon={<LineChartOutlined />} style={{ background: '#1677ff' }} />
-          <div>
-            <Text strong>技术演进分析</Text>
-            <div>
-              <Text type="secondary">最近 3 个月</Text>
+    <div className="ig-overview">
+      <div className="ig-overview__head">
+        <span className="ig-mark">
+          <LineChartOutlined />
+        </span>
+        <div>
+          <div className="ig-overview__title">技术演进分析</div>
+          <div className="eyebrow">最近 3 个月</div>
+        </div>
+      </div>
+      {statsLoading ? (
+        <Spin size="small" />
+      ) : (
+        <div className="ig-overview__grid">
+          {overviewMetrics.map((item) => (
+            <div key={item.label} className={`metric${item.wide ? ' metric--wide' : ''}`}>
+              <span className="metric__label">
+                {item.icon}
+                {item.label}
+              </span>
+              <span className="metric__value">{item.value}</span>
             </div>
-          </div>
-        </Space>
-        {statsLoading ? (
-          <Spin size="small" />
-        ) : (
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: '1fr 1fr',
-              gap: 10,
-            }}
-          >
-            <Statistic title="文档" value={stats?.total_documents ?? 0} prefix={<DatabaseOutlined />} />
-            <Statistic title="已解析" value={stats?.processed_documents ?? 0} />
-            <Statistic title="待解析" value={stats?.pending_documents ?? 0} />
-            <Statistic title="失败" value={stats?.failed_documents ?? 0} />
-            <Statistic title="实体" value={stats?.total_entities ?? 0} prefix={<NodeIndexOutlined />} />
-            <Statistic title="关系" value={stats?.total_relations ?? 0} prefix={<ApartmentOutlined />} />
-            <Statistic title="证据" value={stats?.total_evidence ?? 0} prefix={<FileSearchOutlined />} />
-          </div>
-        )}
-      </Space>
+          ))}
+        </div>
+      )}
     </div>
   );
 
   const dataPreparationPanel = (
-    <div style={{ width: 300 }}>
-      <Space direction="vertical" size={12} style={{ width: '100%' }}>
-        <Space>
-          <FileSearchOutlined />
-          <Text strong>数据准备</Text>
-        </Space>
-        <Text type="secondary">
-          先少量解析文章，确认实体和关系质量后再扩大批量。
-        </Text>
-        <Space.Compact style={{ width: '100%' }}>
-          <InputNumber
-            min={1}
-            max={50}
-            value={processBatchSize}
-            onChange={(value) => setProcessBatchSize(value || 1)}
-            disabled={processMutation.isPending}
-            style={{ width: 88 }}
-          />
-          <Button
-            onClick={() => processMutation.mutate(false)}
-            loading={processMutation.isPending}
-            disabled={importMutation.isPending}
-            style={{ flex: 1 }}
-          >
-            解析下一批
-          </Button>
-        </Space.Compact>
-        <Space style={{ width: '100%' }}>
-          <Button
-            block
-            onClick={() => importMutation.mutate()}
-            loading={importMutation.isPending}
-            disabled={processMutation.isPending}
-          >
-            导入最近 50 篇
-          </Button>
-          <Button
-            danger
-            onClick={() => processMutation.mutate(true)}
-            loading={processMutation.isPending}
-            disabled={importMutation.isPending}
-          >
-            重析
-          </Button>
-        </Space>
-        {processResult && (
-          <Alert
-            type={processResult.failed > 0 ? 'warning' : 'success'}
-            showIcon
-            message={`本次处理 ${processResult.processed} 篇，新增实体 ${processResult.entities_upserted}，新增关系 ${processResult.relations_upserted}`}
-            description={
-              processResult.processed_documents.length > 0
-                ? processResult.processed_documents
-                    .slice(0, 3)
-                    .map((item) => `${item.title_zh || item.title}：${item.entities} 实体 / ${item.relations} 关系`)
-                    .join('；')
-                : processResult.errors[0]?.error || '没有新的待解析文章'
-            }
-          />
-        )}
-      </Space>
+    <div className="ig-prep">
+      <div className="ig-prep__desc">
+        先少量解析文章，确认实体和关系质量后再扩大批量。
+      </div>
+      <Space.Compact style={{ width: '100%' }}>
+        <InputNumber
+          aria-label="解析批量"
+          min={1}
+          max={50}
+          value={processBatchSize}
+          onChange={(value) => setProcessBatchSize(value || 1)}
+          disabled={processMutation.isPending}
+          style={{ width: 88 }}
+        />
+        <Button
+          type="primary"
+          onClick={() => processMutation.mutate(false)}
+          loading={processMutation.isPending}
+          disabled={importMutation.isPending}
+          style={{ flex: 1 }}
+        >
+          解析下一批
+        </Button>
+      </Space.Compact>
+      <div className="ig-prep__row">
+        <Button
+          onClick={() => importMutation.mutate()}
+          loading={importMutation.isPending}
+          disabled={processMutation.isPending}
+        >
+          导入最近 50 篇
+        </Button>
+        <Button
+          danger
+          onClick={() => processMutation.mutate(true)}
+          loading={processMutation.isPending}
+          disabled={importMutation.isPending}
+        >
+          重析
+        </Button>
+      </div>
+      {processResult && (
+        <Alert
+          type={processResult.failed > 0 ? 'warning' : 'success'}
+          showIcon
+          message={`本次处理 ${processResult.processed} 篇，新增实体 ${processResult.entities_upserted}，新增关系 ${processResult.relations_upserted}`}
+          description={
+            processResult.processed_documents.length > 0
+              ? processResult.processed_documents
+                  .slice(0, 3)
+                  .map((item) => `${item.title_zh || item.title}：${item.entities} 实体 / ${item.relations} 关系`)
+                  .join('；')
+              : processResult.errors[0]?.error || '没有新的待解析文章'
+          }
+        />
+      )}
     </div>
   );
 
-  const shellStyle: CSSProperties = {
-    ...industryPageStyles.shell,
-    gridTemplateColumns: isMobile ? '1fr' : '320px minmax(0, 1fr)',
-    minHeight: isMobile ? 'auto' : industryPageStyles.shell.minHeight,
-  };
-
   const historyPanel = (
-    <div
-      style={{
-        ...panelStyle,
-        padding: 14,
-        flex: 1,
-        minHeight: 0,
-        display: 'flex',
-        flexDirection: 'column',
-        height: isMobile ? '100%' : undefined,
-      }}
-    >
-          <Space direction="vertical" size={12} style={{ width: '100%', minHeight: 0, flex: 1 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-              <Space>
-                <HistoryOutlined />
-                <Text strong>历史会话</Text>
-              </Space>
-              <Space size={6}>
-                <Tooltip title="新建会话">
-                  <Button
-                    aria-label="新建会话"
-                    type="primary"
-                    icon={<PlusOutlined />}
-                    onClick={handleNewConversation}
-                    disabled={isStreaming || (!conversationId && messages.length === 0)}
-                    size="small"
-                  />
-                </Tooltip>
-                <span style={{ display: 'inline-flex', width: 6 }} />
-                <Tooltip title={statsOverview} placement="right">
-                  <Button
-                    aria-label="技术演进概览"
-                    icon={<LineChartOutlined />}
-                    shape="circle"
-                    size="small"
-                  />
-                </Tooltip>
-                {isAuthenticated && (
-                  <Popover
-                    title="数据准备"
-                    content={dataPreparationPanel}
-                    trigger="click"
-                    placement="rightTop"
-                  >
-                    <Button
-                      aria-label="数据准备设置"
-                      icon={<SettingOutlined />}
-                      shape="circle"
-                      size="small"
-                    />
-                  </Popover>
-                )}
-              </Space>
-            </div>
-            {!isAuthenticated ? (
-              <Text type="secondary">登录后显示历史会话</Text>
-            ) : conversationLoading && !conversationLoaded ? (
-              <Spin size="small" />
-            ) : conversationGroups.length > 0 ? (
-              <div
-                style={{
-                  width: '100%',
-                  overflowY: 'auto',
-                  flex: 1,
-                  minHeight: 0,
-                  paddingRight: 2,
-                }}
-              >
-                <Space
-                  direction="vertical"
-                  size={10}
-                  style={{ width: '100%' }}
-                >
-                  {conversationGroups.map((group) => (
-                    <div key={group.label}>
-                      <div
-                        style={{
-                          color: getThemeColor(theme, 'textSecondary'),
-                          fontSize: 12,
-                          fontWeight: 700,
-                          marginBottom: 6,
-                          paddingLeft: 2,
-                        }}
-                      >
-                        {group.label}
-                      </div>
-                      <Space direction="vertical" size={6} style={{ width: '100%' }}>
-                        {group.items.map((conversation) => {
-                          const active = conversation.id === conversationId;
-                          const isRenaming = renamingId === conversation.id;
-                          return (
-                            <div
-                              key={conversation.id}
-                              style={{
-                                position: 'relative',
-                                border: `1px solid ${active ? getThemeColor(theme, 'primary') : getThemeColor(theme, 'borderSecondary')}`,
-                                borderRadius: 8,
-                                background: active
-                                  ? (theme === 'dark' ? '#0f355f' : '#e6f4ff')
-                                  : getThemeColor(theme, 'bgContainer'),
-                                overflow: 'hidden',
+    <div className={isMobile ? 'ig-history ig-history--sheet' : 'panel ig-history'}>
+      <div className="ig-history__head">
+        <span className="ig-history__title">
+          <HistoryOutlined />
+          历史会话
+        </span>
+        <div className="ig-history__actions">
+          <Popover
+            content={statsOverview}
+            trigger={isMobile ? 'click' : 'hover'}
+            placement={isMobile ? 'bottom' : 'rightTop'}
+          >
+            <Button aria-label="技术演进概览" type="text" size="small" icon={<LineChartOutlined />} />
+          </Popover>
+          {isAuthenticated && (
+            <Popover
+              title="数据准备"
+              content={dataPreparationPanel}
+              trigger="click"
+              placement={isMobile ? 'bottom' : 'rightTop'}
+            >
+              <Button aria-label="数据准备设置" type="text" size="small" icon={<SettingOutlined />} />
+            </Popover>
+          )}
+          <span className="ig-history__divider" aria-hidden />
+          <Tooltip title="新建会话">
+            <Button
+              aria-label="新建会话"
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={handleNewConversation}
+              disabled={isStreaming || (!conversationId && messages.length === 0)}
+              size="small"
+            />
+          </Tooltip>
+        </div>
+      </div>
+      <div className="ig-history__body">
+        {!isAuthenticated ? (
+          <div className="ig-history__empty">登录后显示历史会话</div>
+        ) : conversationLoading && !conversationLoaded ? (
+          <div className="ig-history__empty">
+            <Spin size="small" />
+          </div>
+        ) : conversationGroups.length > 0 ? (
+          <>
+            {conversationGroups.map((group) => (
+              <div key={group.label} className="ig-history__group">
+                <div className="eyebrow ig-history__group-label">{group.label}</div>
+                <div className="ig-history__list">
+                  {group.items.map((conversation) => {
+                    const active = conversation.id === conversationId;
+                    const isRenaming = renamingId === conversation.id;
+                    return (
+                      <div key={conversation.id} className={`ig-conv${active ? ' ig-conv--active' : ''}`}>
+                        {isRenaming ? (
+                          <div className="ig-conv__rename">
+                            <Input
+                              size="small"
+                              value={renameValue}
+                              onChange={(e) => setRenameValue(e.target.value)}
+                              onPressEnter={() => {
+                                if (renameValue.trim()) {
+                                  renameMutation.mutate({ id: conversation.id, title: renameValue.trim() });
+                                }
+                              }}
+                              style={{ flex: 1, fontSize: 13 }}
+                              autoFocus
+                            />
+                            <Button
+                              size="small"
+                              type="primary"
+                              disabled={!renameValue.trim()}
+                              loading={renameMutation.isPending}
+                              onClick={() => {
+                                if (renameValue.trim()) {
+                                  renameMutation.mutate({ id: conversation.id, title: renameValue.trim() });
+                                }
                               }}
                             >
-                              {isRenaming ? (
-                                <div style={{ padding: '6px 8px', display: 'flex', gap: 4 }}>
-                                  <Input
+                              确定
+                            </Button>
+                            <Button
+                              size="small"
+                              onClick={() => { setRenamingId(null); setRenameValue(''); }}
+                            >
+                              取消
+                            </Button>
+                          </div>
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              className="ig-conv__main"
+                              onClick={() => handleLoadConversation(conversation.id)}
+                              disabled={isStreaming}
+                              aria-current={active ? 'true' : undefined}
+                            >
+                              <div className="ig-conv__title">{shortText(conversation.title, 32)}</div>
+                              <div className="ig-conv__meta">
+                                {dayjs(conversation.updated_at).format('MM-DD HH:mm')}
+                                {conversation.messages.length > 0 ? ` · ${conversation.messages.length} 条` : ''}
+                              </div>
+                            </button>
+                            <div className="ig-conv__actions">
+                              <Tooltip title="重命名">
+                                <Button
+                                  type="text"
+                                  size="small"
+                                  icon={<EditOutlined />}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setRenamingId(conversation.id);
+                                    setRenameValue(conversation.title);
+                                  }}
+                                />
+                              </Tooltip>
+                              <Popconfirm
+                                title="确定删除该会话？"
+                                description="删除后不可恢复"
+                                onConfirm={() => deleteMutation.mutate(conversation.id)}
+                                okText="删除"
+                                cancelText="取消"
+                                okButtonProps={{ danger: true }}
+                              >
+                                <Tooltip title="删除">
+                                  <Button
+                                    type="text"
                                     size="small"
-                                    value={renameValue}
-                                    onChange={(e) => setRenameValue(e.target.value)}
-                                    onPressEnter={() => {
-                                      if (renameValue.trim()) {
-                                        renameMutation.mutate({ id: conversation.id, title: renameValue.trim() });
-                                      }
-                                    }}
-                                    style={{ flex: 1, fontSize: 13 }}
-                                    autoFocus
+                                    icon={<DeleteOutlined />}
+                                    onClick={(e) => e.stopPropagation()}
+                                    loading={deleteMutation.isPending && deleteMutation.variables === conversation.id}
                                   />
-                                  <Button
-                                    size="small"
-                                    type="primary"
-                                    disabled={!renameValue.trim()}
-                                    loading={renameMutation.isPending}
-                                    onClick={() => {
-                                      if (renameValue.trim()) {
-                                        renameMutation.mutate({ id: conversation.id, title: renameValue.trim() });
-                                      }
-                                    }}
-                                  >
-                                    确定
-                                  </Button>
-                                  <Button
-                                    size="small"
-                                    onClick={() => { setRenamingId(null); setRenameValue(''); }}
-                                  >
-                                    取消
-                                  </Button>
-                                </div>
-                              ) : (
-                                <>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleLoadConversation(conversation.id)}
-                                    disabled={isStreaming}
-                                    style={{
-                                      width: '100%',
-                                      cursor: isStreaming ? 'not-allowed' : 'pointer',
-                                      border: 'none',
-                                      background: 'transparent',
-                                      color: getThemeColor(theme, 'text'),
-                                      padding: '9px 10px',
-                                      textAlign: 'left',
-                                      display: 'block',
-                                    }}
-                                  >
-                                    <div style={{ fontWeight: 700, lineHeight: 1.4, paddingRight: 48 }}>
-                                      {shortText(conversation.title, 32)}
-                                    </div>
-                                    <div style={{ color: getThemeColor(theme, 'textSecondary'), fontSize: 12, marginTop: 3 }}>
-                                      {dayjs(conversation.updated_at).format('MM-DD HH:mm')}
-                                      {conversation.messages.length > 0 ? ` · ${conversation.messages.length} 条` : ''}
-                                    </div>
-                                  </button>
-                                  <div
-                                    style={{
-                                      position: 'absolute',
-                                      top: 6,
-                                      right: 6,
-                                      display: 'flex',
-                                      gap: 2,
-                                      opacity: 0.5,
-                                      transition: 'opacity 0.15s',
-                                    }}
-                                    onMouseEnter={(e) => { e.currentTarget.style.opacity = '1'; }}
-                                    onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.5'; }}
-                                  >
-                                    <Tooltip title="重命名">
-                                      <Button
-                                        type="text"
-                                        size="small"
-                                        icon={<EditOutlined />}
-                                        style={{ color: getThemeColor(theme, 'textSecondary'), fontSize: 12 }}
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          setRenamingId(conversation.id);
-                                          setRenameValue(conversation.title);
-                                        }}
-                                      />
-                                    </Tooltip>
-                                    <Popconfirm
-                                      title="确定删除该会话？"
-                                      description="删除后不可恢复"
-                                      onConfirm={() => deleteMutation.mutate(conversation.id)}
-                                      okText="删除"
-                                      cancelText="取消"
-                                      okButtonProps={{ danger: true }}
-                                    >
-                                      <Tooltip title="删除">
-                                        <Button
-                                          type="text"
-                                          size="small"
-                                          icon={<DeleteOutlined />}
-                                          style={{ color: getThemeColor(theme, 'textSecondary'), fontSize: 12 }}
-                                          onClick={(e) => e.stopPropagation()}
-                                          loading={deleteMutation.isPending && deleteMutation.variables === conversation.id}
-                                        />
-                                      </Tooltip>
-                                    </Popconfirm>
-                                  </div>
-                                </>
-                              )}
+                                </Tooltip>
+                              </Popconfirm>
                             </div>
-                          );
-                        })}
-                      </Space>
-                    </div>
-                  ))}
-                  {hasMoreConversations && (
-                    <div style={{ textAlign: 'center', padding: '4px 0' }}>
-                      <Button
-                        type="link"
-                        size="small"
-                        loading={conversationLoading}
-                        onClick={() => loadConversations(true)}
-                        style={{ fontSize: 13 }}
-                      >
-                        显示更多会话
-                      </Button>
-                    </div>
-                  )}
-                </Space>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-            ) : (
-              <Text type="secondary">暂无历史会话</Text>
+            ))}
+            {hasMoreConversations && (
+              <div className="ig-history__more">
+                <Button
+                  type="link"
+                  size="small"
+                  loading={conversationLoading}
+                  onClick={() => loadConversations(true)}
+                >
+                  显示更多会话
+                </Button>
+              </div>
             )}
-          </Space>
-        </div>
+          </>
+        ) : (
+          <div className="ig-history__empty">暂无历史会话</div>
+        )}
+      </div>
+    </div>
   );
 
   return (
     <>
-    <div style={shellStyle}>
-      {!isMobile && (
-      <aside style={industryPageStyles.sidebar}>
-        {historyPanel}
-      </aside>
-      )}
+      <div className={isMobile ? 'ig-shell ig-shell--mobile' : 'ig-shell'}>
+        {!isMobile && <aside className="ig-aside">{historyPanel}</aside>}
 
-      <main style={{ ...industryPageStyles.report, ...panelStyle, minHeight: isMobile ? 480 : industryPageStyles.report.minHeight }}>
-        {isMobile ? (
-          <div className="mobile-industry-toolbar">
-            <Button
-              size="small"
-              type="default"
-              icon={<HistoryOutlined />}
-              onClick={() => setHistoryDrawerOpen(true)}
-            >
-              历史会话
-            </Button>
-            {conversationId ? (
-              <span style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>
-                会话 #{conversationId}
-              </span>
-            ) : null}
-          </div>
-        ) : (
-        <div
-          style={{
-            padding: '14px 18px',
-            borderBottom: `1px solid ${getThemeColor(theme, 'borderSecondary')}`,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 12,
-            flexWrap: 'wrap',
-          }}
-        >
-          <Space wrap>
-            <Avatar icon={<ApartmentOutlined />} style={{ background: '#13c2c2' }} />
-            <div>
-              <Text strong>行业趋势图谱报告</Text>
-              <div>
-                <Text type="secondary">流式输出文本、趋势卡片、证据和局部图</Text>
+        <main className="panel ig-chat">
+          {isMobile ? (
+            <div className="ig-mtoolbar">
+              <Button icon={<HistoryOutlined />} onClick={() => setHistoryDrawerOpen(true)}>
+                历史会话
+              </Button>
+              {conversationId ? (
+                <span className="chip chip--accent mono">会话 #{conversationId}</span>
+              ) : (
+                <span className="chip mono">
+                  <ClockCircleOutlined />
+                  last_3_months
+                </span>
+              )}
+            </div>
+          ) : (
+            <div className="ig-chat__head">
+              <div className="ig-chat__brand">
+                <span className="ig-mark">
+                  <ApartmentOutlined />
+                </span>
+                <div>
+                  <div className="ig-chat__title">行业趋势图谱报告</div>
+                  <div className="ig-chat__desc">流式输出文本、趋势卡片、证据和局部图</div>
+                </div>
+              </div>
+              <div className="ig-chat__meta">
+                {isStreaming && <span className="dot dot--live" aria-hidden />}
+                <span className="chip chip--outline">
+                  <ClockCircleOutlined />
+                  last_3_months
+                </span>
+                {conversationId && <span className="chip chip--accent">会话 {conversationId}</span>}
               </div>
             </div>
-          </Space>
-          <Space size={8} wrap>
-            <Tag icon={<ClockCircleOutlined />}>last_3_months</Tag>
-            {conversationId && <Tag color="blue">会话 {conversationId}</Tag>}
-          </Space>
-        </div>
-        )}
+          )}
 
-        <div ref={reportBodyRef} style={{ ...industryPageStyles.reportBody, padding: isMobile ? 12 : 20 }}>
-          {messages.length === 0 ? (
-            <SuggestedQuestionPrompt
-              items={suggestedQuestions?.items || []}
-              loading={questionsLoading}
-              isStreaming={isStreaming}
-              onAsk={handleAsk}
-              theme={theme}
-            />
-          ) : (
-            messages.map((message) => {
-              const isUser = message.role === 'user';
-              const referenceBlocks = message.blocks.filter(isReferenceBlock);
-              const followupBlocks = message.blocks.filter(isFollowupBlock);
-              const inlineBlocks = message.blocks.filter((block) => !isReferenceBlock(block) && !isFollowupBlock(block));
-              const evidenceBlocks = getEvidenceBlocks(referenceBlocks);
-              return (
-                <div
-                  key={message.id}
-                  style={{
-                    ...industryPageStyles.messageRow,
-                    ...(isUser ? industryPageStyles.userRow : {}),
-                  }}
-                >
-                  <Avatar
-                    icon={isUser ? <BulbOutlined /> : <LineChartOutlined />}
-                    style={{ background: isUser ? getThemeColor(theme, 'primary') : '#52c41a', flexShrink: 0 }}
-                  />
-                  <div
-                    style={{
-                      ...industryPageStyles.messageBody,
-                      alignItems: isUser ? 'flex-end' : 'flex-start',
-                    }}
-                  >
-                    <div
-                      style={{
-                        padding: isUser ? '10px 12px' : '0',
-                        borderRadius: 8,
-                        background: isUser ? getThemeColor(theme, 'userMessageBg') : 'transparent',
-                        color: isUser ? getThemeColor(theme, 'userMessageText') : getThemeColor(theme, 'text'),
-                        marginLeft: isUser ? 'auto' : 0,
-                        maxWidth: isUser ? 720 : '100%',
-                      }}
-                    >
-                      {isUser ? (
-                        <Text style={{ color: getThemeColor(theme, 'userMessageText') }}>{message.text}</Text>
-                      ) : (
-                        <Space direction="vertical" size={12} style={{ width: '100%' }}>
-                          {message.queryPlan && (
-                            <Space size={[6, 6]} wrap>
-                              <span
-                                style={{
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  height: 24,
-                                  padding: '0 8px',
-                                  borderRadius: 6,
-                                  background: theme === 'dark' ? '#0f355f' : '#e6f4ff',
-                                  border: `1px solid ${theme === 'dark' ? '#1d5f9f' : '#bae0ff'}`,
-                                  color: theme === 'dark' ? '#d6ebff' : '#0958d9',
-                                  fontSize: 12,
-                                  fontWeight: 700,
-                                }}
-                              >
-                                {message.queryPlan.primary_scenario}
+          <div ref={reportBodyRef} className="ig-chat__body">
+            {messages.length === 0 ? (
+              <SuggestedQuestionPrompt
+                items={suggestedQuestions?.items || []}
+                loading={questionsLoading}
+                isStreaming={isStreaming}
+                onAsk={handleAsk}
+              />
+            ) : (
+              <div className="ig-thread">
+                {messages.map((message) => {
+                  const isUser = message.role === 'user';
+                  if (isUser) {
+                    return (
+                      <div key={message.id} className="ig-msg ig-msg--user">
+                        <div className="ig-bubble">{message.text}</div>
+                      </div>
+                    );
+                  }
+                  const referenceBlocks = message.blocks.filter(isReferenceBlock);
+                  const followupBlocks = message.blocks.filter(isFollowupBlock);
+                  const inlineBlocks = message.blocks.filter((block) => !isReferenceBlock(block) && !isFollowupBlock(block));
+                  const evidenceBlocks = getEvidenceBlocks(referenceBlocks);
+                  return (
+                    <div key={message.id} className="ig-msg">
+                      <span className="ig-mark ig-msg__avatar" aria-hidden>
+                        <ApartmentOutlined />
+                      </span>
+                      <div className="ig-msg__body">
+                        {message.queryPlan && (
+                          <div className="ig-plan">
+                            <span className="chip chip--accent">{message.queryPlan.primary_scenario}</span>
+                            {message.queryPlan.analysis_tasks.map((task) => (
+                              <span key={task} className="chip chip--outline">
+                                {task}
                               </span>
-                              {message.queryPlan.analysis_tasks.map((task) => (
-                                <span
-                                  key={task}
-                                  style={{
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    height: 24,
-                                    padding: '0 8px',
-                                    borderRadius: 6,
-                                    background: chatPalette.surfaceSoft,
-                                    border: `1px solid ${chatPalette.borderSoft}`,
-                                    color: chatPalette.textMuted,
-                                    fontSize: 12,
-                                    fontWeight: 600,
-                                  }}
-                                >
-                                  {task}
-                                </span>
-                              ))}
-                            </Space>
-                          )}
-                          <div style={industryPageStyles.blockStack}>
-                            {inlineBlocks.map((block, index) => (
-                              <ReportBlock
-                                key={`${message.id}-${block.type}-${index}`}
-                                block={block}
-                                onAsk={handleAsk}
-                                theme={theme}
-                              />
-                            ))}
-                            <ReferenceMaterials
-                              blocks={referenceBlocks}
-                              onAsk={handleAsk}
-                              theme={theme}
-                            />
-                            {message.isStreaming && referenceBlocks.length > 0 && !message.text && (
-                              <div
-                                style={{
-                                  color: chatPalette.textMuted,
-                                  fontSize: 13,
-                                  padding: '2px 0 0 2px',
-                                }}
-                              >
-                                正在基于参考资料生成分析...
-                              </div>
-                            )}
-                            {message.text && (
-                              <AnswerText
-                                text={message.text}
-                                evidence={evidenceBlocks}
-                                theme={theme}
-                              />
-                            )}
-                            {followupBlocks.map((block, index) => (
-                              <ReportBlock
-                                key={`${message.id}-${block.type}-followup-${index}`}
-                                block={block}
-                                onAsk={handleAsk}
-                                theme={theme}
-                              />
                             ))}
                           </div>
-                          {message.isStreaming && (
-                            <Space>
-                              <Spin size="small" />
-                              <Text type="secondary">生成中...</Text>
-                            </Space>
+                        )}
+                        <div className="ig-blocks">
+                          {inlineBlocks.map((block, index) => (
+                            <ReportBlock
+                              key={`${message.id}-${block.type}-${index}`}
+                              block={block}
+                              onAsk={handleAsk}
+                            />
+                          ))}
+                          <ReferenceMaterials blocks={referenceBlocks} onAsk={handleAsk} />
+                          {message.isStreaming && referenceBlocks.length > 0 && !message.text && (
+                            <div className="ig-status">正在基于参考资料生成分析...</div>
                           )}
-                          {message.error && (
-                            <Alert type="error" showIcon message={message.error} />
-                          )}
-                        </Space>
-                      )}
+                          {message.text && <AnswerText text={message.text} evidence={evidenceBlocks} />}
+                          {followupBlocks.map((block, index) => (
+                            <ReportBlock
+                              key={`${message.id}-${block.type}-followup-${index}`}
+                              block={block}
+                              onAsk={handleAsk}
+                            />
+                          ))}
+                        </div>
+                        {message.isStreaming && (
+                          <div className="ig-status">
+                            <span className="dot dot--live" aria-hidden />
+                            生成中...
+                          </div>
+                        )}
+                        {message.error && <Alert type="error" showIcon message={message.error} />}
+                      </div>
                     </div>
-                  </div>
-                </div>
-              );
-            })
-          )}
-        </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
 
-        <div
-          style={{
-            ...industryPageStyles.composer,
-            borderTopColor: getThemeColor(theme, 'borderSecondary'),
-          }}
-        >
-          <Space.Compact style={{ width: '100%' }}>
-            <TextArea
-              value={inputValue}
-              onChange={(event) => setInputValue(event.target.value)}
-              onPressEnter={handleKeyPress}
-              placeholder="追问技术演进、技术融合、论文到产品路径..."
-              autoSize={{ minRows: 1, maxRows: 4 }}
-              disabled={!isAuthenticated || isStreaming}
-            />
-            <Tooltip title="发送">
-              <Button
-                type="primary"
-                icon={<SendOutlined />}
-                onClick={submitInput}
-                loading={isStreaming}
-                disabled={!isAuthenticated || !inputValue.trim() || isStreaming}
-                style={{ height: 'auto', width: 56 }}
+          <div className="ig-composer">
+            <div className="ig-composer__box">
+              <TextArea
+                className="ig-composer__input"
+                variant="borderless"
+                value={inputValue}
+                onChange={(event) => setInputValue(event.target.value)}
+                onPressEnter={handleKeyPress}
+                placeholder="追问技术演进、技术融合、论文到产品路径..."
+                autoSize={{ minRows: 1, maxRows: 5 }}
+                disabled={!isAuthenticated || isStreaming}
               />
-            </Tooltip>
-          </Space.Compact>
-        </div>
-      </main>
-    </div>
+              <Tooltip title="发送">
+                <Button
+                  className="ig-composer__send"
+                  type="primary"
+                  icon={<SendOutlined />}
+                  onClick={submitInput}
+                  loading={isStreaming}
+                  disabled={!isAuthenticated || !inputValue.trim() || isStreaming}
+                />
+              </Tooltip>
+            </div>
+            <div className="ig-composer__hint">
+              <span className="kbd">Enter</span>
+              发送
+              <span className="kbd">Shift</span>
+              <span className="kbd">Enter</span>
+              换行
+            </div>
+          </div>
+        </main>
+      </div>
 
-    {isMobile && (
-      <Drawer
-        title="历史会话"
-        placement="left"
-        width="100%"
-        open={historyDrawerOpen}
-        onClose={() => setHistoryDrawerOpen(false)}
-        styles={{ body: { padding: 12 } }}
-      >
-        {historyPanel}
-      </Drawer>
-    )}
+      {isMobile && (
+        <Drawer
+          title="历史会话"
+          placement="bottom"
+          height="78vh"
+          className="m-sheet"
+          open={historyDrawerOpen}
+          onClose={() => setHistoryDrawerOpen(false)}
+        >
+          {historyPanel}
+        </Drawer>
+      )}
     </>
   );
 }

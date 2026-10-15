@@ -2,20 +2,17 @@
  * RAG语义搜索组件
  */
 import { useState, useMemo } from 'react';
-import { Card, Input, Select, Space, List, Tag, Typography, Empty, Spin, Alert, Button, DatePicker, Tooltip } from 'antd';
-import { SearchOutlined, LinkOutlined, StarFilled } from '@ant-design/icons';
+import { Input, Select, Alert, Button, DatePicker, Tooltip } from 'antd';
+import { SearchOutlined, ExportOutlined, StarFilled, LoadingOutlined } from '@ant-design/icons';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import ReactMarkdown from 'react-markdown';
 import { apiService } from '@/services/api';
 import type { RAGSearchRequest, ArticleSearchResult, ImportanceLevel } from '@/types';
 import dayjs from 'dayjs';
-import { useTheme } from '@/contexts/ThemeContext';
-import { createMarkdownComponents, remarkGfm } from '@/utils/markdown';
-import { getThemeColor } from '@/utils/theme';
+import { Markdown } from '@/utils/markdown';
 import { groupSourcesByType, SOURCE_TYPE_LABELS } from '@/utils/source';
-import { IMPORTANCE_COLORS, getImportanceLabel } from '@/utils/article';
+import { getImportanceLabel } from '@/utils/article';
+import '@/styles/pages/assistant.css';
 
-const { Text, Title } = Typography;
 const { RangePicker } = DatePicker;
 const { Option, OptGroup } = Select;
 
@@ -25,7 +22,6 @@ export default function RAGSearch() {
   const [importance, setImportance] = useState<string[]>([]);
   const [timeRange, setTimeRange] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null]>([null, null]);
   const [topK, setTopK] = useState(10);
-  const { theme } = useTheme();
 
   // 获取订阅源列表
   const { data: sourcesList } = useQuery({
@@ -77,40 +73,44 @@ export default function RAGSearch() {
   };
 
   return (
-    <div>
-      <Card
-        title="🔍 语义搜索"
-        extra={
-          <Space>
-            <Text type="secondary">返回数量：</Text>
-            <Select
-              value={topK}
-              onChange={setTopK}
-              style={{ width: 80 }}
-              options={[
-                { label: '5', value: 5 },
-                { label: '10', value: 10 },
-                { label: '20', value: 20 },
-                { label: '50', value: 50 },
-              ]}
-            />
-          </Space>
-        }
-      >
-        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-          {/* 搜索框 */}
-          <Input.Search
-            placeholder="输入搜索关键词，支持自然语言查询..."
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onSearch={handleSearch}
-            enterButton={<SearchOutlined />}
-            size="large"
-            loading={searchMutation.isPending}
+    <div className="rag-search panel">
+      <div className="panel__head">
+        <div className="rag-search__heading">
+          <span className="eyebrow">语义搜索</span>
+          <span className="panel__title">按语义检索已索引的资讯</span>
+        </div>
+        <span className="rag-search__topk">
+          <span>返回数量</span>
+          <Select
+            size="small"
+            value={topK}
+            onChange={setTopK}
+            style={{ width: 72 }}
+            options={[
+              { label: '5', value: 5 },
+              { label: '10', value: 10 },
+              { label: '20', value: 20 },
+              { label: '50', value: 50 },
+            ]}
           />
+        </span>
+      </div>
 
-          {/* 筛选器 */}
-          <Space wrap>
+      <div className="panel__body rag-search__body">
+        {/* 搜索框 */}
+        <Input.Search
+          className="rag-search__input"
+          placeholder="输入搜索关键词，支持自然语言查询..."
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onSearch={handleSearch}
+          enterButton={<SearchOutlined />}
+          size="large"
+          loading={searchMutation.isPending}
+        />
+
+        {/* 筛选器 */}
+        <div className="rag-search__filters">
             <Select
               mode="multiple"
               placeholder="选择来源"
@@ -170,115 +170,94 @@ export default function RAGSearch() {
             }}>
               清除筛选
             </Button>
-          </Space>
+        </div>
 
-          {/* 搜索结果 */}
-          {searchMutation.isPending ? (
-            <div style={{ textAlign: 'center', padding: '50px 0' }}>
-              <Spin size="large" />
+        {/* 搜索结果 */}
+        {searchMutation.isPending ? (
+          <div className="rag-search__state">
+            <LoadingOutlined className="rag-search__spin" />
+            正在检索…
+          </div>
+        ) : searchMutation.error ? (
+          <Alert
+            message="搜索失败"
+            description={searchMutation.error instanceof Error ? searchMutation.error.message : '未知错误'}
+            type="error"
+            showIcon
+          />
+        ) : searchMutation.data ? (
+          <>
+            <div className="rag-search__summary">
+              <span className="eyebrow">结果</span>
+              <span>
+                找到 <span className="mono u-tnum u-accent">{searchMutation.data.total}</span> 条相关结果
+                {searchMutation.data.query && `（查询："${searchMutation.data.query}"）`}
+              </span>
             </div>
-          ) : searchMutation.error ? (
-            <Alert
-              message="搜索失败"
-              description={searchMutation.error instanceof Error ? searchMutation.error.message : '未知错误'}
-              type="error"
-              showIcon
-            />
-          ) : searchMutation.data ? (
-            <>
-              <div style={{ marginBottom: 16 }}>
-                <Text type="secondary">
-                  找到 {searchMutation.data.total} 条相关结果
-                  {searchMutation.data.query && `（查询："${searchMutation.data.query}"）`}
-                </Text>
-              </div>
 
-              {searchMutation.data.results.length === 0 ? (
-                <Empty description="未找到相关文章" />
-              ) : (
-                <List
-                  dataSource={searchMutation.data.results}
-                  renderItem={(item: ArticleSearchResult) => (
-                    <List.Item>
-                      <Card
-                        style={{ width: '100%', marginBottom: 8 }}
-                        size="small"
+            {searchMutation.data.results.length === 0 ? (
+              <div className="rag-search__state">未找到相关文章</div>
+            ) : (
+              <div className="rag-results">
+                {searchMutation.data.results.map((item: ArticleSearchResult) => (
+                  <article key={item.id} className="rag-result">
+                    <div className="rag-result__meta">
+                      {item.importance && (
+                        <span className="rag-result__importance">
+                          <span className={`dot dot--${item.importance}`} />
+                          {getImportanceLabel(item.importance)}
+                        </span>
+                      )}
+                      <span className="chip">{item.source}</span>
+                      {item.is_favorited && (
+                        <Tooltip title="已收藏">
+                          <StarFilled className="rag-result__fav" />
+                        </Tooltip>
+                      )}
+                      <span className="chip chip--accent mono u-tnum rag-result__score" title="相似度">
+                        {formatSimilarity(item.similarity)}
+                      </span>
+                    </div>
+
+                    {item.title_zh ? (
+                      <Tooltip title={item.title} placement="top">
+                        <h3 className="rag-result__title rag-result__title--hint">{item.title_zh}</h3>
+                      </Tooltip>
+                    ) : (
+                      <h3 className="rag-result__title">{item.title}</h3>
+                    )}
+
+                    {item.summary && (
+                      <div className="rag-result__summary">
+                        <Markdown compact>{item.summary}</Markdown>
+                      </div>
+                    )}
+
+                    <div className="rag-result__foot">
+                      <span className="mono u-tnum">
+                        {item.published_at ? dayjs(item.published_at).format('YYYY-MM-DD HH:mm') : ''}
+                      </span>
+                      <a
+                        className="rag-result__link"
+                        href={item.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
                       >
-                        <Space direction="vertical" size="small" style={{ width: '100%' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-                            {item.importance && (
-                              <Tag color={IMPORTANCE_COLORS[item.importance]}>
-                                {getImportanceLabel(item.importance)}
-                              </Tag>
-                            )}
-                            <Tag color="blue">{item.source}</Tag>
-                            {item.is_favorited && (
-                              <Tooltip title="已收藏">
-                                <StarFilled style={{ color: '#faad14', fontSize: 14 }} />
-                              </Tooltip>
-                            )}
-                            <Tag color="purple">相似度: {formatSimilarity(item.similarity)}</Tag>
-                          </div>
-
-                          {item.title_zh ? (
-                            <Tooltip title={item.title} placement="top">
-                              <Title level={5} style={{ marginBottom: 8, cursor: 'help' }}>
-                                {item.title_zh}
-                              </Title>
-                            </Tooltip>
-                          ) : (
-                            <Title level={5} style={{ marginBottom: 8 }}>
-                              {item.title}
-                            </Title>
-                          )}
-
-                          {item.summary && (
-                            <div
-                              style={{
-                                fontSize: 14,
-                                color: getThemeColor(theme, 'textSecondary'),
-                                lineHeight: 1.6,
-                              }}
-                            >
-                              <ReactMarkdown 
-                                components={createMarkdownComponents(theme)}
-                                remarkPlugins={[remarkGfm]}
-                              >
-                                {item.summary}
-                              </ReactMarkdown>
-                            </div>
-                          )}
-
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
-                            <Space>
-                              {item.published_at && (
-                                <Text type="secondary" style={{ fontSize: 12 }}>
-                                  {dayjs(item.published_at).format('YYYY-MM-DD HH:mm')}
-                                </Text>
-                              )}
-                            </Space>
-                            <Button
-                              type="link"
-                              icon={<LinkOutlined />}
-                              href={item.url}
-                              target="_blank"
-                              size="small"
-                            >
-                              查看原文
-                            </Button>
-                          </div>
-                        </Space>
-                      </Card>
-                    </List.Item>
-                  )}
-                />
-              )}
-            </>
-          ) : (
-            <Empty description="输入关键词开始搜索" />
-          )}
-        </Space>
-      </Card>
+                        查看原文 <ExportOutlined />
+                      </a>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="rag-search__state rag-search__state--idle">
+            <SearchOutlined className="rag-search__idle-icon" />
+            输入关键词开始搜索
+          </div>
+        )}
+      </div>
     </div>
   );
 }

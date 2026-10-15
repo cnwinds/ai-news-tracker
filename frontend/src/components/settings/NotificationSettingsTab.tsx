@@ -3,16 +3,14 @@
  */
 import { useEffect } from 'react';
 import {
-  Card,
   Form,
   Input,
   Button,
-  Space,
-  Alert,
   Spin,
   Select,
   Switch,
   TimePicker,
+  Tooltip,
 } from 'antd';
 import { SaveOutlined, ReloadOutlined, PlusOutlined, MinusCircleOutlined } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -23,12 +21,14 @@ import { useErrorHandler } from '@/hooks/useErrorHandler';
 import { safeSetFieldsValue } from '@/utils/form';
 import type { NotificationSettings } from '@/types';
 import type { NotificationFormValues } from './types';
+import { SettingsPanel, SettingsSaveBar, SettingsSubhead, useSettingsFormLayout } from './SettingsKit';
 
 export default function NotificationSettingsTab() {
   const queryClient = useQueryClient();
   const { isAuthenticated } = useAuth();
   const { createErrorHandler, showSuccess, showError } = useErrorHandler();
   const [notificationForm] = Form.useForm();
+  const formLayout = useSettingsFormLayout();
 
   // 获取通知配置
   const { data: notificationSettings, isLoading: notificationLoading } = useQuery({
@@ -84,21 +84,16 @@ export default function NotificationSettingsTab() {
 
   return (
     <Spin spinning={notificationLoading}>
-      <Card>
+      <SettingsPanel
+        title="机器人推送"
+        description="配置飞书或钉钉机器人，用于接收每日摘要和高重要性文章的推送通知。"
+      >
         <Form
           form={notificationForm}
-          layout="vertical"
+          {...formLayout}
           onFinish={handleNotificationSave}
           initialValues={notificationSettings}
         >
-          <Alert
-            message="通知配置说明"
-            description="配置飞书或钉钉机器人，用于接收每日摘要和高重要性文章的推送通知。"
-            type="info"
-            showIcon
-            style={{ marginBottom: 24 }}
-          />
-
           <Form.Item
             name="platform"
             label="通知平台"
@@ -152,6 +147,8 @@ export default function NotificationSettingsTab() {
             }
           </Form.Item>
 
+          <SettingsSubhead>即时通知</SettingsSubhead>
+
           <Form.Item
             name="instant_notification_enabled"
             label="启用即时通知"
@@ -179,7 +176,7 @@ export default function NotificationSettingsTab() {
                     {(fields, { add, remove }) => (
                       <>
                         {fields.map(({ key, name, ...restField }) => (
-                          <Space key={key} style={{ display: 'flex', marginBottom: 8 }} align="baseline">
+                          <div key={key} className="settings-inline-group">
                             <Form.Item
                               {...restField}
                               name={[name, 'start_time']}
@@ -192,7 +189,7 @@ export default function NotificationSettingsTab() {
                                 disabled={!isAuthenticated}
                               />
                             </Form.Item>
-                            <span>至</span>
+                            <span className="settings-inline-group__sep">至</span>
                             <Form.Item
                               {...restField}
                               name={[name, 'end_time']}
@@ -205,23 +202,26 @@ export default function NotificationSettingsTab() {
                                 disabled={!isAuthenticated}
                               />
                             </Form.Item>
-                            <MinusCircleOutlined
-                              onClick={() => remove(name)}
-                              style={{ color: '#ff4d4f', cursor: 'pointer' }}
-                            />
-                          </Space>
+                            <Tooltip title="移除时段">
+                              <Button
+                                type="text"
+                                className="settings-icon-action settings-icon-action--danger"
+                                aria-label="移除时段"
+                                icon={<MinusCircleOutlined />}
+                                onClick={() => remove(name)}
+                                disabled={!isAuthenticated}
+                              />
+                            </Tooltip>
+                          </div>
                         ))}
-                        <Form.Item>
-                          <Button
-                            type="dashed"
-                            onClick={() => add()}
-                            block
-                            icon={<PlusOutlined />}
-                            disabled={!isAuthenticated}
-                          >
-                            添加勿扰时段
-                          </Button>
-                        </Form.Item>
+                        <Button
+                          type="dashed"
+                          onClick={() => add()}
+                          icon={<PlusOutlined />}
+                          disabled={!isAuthenticated}
+                        >
+                          添加勿扰时段
+                        </Button>
                       </>
                     )}
                   </Form.List>
@@ -230,31 +230,29 @@ export default function NotificationSettingsTab() {
             }}
           </Form.Item>
 
-          <Form.Item>
-            <Space>
-              <Button
-                type="primary"
-                icon={<SaveOutlined />}
-                htmlType="submit"
-                loading={updateNotificationMutation.isPending}
-                disabled={!isAuthenticated}
-              >
-                保存配置
-              </Button>
-              <Button
-                icon={<ReloadOutlined />}
-                onClick={() => {
-                  if (notificationSettings) {
-                    notificationForm.setFieldsValue(notificationSettings);
-                  }
-                }}
-              >
-                重置
-              </Button>
-            </Space>
-          </Form.Item>
+          <SettingsSaveBar hint={isAuthenticated ? '修改后需保存才会生效' : '登录后可保存'}>
+            <Button
+              icon={<ReloadOutlined />}
+              onClick={() => {
+                if (notificationSettings) {
+                  notificationForm.setFieldsValue(notificationSettings);
+                }
+              }}
+            >
+              重置
+            </Button>
+            <Button
+              type="primary"
+              icon={<SaveOutlined />}
+              htmlType="submit"
+              loading={updateNotificationMutation.isPending}
+              disabled={!isAuthenticated}
+            >
+              保存配置
+            </Button>
+          </SettingsSaveBar>
         </Form>
-      </Card>
+      </SettingsPanel>
     </Spin>
   );
 }

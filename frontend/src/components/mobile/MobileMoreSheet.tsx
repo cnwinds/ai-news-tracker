@@ -1,13 +1,6 @@
-import {
-  BarChartOutlined,
-  RightOutlined,
-  RocketOutlined,
-  ShareAltOutlined,
-} from '@ant-design/icons';
+import { RightOutlined } from '@ant-design/icons';
 import { Drawer } from 'antd';
-import type { ReactNode } from 'react';
-import { useTheme } from '@/contexts/ThemeContext';
-import { getThemeColor } from '@/utils/theme';
+import { PAGES } from '@/components/layout/navigation';
 
 export type MobileMoreTabKey = 'exploration' | 'social-media' | 'statistics';
 
@@ -18,94 +11,30 @@ interface MobileMoreSheetProps {
   onSelect: (key: MobileMoreTabKey) => void;
 }
 
-interface MoreItem {
-  key: MobileMoreTabKey;
-  label: string;
-  description: string;
-  icon: ReactNode;
-}
+const MORE_PAGES = PAGES.filter((p) => p.group === 'explore');
 
-const MORE_ITEMS: MoreItem[] = [
-  {
-    key: 'exploration',
-    label: '模型先知',
-    description: '追踪预发布模型与更新信号',
-    icon: <RocketOutlined />,
-  },
-  {
-    key: 'social-media',
-    label: '社交平台',
-    description: 'AI 热点小报与社媒趋势',
-    icon: <ShareAltOutlined />,
-  },
-  {
-    key: 'statistics',
-    label: '数据统计',
-    description: '采集量与文章分布概览',
-    icon: <BarChartOutlined />,
-  },
-];
-
-export default function MobileMoreSheet({
-  open,
-  activeTab,
-  onClose,
-  onSelect,
-}: MobileMoreSheetProps) {
-  const { theme } = useTheme();
-
+export default function MobileMoreSheet({ open, activeTab, onClose, onSelect }: MobileMoreSheetProps) {
   return (
-    <Drawer
-      title="探索工具"
-      placement="bottom"
-      height="auto"
-      open={open}
-      onClose={onClose}
-      className="mobile-more-sheet"
-      styles={{
-        header: {
-          borderBottom: 'none',
-        },
-      }}
-    >
-      <p
-        className="mobile-more-sheet__hint"
-        style={{ color: getThemeColor(theme, 'textTertiary') }}
-      >
-        扩展模块
-      </p>
-      <div className="mobile-more-sheet__list">
-        {MORE_ITEMS.map((item) => {
-          const active = activeTab === item.key;
+    <Drawer title="探索" placement="bottom" height="auto" open={open} onClose={onClose} className="m-sheet">
+      <div className="m-more">
+        {MORE_PAGES.map((page) => {
+          const active = activeTab === page.key;
           return (
             <button
-              key={item.key}
+              key={page.key}
               type="button"
-              className={`mobile-more-sheet__item${active ? ' mobile-more-sheet__item--active' : ''}`}
+              className={`m-more__item${active ? ' m-more__item--active' : ''}`}
               onClick={() => {
-                onSelect(item.key);
+                onSelect(page.key as MobileMoreTabKey);
                 onClose();
               }}
-              style={{
-                background: getThemeColor(theme, 'bgContainer'),
-              }}
             >
-              <span className="mobile-more-sheet__icon">{item.icon}</span>
-              <span className="mobile-more-sheet__text">
-                <span
-                  className="mobile-more-sheet__title"
-                  style={{ color: getThemeColor(theme, 'text') }}
-                >
-                  {item.label}
-                </span>
-                <span
-                  className="mobile-more-sheet__desc"
-                  style={{ color: getThemeColor(theme, 'textSecondary') }}
-                >
-                  {item.description}
-                </span>
+              <span className="m-more__icon">{page.icon}</span>
+              <span className="m-more__text">
+                <span className="m-more__title">{page.label}</span>
+                <span className="m-more__desc">{page.description}</span>
               </span>
-              <RightOutlined className="mobile-more-sheet__arrow" />
+              <RightOutlined className="m-more__arrow" />
             </button>
           );
         })}

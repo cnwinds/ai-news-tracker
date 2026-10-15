@@ -1,47 +1,50 @@
 ﻿/**
- * 模型先知组件
+ * 模型先知组件：追踪预发布模型信号、候选研判与报告
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import {
   Alert,
+  Badge,
   Button,
-  Card,
   Col,
+  Drawer,
   Empty,
   Form,
   Input,
   InputNumber,
   Modal,
-  Progress,
-  Row,
-  Select,
-  Space,
-  Switch,
-  Table,
-  Tag,
-  Tooltip,
-  Typography,
-  message,
-  Drawer,
   Pagination,
+  Row,
+  Segmented,
+  Select,
+  Skeleton,
+  Switch,
+  Tooltip,
+  message,
 } from 'antd';
-import type { TableProps } from 'antd';
 import {
+  ArrowLeftOutlined,
+  CloseOutlined,
+  DeleteOutlined,
+  DownOutlined,
+  DownloadOutlined,
   FileTextOutlined,
   FilterOutlined,
   GithubOutlined,
+  LinkOutlined,
+  LockOutlined,
   RocketOutlined,
   SettingOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import ReactMarkdown from 'react-markdown';
+import dayjs from 'dayjs';
 
 import { apiService } from '@/services/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
-import { useTheme } from '@/contexts/ThemeContext';
-import MobileListRow from '@/components/mobile/MobileListRow';
-import { createMarkdownComponents, remarkGfm } from '@/utils/markdown';
+import { Markdown } from '@/utils/markdown';
 import type {
   DiscoveredModel,
   DiscoveredModelListResponse,
@@ -50,8 +53,8 @@ import type {
   ExplorationTask,
   ExplorationTaskCreateRequest,
 } from '@/types';
+import '@/styles/pages/explorer.css';
 
-const { Text } = Typography;
 const { Search } = Input;
 
 const PAGE_SIZE = 20;
@@ -86,18 +89,51 @@ const DEFAULT_EXPLORATION_CONFIG: ExplorationConfig = {
   auto_monitor_interval_hours: 24,
 };
 
-function formatDate(date?: string): string {
+const MODEL_TYPE_OPTIONS = ['LLM', 'Vision', 'Audio', 'Multimodal', 'Generative'].map((value) => ({
+  value,
+  label: value,
+}));
+const SOURCE_OPTIONS = [
+  { value: 'github', label: 'GitHub' },
+  { value: 'huggingface', label: 'Hugging Face' },
+  { value: 'modelscope', label: 'ModelScope' },
+  { value: 'arxiv', label: 'arXiv' },
+];
+const MIN_SCORE_OPTIONS = [
+  { value: 0, label: '全部评分' },
+  { value: 40, label: '≥ 40 分' },
+  { value: 70, label: '≥ 70 分' },
+  { value: 80, label: '≥ 80 分' },
+  { value: 90, label: '≥ 90 分' },
+];
+const PIPELINE = [
+  { key: 'discovery', label: '更新监测' },
+  { key: 'evaluation', label: '质量评估' },
+  { key: 'analysis', label: '候选研判' },
+  { key: 'report_generation', label: '报告生成' },
+];
+
+type ViewMode = 'all' | 'reported' | 'candidate';
+type Tone = 'high' | 'mid' | 'low' | 'none';
+
+function formatDate(date?: string, pattern = 'MM-DD HH:mm'): string {
   if (!date) return '-';
-  const parsed = new Date(date);
-  if (Number.isNaN(parsed.getTime())) return '-';
-  return parsed.toLocaleString();
+  const parsed = dayjs(date);
+  if (!parsed.isValid()) return '-';
+  return parsed.format(pattern);
 }
 
-function getScoreColor(score?: number): string {
-  if (!score) return '#8c8c8c';
-  if (score >= 80) return '#52c41a';
-  if (score >= 70) return '#1890ff';
-  return '#faad14';
+function scoreTone(score?: number): Tone {
+  if (!score) return 'none';
+  if (score >= 80) return 'high';
+  if (score >= 70) return 'mid';
+  return 'low';
+}
+
+function confidenceTone(confidence: number): Tone {
+  if (confidence >= 75) return 'high';
+  if (confidence >= 60) return 'mid';
+  return 'low';
 }
 
 function sourceLabel(source: string): string {
@@ -172,16 +208,44 @@ function buildFullReportMarkdown(report: ExplorationReport): string {
   return lines.join('\n').trim();
 }
 
+/** 阅读器头部已展示标题，去掉正文开头重复的一级标题 */
+function stripLeadingHeading(markdown: string): string {
+  return markdown.replace(/^\s*#\s+[^\n]*\n+/, '');
+}
+
+function clampPercent(value?: number): number {
+  return Math.max(0, Math.min(100, Math.round(value ?? 0)));
+}
+
+function ScoreBar({ value, tone }: { value?: number; tone: Tone }) {
+  return (
+    <span className="xp-bar" aria-hidden>
+      <span className={`xp-bar__fill xp-bar__fill--${tone}`} style={{ width: `${clampPercent(value)}%` }} />
+    </span>
+  );
+}
+
+function ScoreCell({ value, tone, empty = 'N/A' }: { value?: number; tone: Tone; empty?: string }) {
+  return (
+    <span className="xp-score">
+      <span className={`xp-score__value xp-score__value--${tone}`}>
+        {typeof value === 'number' ? value.toFixed(1) : empty}
+      </span>
+      <ScoreBar value={value} tone={tone} />
+    </span>
+  );
+}
+
 export default function ModelExplorer() {
   const { isAuthenticated } = useAuth();
   const { isMobile } = useBreakpoint();
-  const { theme } = useTheme();
 
   const [modelType, setModelType] = useState<string | undefined>(undefined);
   const [sourcePlatform, setSourcePlatform] = useState<string | undefined>(undefined);
   const [minScore, setMinScore] = useState<number>(DEFAULT_MIN_SCORE);
   const [searchText, setSearchText] = useState('');
   const [searchValue, setSearchValue] = useState('');
+  const [viewMode, setViewMode] = useState<ViewMode>('all');
   const [page, setPage] = useState(1);
   const [expandedModelId, setExpandedModelId] = useState<number | null>(null);
   const [filterDrawerOpen, setFilterDrawerOpen] = useState(false);
@@ -202,7 +266,6 @@ export default function ModelExplorer() {
   const queryClient = useQueryClient();
   const [configForm] = Form.useForm<ExplorationConfig>();
   const autoMonitorEnabledInForm = Form.useWatch('auto_monitor_enabled', configForm);
-  const markdownComponents = useMemo(() => createMarkdownComponents(theme), [theme]);
 
   const { data: explorationConfig, isLoading: configLoading } = useQuery<ExplorationConfig>({
     queryKey: ['exploration-config'],
@@ -277,6 +340,9 @@ export default function ModelExplorer() {
     lastNotifiedReportTaskStatus.current = null;
   }, [reportTaskId]);
 
+  const canViewReport = (model: DiscoveredModel): boolean =>
+    model.status === 'reported' && !modelsWithoutReports.has(model.id);
+
   const mergedModels = useMemo(() => {
     const isReportAvailable = (model: DiscoveredModel): boolean =>
       model.status === 'reported' && !modelsWithoutReports.has(model.id);
@@ -312,17 +378,47 @@ export default function ModelExplorer() {
     });
   }, [candidateModelsData?.models, modelsWithoutReports, reportedModelsData?.models]);
 
+  const stats = useMemo(() => {
+    let reported = 0;
+    let highConfidence = 0;
+    let scoreSum = 0;
+    let scoreCount = 0;
+    for (const model of mergedModels) {
+      if (model.status === 'reported' && !modelsWithoutReports.has(model.id)) reported += 1;
+      if ((getExtraNumber(model, 'release_confidence') ?? 0) >= 75) highConfidence += 1;
+      if (typeof model.final_score === 'number') {
+        scoreSum += model.final_score;
+        scoreCount += 1;
+      }
+    }
+    return {
+      total: mergedModels.length,
+      reported,
+      candidate: mergedModels.length - reported,
+      highConfidence,
+      avgScore: scoreCount ? scoreSum / scoreCount : undefined,
+    };
+  }, [mergedModels, modelsWithoutReports]);
+
+  const visibleModels = useMemo(() => {
+    if (viewMode === 'all') return mergedModels;
+    const wantReported = viewMode === 'reported';
+    return mergedModels.filter(
+      (model) => (model.status === 'reported' && !modelsWithoutReports.has(model.id)) === wantReported
+    );
+  }, [mergedModels, modelsWithoutReports, viewMode]);
+
   const pagedModels = useMemo(() => {
     const start = (page - 1) * PAGE_SIZE;
-    return mergedModels.slice(start, start + PAGE_SIZE);
-  }, [mergedModels, page]);
+    return visibleModels.slice(start, start + PAGE_SIZE);
+  }, [visibleModels, page]);
 
   useEffect(() => {
-    const maxPage = Math.max(1, Math.ceil(mergedModels.length / PAGE_SIZE));
+    const maxPage = Math.max(1, Math.ceil(visibleModels.length / PAGE_SIZE));
     if (page > maxPage) {
       setPage(maxPage);
     }
-  }, [mergedModels.length, page]);
+  }, [visibleModels.length, page]);
 
   useEffect(() => {
     if (!explorationConfig) return;
@@ -564,179 +660,6 @@ export default function ModelExplorer() {
     return '处理中';
   }, [reportTaskId, reportTaskStatus]);
 
-  const columns: TableProps<DiscoveredModel>['columns'] = useMemo(
-    () => [
-      {
-        title: '模型名称',
-        dataIndex: 'model_name',
-        key: 'model_name',
-        width: 250,
-        render: (value: string, record: DiscoveredModel) => (
-          <Space direction="vertical" size={0}>
-            <Text strong>{value}</Text>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              {record.organization || 'Unknown'}
-            </Text>
-          </Space>
-        ),
-      },
-      {
-        title: '来源平台',
-        dataIndex: 'source_platform',
-        key: 'source_platform',
-        width: 130,
-        render: (value: string) => (
-          <Tag icon={value === 'github' ? <GithubOutlined /> : undefined}>{sourceLabel(value)}</Tag>
-        ),
-      },
-      {
-        title: '更新信号',
-        key: 'signal',
-        width: 260,
-        render: (_, record: DiscoveredModel) => {
-          const updateType = getExtraString(record, 'update_type') || 'unknown';
-          const updateSummary = getExtraString(record, 'update_summary') || '暂无更新说明';
-          return (
-            <Space direction="vertical" size={2} style={{ maxWidth: 240 }}>
-              <Tag color={updateType === 'new_model_repo' || updateType === 'new_release_tag' ? 'blue' : 'default'}>
-                {updateType}
-              </Tag>
-              <Tooltip title={updateSummary}>
-                <Text type="secondary" style={{ fontSize: 12 }} ellipsis>
-                  {updateSummary}
-                </Text>
-              </Tooltip>
-            </Space>
-          );
-        },
-      },
-      {
-        title: '发布置信度',
-        key: 'release_confidence',
-        width: 170,
-        render: (_, record: DiscoveredModel) => {
-          const confidence = getExtraNumber(record, 'release_confidence') ?? 0;
-          return (
-            <Space direction="vertical" size={2} style={{ width: 120 }}>
-              <Text strong style={{ color: confidence >= 75 ? '#52c41a' : confidence >= 60 ? '#1890ff' : '#999' }}>
-                {confidence.toFixed(1)} / 100
-              </Text>
-              <Progress
-                percent={Math.max(0, Math.min(100, Math.round(confidence)))}
-                showInfo={false}
-                strokeColor={confidence >= 75 ? '#52c41a' : confidence >= 60 ? '#1890ff' : '#999'}
-                size="small"
-              />
-            </Space>
-          );
-        },
-      },
-      {
-        title: '综合评分',
-        dataIndex: 'final_score',
-        key: 'final_score',
-        width: 150,
-        render: (value?: number) => (
-          <Space direction="vertical" size={2} style={{ width: 120 }}>
-            <Text strong style={{ color: getScoreColor(value) }}>
-              {value?.toFixed(1) ?? 'N/A'} / 100
-            </Text>
-            <Progress
-              percent={Math.max(0, Math.min(100, Math.round(value ?? 0)))}
-              showInfo={false}
-              strokeColor={getScoreColor(value)}
-              size="small"
-            />
-          </Space>
-        ),
-      },
-      {
-        title: '记录类型',
-        key: 'record_type',
-        width: 120,
-        render: (_, record: DiscoveredModel) => {
-          const canViewReport = record.status === 'reported' && !modelsWithoutReports.has(record.id);
-          return canViewReport ? <Tag color="green">已生成报告</Tag> : <Tag color="gold">预警候选</Tag>;
-        },
-      },
-      {
-        title: '最近更新',
-        key: 'last_updated',
-        width: 170,
-        render: (_, record: DiscoveredModel) => {
-          const updatedAt = getExtraString(record, 'updated_at');
-          return formatDate(updatedAt || record.release_date);
-        },
-      },
-      {
-        title: '操作',
-        key: 'actions',
-        width: 240,
-        render: (_, record: DiscoveredModel) => {
-          const canViewReport = record.status === 'reported' && !modelsWithoutReports.has(record.id);
-          if (canViewReport) {
-            return (
-              <Button
-                type="primary"
-                size="small"
-                icon={<FileTextOutlined />}
-                onClick={() => {
-                  void fetchLatestReport(record.id);
-                }}
-              >
-                查看报告
-              </Button>
-            );
-          }
-
-          if (!isAuthenticated) {
-            return (
-              <Button size="small" disabled>
-                登录后生成
-              </Button>
-            );
-          }
-
-          const isCurrentRowGenerating =
-            creatingReportModelId === record.id && (generateReportMutation.isPending || Boolean(reportTaskId));
-          const inlineStatus = isCurrentRowGenerating
-            ? reportTaskInlineStatus || (generateReportMutation.isPending ? '提交中' : '生成中')
-            : '';
-          return (
-            <Space size={6}>
-              <Button
-                type="primary"
-                size="small"
-                loading={isCurrentRowGenerating}
-                disabled={generateReportMutation.isPending || Boolean(reportTaskId)}
-                onClick={() => {
-                  generateReportMutation.mutate(record.id);
-                }}
-              >
-                {isCurrentRowGenerating ? '生成中' : '生成报告'}
-              </Button>
-              {isCurrentRowGenerating ? (
-                <Text type="secondary" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
-                  {inlineStatus}
-                </Text>
-              ) : null}
-            </Space>
-          );
-        },
-      },
-    ],
-    [
-      creatingReportModelId,
-      fetchLatestReport,
-      generateReportMutation.isPending,
-      generateReportMutation.mutate,
-      isAuthenticated,
-      modelsWithoutReports,
-      reportTaskId,
-      reportTaskInlineStatus,
-    ]
-  );
-
   const taskAlert = useMemo(() => {
     if (!taskStatus) return null;
 
@@ -788,69 +711,180 @@ export default function ModelExplorer() {
     }
   };
 
-  const getModelMeta = (record: DiscoveredModel) => {
-    const score = record.final_score?.toFixed(1) ?? 'N/A';
-    const platform = sourceLabel(record.source_platform);
-    const type = getExtraString(record, 'update_type') || 'unknown';
-    return `${record.organization || 'Unknown'} · ${platform} · ${score} 分 · ${type}`;
+  const openConfig = (): void => {
+    configForm.setFieldsValue(explorationConfigState);
+    setConfigModalVisible(true);
   };
 
-  const renderModelActions = (record: DiscoveredModel) => {
-    const canViewReport = record.status === 'reported' && !modelsWithoutReports.has(record.id);
-    if (canViewReport) {
+  const closeReport = (): void => {
+    setReportModalVisible(false);
+  };
+
+  const handleExportReport = (): void => {
+    if (!selectedReport) return;
+    const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api/v1';
+    window.open(`${baseUrl}/exploration/reports/${selectedReport.report_id}/export`, '_blank');
+  };
+
+  const handleDeleteReport = (): void => {
+    if (!selectedReport) return;
+    Modal.confirm({
+      title: '删除报告',
+      content: '确认删除该报告吗？删除后不可恢复。',
+      okText: '删除',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: async () => {
+        await deleteReportMutation.mutateAsync(selectedReport.report_id);
+      },
+    });
+  };
+
+  const changeView = (value: ViewMode): void => {
+    setViewMode(value);
+    setPage(1);
+    setExpandedModelId(null);
+  };
+
+  const isGeneratingFor = (modelId: number): boolean =>
+    creatingReportModelId === modelId && (generateReportMutation.isPending || Boolean(reportTaskId));
+
+  const renderModelAction = (record: DiscoveredModel, large = false): ReactNode => {
+    const size = large ? 'large' : 'small';
+    if (canViewReport(record)) {
       return (
         <Button
-          type="default"
-          size="small"
+          size={size}
+          block={large}
+          type={large ? 'primary' : 'default'}
+          className={large ? undefined : 'xp-act xp-act--view'}
           icon={<FileTextOutlined />}
-          onClick={() => { void fetchLatestReport(record.id); }}
+          onClick={(event) => {
+            event.stopPropagation();
+            void fetchLatestReport(record.id);
+          }}
         >
           查看报告
         </Button>
       );
     }
+
     if (!isAuthenticated) {
-      return <Button size="small" disabled>登录后生成</Button>;
+      return (
+        <Button size={size} block={large} className={large ? undefined : 'xp-act'} disabled>
+          登录后生成
+        </Button>
+      );
     }
-    const isCurrentRowGenerating =
-      creatingReportModelId === record.id && (generateReportMutation.isPending || Boolean(reportTaskId));
+
+    const generating = isGeneratingFor(record.id);
+    const inlineStatus = generating
+      ? reportTaskInlineStatus || (generateReportMutation.isPending ? '提交中' : '生成中')
+      : '';
     return (
-      <Button
-        type="default"
-        size="small"
-        loading={isCurrentRowGenerating}
-        disabled={generateReportMutation.isPending || Boolean(reportTaskId)}
-        onClick={() => generateReportMutation.mutate(record.id)}
-      >
-        {isCurrentRowGenerating ? '生成中' : '生成报告'}
-      </Button>
+      <span className="xp-act-wrap">
+        <Button
+          size={size}
+          block={large}
+          className={large ? undefined : 'xp-act'}
+          icon={generating ? undefined : <ThunderboltOutlined />}
+          loading={generating}
+          disabled={generateReportMutation.isPending || Boolean(reportTaskId)}
+          onClick={(event) => {
+            event.stopPropagation();
+            generateReportMutation.mutate(record.id);
+          }}
+        >
+          {generating ? '生成中' : '生成报告'}
+        </Button>
+        {generating ? <span className="xp-act-status">{inlineStatus}</span> : null}
+      </span>
     );
   };
 
-  const renderModelExpanded = (record: DiscoveredModel) => {
+  const renderStatusChip = (record: DiscoveredModel): ReactNode =>
+    canViewReport(record) ? (
+      <span className="chip chip--accent">已出报告</span>
+    ) : (
+      <span className="chip chip--warning">预警候选</span>
+    );
+
+  const renderUpdateType = (record: DiscoveredModel): ReactNode => {
+    const updateType = getExtraString(record, 'update_type') || 'unknown';
+    const strong = updateType === 'new_model_repo' || updateType === 'new_release_tag';
+    return <span className={`xp-type${strong ? ' xp-type--strong' : ''}`}>{updateType}</span>;
+  };
+
+  const renderModelDetail = (record: DiscoveredModel): ReactNode => {
     const updateSummary = getExtraString(record, 'update_summary') || '暂无更新说明';
-    const confidence = getExtraNumber(record, 'release_confidence') ?? 0;
-    const canViewReport = record.status === 'reported' && !modelsWithoutReports.has(record.id);
+    const sourceUrl = getExtraString(record, 'source_url');
+    const updatedAt = getExtraString(record, 'updated_at');
+    const breakdown: Array<{ label: string; value?: number }> = [
+      { label: '影响力', value: record.impact_score },
+      { label: '质量', value: record.quality_score },
+      { label: '创新性', value: record.innovation_score },
+      { label: '实用性', value: record.practicality_score },
+    ];
+    const facts: Array<{ label: string; value: ReactNode; mono?: boolean }> = [
+      { label: '组织', value: record.organization || 'Unknown' },
+      { label: '类型', value: record.model_type || '-' },
+      { label: '发布日期', value: formatDate(record.release_date, 'YYYY-MM-DD'), mono: true },
+      { label: '最近更新', value: formatDate(updatedAt || record.release_date, 'YYYY-MM-DD HH:mm'), mono: true },
+      { label: 'Stars', value: record.github_stars.toLocaleString(), mono: true },
+      { label: 'Forks', value: record.github_forks.toLocaleString(), mono: true },
+      { label: '论文引用', value: record.paper_citations.toLocaleString(), mono: true },
+      { label: '社媒提及', value: record.social_mentions.toLocaleString(), mono: true },
+    ];
+
     return (
-      <>
-        <Text type="secondary" style={{ fontSize: 13, display: 'block', marginBottom: 8 }}>
-          {updateSummary}
-        </Text>
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          发布置信度 {confidence.toFixed(1)} · {canViewReport ? '已生成报告' : '预警候选'}
-        </Text>
-        <div className="mobile-explorer-actions">
-          {renderModelActions(record)}
-          <Button type="default" size="small" onClick={() => setExpandedModelId(null)}>
-            收起
-          </Button>
+      <div className="xp-detail">
+        <div className="xp-detail__summary">
+          <span className="eyebrow">更新信号</span>
+          <p>{updateSummary}</p>
+          {sourceUrl ? (
+            <a
+              className="xp-detail__link"
+              href={sourceUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <LinkOutlined /> 来源链接
+            </a>
+          ) : null}
         </div>
-      </>
+        <div className="xp-detail__block">
+          <span className="eyebrow">评分构成</span>
+          <div className="xp-breakdown">
+            {breakdown.map((item) => (
+              <div key={item.label} className="xp-breakdown__row">
+                <span className="xp-breakdown__label">{item.label}</span>
+                <ScoreBar value={item.value} tone={scoreTone(item.value)} />
+                <span className="xp-breakdown__value">
+                  {typeof item.value === 'number' ? item.value.toFixed(1) : '-'}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="xp-detail__block">
+          <span className="eyebrow">档案</span>
+          <dl className="xp-facts">
+            {facts.map((fact) => (
+              <div key={fact.label} className="xp-facts__item">
+                <dt>{fact.label}</dt>
+                <dd className={fact.mono ? 'mono' : undefined}>{fact.value}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      </div>
     );
   };
 
-  const filterControls = (
-    <Space wrap style={{ width: isMobile ? '100%' : undefined }} direction={isMobile ? 'vertical' : 'horizontal'}>
+  const renderFilters = (stacked: boolean): ReactNode => (
+    <div className={stacked ? 'xp-filters xp-filters--stacked' : 'xp-filters'}>
+      {stacked ? <div className="mobile-filter-label">关键词</div> : null}
       <Search
         value={searchText}
         onChange={(event) => setSearchText(event.target.value)}
@@ -860,310 +894,116 @@ export default function ModelExplorer() {
         }}
         placeholder="搜索模型或组织"
         allowClear
-        style={{ width: isMobile ? '100%' : 220 }}
+        className="xp-filters__search"
       />
+      {stacked ? <div className="mobile-filter-label">模型类型</div> : null}
       <Select
         placeholder="模型类型"
-        style={{ width: isMobile ? '100%' : 140 }}
+        className="xp-filters__select"
         allowClear
         value={modelType}
         onChange={(value) => { setModelType(value); setPage(1); }}
-      >
-        <Select.Option value="LLM">LLM</Select.Option>
-        <Select.Option value="Vision">Vision</Select.Option>
-        <Select.Option value="Audio">Audio</Select.Option>
-        <Select.Option value="Multimodal">Multimodal</Select.Option>
-        <Select.Option value="Generative">Generative</Select.Option>
-      </Select>
+        options={MODEL_TYPE_OPTIONS}
+        popupMatchSelectWidth={false}
+      />
+      {stacked ? <div className="mobile-filter-label">来源平台</div> : null}
       <Select
         placeholder="来源平台"
-        style={{ width: isMobile ? '100%' : 150 }}
+        className="xp-filters__select"
         allowClear
         value={sourcePlatform}
         onChange={(value) => { setSourcePlatform(value); setPage(1); }}
-      >
-        <Select.Option value="github">GitHub</Select.Option>
-        <Select.Option value="huggingface">Hugging Face</Select.Option>
-        <Select.Option value="modelscope">ModelScope</Select.Option>
-        <Select.Option value="arxiv">arXiv</Select.Option>
-      </Select>
+        options={SOURCE_OPTIONS}
+        popupMatchSelectWidth={false}
+      />
+      {stacked ? <div className="mobile-filter-label">最低评分</div> : null}
       <Select
         placeholder="最低评分"
-        style={{ width: isMobile ? '100%' : 140 }}
+        className="xp-filters__select"
         value={minScore}
         onChange={(value: number) => { setMinScore(value); setPage(1); }}
-      >
-        <Select.Option value={0}>全部</Select.Option>
-        <Select.Option value={70}>≥ 70 分</Select.Option>
-        <Select.Option value={80}>≥ 80 分</Select.Option>
-        <Select.Option value={90}>≥ 90 分</Select.Option>
-      </Select>
-    </Space>
+        options={MIN_SCORE_OPTIONS}
+        popupMatchSelectWidth={false}
+      />
+    </div>
   );
 
-  return (
-    <div>
-      {isMobile ? (
-        <div className="mobile-list-page">
-          {!isAuthenticated && (
-            <Alert type="info" showIcon message="只读模式，登录后可启动任务。" style={{ margin: '8px 16px 0' }} />
-          )}
-          <div className="mobile-list-toolbar">
-            <span className="mobile-list-toolbar__meta">{mergedModels.length} 个模型</span>
-            <Space size={4}>
-              {isAuthenticated && (
-                <>
-                  <Button
-                    type="default"
-                    size="small"
-                    icon={<RocketOutlined />}
-                    loading={startExplorationMutation.isPending}
-                    disabled={startExplorationMutation.isPending || isTaskActive}
-                    onClick={() => startExplorationMutation.mutate()}
-                  >
-                    启动
-                  </Button>
-                  <Button
-                    size="small"
-                    icon={<SettingOutlined />}
-                    onClick={() => {
-                      configForm.setFieldsValue(explorationConfigState);
-                      setConfigModalVisible(true);
-                    }}
-                  />
-                </>
-              )}
-              <Button
-                type="text"
-                icon={<FilterOutlined />}
-                className="mobile-feed-toolbar__btn"
-                onClick={() => setFilterDrawerOpen(true)}
-              />
-            </Space>
-          </div>
-          {taskAlert && (
-            <div style={{ padding: '6px 16px', fontSize: 12, color: 'var(--color-text-secondary)' }}>
-              {taskAlert.inline}
-            </div>
-          )}
-          {(reportedLoading || candidateLoading) && pagedModels.length === 0 ? (
-            <div className="mobile-feed-loading"><Empty description="加载中" /></div>
-          ) : pagedModels.length === 0 ? (
-            <div className="mobile-feed-loading"><Empty description="暂无模型数据" /></div>
-          ) : (
-            <div className="mobile-list">
-              {pagedModels.map((record) => (
-                <MobileListRow
-                  key={record.id}
-                  title={record.model_name}
-                  meta={getModelMeta(record)}
-                  expanded={expandedModelId === record.id}
-                  onToggle={() => setExpandedModelId((prev) => (prev === record.id ? null : record.id))}
-                >
-                  {renderModelExpanded(record)}
-                </MobileListRow>
-              ))}
-            </div>
-          )}
-          <div className="mobile-feed-pagination">
-            <Pagination
-              simple
-              size="small"
-              current={page}
-              total={mergedModels.length}
-              pageSize={PAGE_SIZE}
-              onChange={(newPage) => setPage(newPage)}
-            />
-          </div>
-          <Drawer
-            title="筛选"
-            placement="bottom"
-            height="auto"
-            open={filterDrawerOpen}
-            onClose={() => setFilterDrawerOpen(false)}
-            className="mobile-filter-drawer"
-          >
-            {filterControls}
-          </Drawer>
-        </div>
-      ) : (
-        <>
-      {!isAuthenticated && (
+  const activeFilterCount =
+    (searchValue ? 1 : 0) + (modelType ? 1 : 0) + (sourcePlatform ? 1 : 0) + (minScore !== DEFAULT_MIN_SCORE ? 1 : 0);
+
+  const viewOptions = [
+    { value: 'all', label: <span className="xp-seg">全部<em>{stats.total}</em></span> },
+    { value: 'reported', label: <span className="xp-seg">已出报告<em>{stats.reported}</em></span> },
+    { value: 'candidate', label: <span className="xp-seg">预警候选<em>{stats.candidate}</em></span> },
+  ];
+
+  const listLoading = (reportedLoading || candidateLoading) && pagedModels.length === 0;
+  const startDisabled =
+    startExplorationMutation.isPending ||
+    isTaskActive ||
+    (explorationConfigState.monitor_sources?.length || 0) === 0;
+
+  const taskDotClass = !taskStatus
+    ? 'dot'
+    : taskStatus.status === 'completed'
+      ? 'dot xp-dot--ok'
+      : taskStatus.status === 'failed'
+        ? 'dot dot--high'
+        : 'dot dot--live';
+
+  const taskStageLabel = !taskStatus
+    ? '待命'
+    : taskStatus.status === 'completed' || taskStatus.status === 'failed'
+      ? stageLabel(taskStatus.status)
+      : stageLabel(taskStatus.progress?.current_stage || 'queued');
+
+  const pipelineIndex = (() => {
+    if (!taskStatus) return -1;
+    if (taskStatus.status === 'completed') return PIPELINE.length;
+    const stage = (taskStatus.progress?.current_stage || '').toLowerCase();
+    return PIPELINE.findIndex((item) => item.key === stage);
+  })();
+
+  const taskCounters = taskStatus
+    ? [
+        { label: '发现', value: taskStatus.progress?.models_discovered || 0 },
+        { label: '评估', value: taskStatus.progress?.models_evaluated || 0 },
+        { label: '更新', value: taskStatus.progress?.updates_detected || 0 },
+        { label: '候选', value: taskStatus.progress?.release_candidates || 0 },
+        { label: '报告', value: taskStatus.progress?.reports_generated || 0 },
+      ]
+    : [];
+
+  const sheetModel =
+    isMobile && expandedModelId !== null ? mergedModels.find((model) => model.id === expandedModelId) : undefined;
+  const reportModel = selectedReport
+    ? mergedModels.find((model) => model.id === selectedReport.model_id)
+    : undefined;
+
+  const configFormNode = (
+    <>
+      {!isAuthenticated ? (
         <Alert
           type="info"
           showIcon
-          message="当前为只读模式，登录后可启动模型先知任务。"
-          style={{ marginBottom: 16 }}
+          style={{ marginBottom: 12 }}
+          message="当前未登录，仅可查看配置。登录后可保存。"
         />
-      )}
-
-      <Card style={{ marginBottom: 16 }}>
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            gap: 12,
-            flexWrap: 'wrap',
-          }}
-        >
-          <Space style={{ minWidth: 0 }} align="center" size={10}>
-            {isAuthenticated ? (
-              <Button
-                type="primary"
-                icon={<RocketOutlined />}
-                onClick={() => {
-                  startExplorationMutation.mutate();
-                }}
-                loading={startExplorationMutation.isPending}
-                disabled={
-                  startExplorationMutation.isPending ||
-                  isTaskActive ||
-                  (explorationConfigState.monitor_sources?.length || 0) === 0
-                }
-              >
-                启动模型先知
-              </Button>
-            ) : null}
-            {isAuthenticated ? (
-              <Button
-                icon={<SettingOutlined />}
-                loading={configLoading}
-                onClick={() => {
-                  configForm.setFieldsValue(explorationConfigState);
-                  setConfigModalVisible(true);
-                }}
-              >
-                配置
-              </Button>
-            ) : null}
-            {taskAlert ? (
-              <div
-                title={taskAlert.inline}
-                style={{
-                  minWidth: 0,
-                  maxWidth: 860,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  lineHeight: 1.2,
-                }}
-              >
-                <span
-                  style={{
-                    width: 8,
-                    height: 8,
-                    borderRadius: '50%',
-                    background: taskAlert.type === 'success' ? '#52c41a' : taskAlert.type === 'error' ? '#ff4d4f' : '#1677ff',
-                  }}
-                />
-                <Text
-                  style={{
-                    marginBottom: 0,
-                    fontSize: 13,
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    display: 'inline-block',
-                    maxWidth: '100%',
-                  }}
-                >
-                  {taskAlert.inline}
-                </Text>
-              </div>
-            ) : (
-              <Text type="secondary" style={{ fontSize: 13 }}>
-                配置监控范围后启动任务，系统将自动追踪预发布信号。
-              </Text>
-            )}
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              数据源: {monitorSourceSummary} | 组织: {explorationConfigState.watch_organizations.length} |
-              自动监控: {explorationConfigState.auto_monitor_enabled
-                ? `每 ${explorationConfigState.auto_monitor_interval_hours} 小时`
-                : '关闭'}
-            </Text>
-          </Space>
-
-          {filterControls}
-        </div>
-      </Card>
-
-      <Card>
-        <Space direction="vertical" size={10} style={{ width: '100%' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Text strong>模型先知列表</Text>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              已生成报告与预警候选合并展示
-            </Text>
-          </div>
-        </Space>
-        <Table
-          columns={columns}
-          dataSource={pagedModels}
-          loading={reportedLoading || candidateLoading}
-          rowKey="id"
-          scroll={{ x: 800 }}
-          pagination={{
-            total: mergedModels.length,
-            current: page,
-            pageSize: PAGE_SIZE,
-            showSizeChanger: false,
-            showTotal: (total) => `共 ${total} 条`,
-            onChange: (newPage) => setPage(newPage),
-          }}
-          locale={{
-            emptyText: <Empty description="暂无模型先知数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />,
-          }}
-        />
-      </Card>
-        </>
-      )}
-
-      <Modal
-        title="模型先知配置"
-        open={configModalVisible}
-        width={isMobile ? '100%' : 760}
-        style={isMobile ? { top: 0, maxWidth: '100vw', padding: 0, margin: 0 } : undefined}
-        onCancel={() => setConfigModalVisible(false)}
-        okText="保存配置"
-        cancelText="取消"
-        okButtonProps={{
-          loading: updateConfigMutation.isPending,
-          disabled: !isAuthenticated,
-        }}
-        onOk={() => {
-          void handleSaveConfig();
-        }}
-      >
-        {!isAuthenticated ? (
-          <Alert
-            type="info"
-            showIcon
-            style={{ marginBottom: 12 }}
-            message="当前未登录，仅可查看配置。登录后可保存。"
-          />
-        ) : null}
-        <Form form={configForm} layout="vertical" initialValues={explorationConfigState}>
+      ) : null}
+      <Form form={configForm} layout="vertical" initialValues={explorationConfigState} className="xp-config">
+        <div className="xp-config__group">
+          <span className="eyebrow">监控范围</span>
           <Row gutter={12}>
-            <Col span={12}>
+            <Col xs={24} sm={12}>
               <Form.Item
                 label="监控数据源"
                 name="monitor_sources"
                 rules={[{ required: true, message: '请至少选择一个数据源' }]}
               >
-                <Select
-                  mode="multiple"
-                  maxTagCount="responsive"
-                  options={[
-                    { value: 'github', label: 'GitHub' },
-                    { value: 'huggingface', label: 'Hugging Face' },
-                    { value: 'modelscope', label: 'ModelScope' },
-                    { value: 'arxiv', label: 'arXiv' },
-                  ]}
-                />
+                <Select mode="multiple" maxTagCount="responsive" options={SOURCE_OPTIONS} />
               </Form.Item>
             </Col>
-            <Col span={12}>
+            <Col xs={24} sm={12}>
               <Form.Item
                 label="监控厂商/组织"
                 name="watch_organizations"
@@ -1177,25 +1017,31 @@ export default function ModelExplorer() {
               </Form.Item>
             </Col>
           </Row>
+        </div>
+        <div className="xp-config__group">
+          <span className="eyebrow">筛选阈值</span>
           <Row gutter={12}>
-            <Col span={8}>
+            <Col xs={24} sm={8}>
               <Form.Item label="最低评分阈值" name="min_score">
                 <InputNumber min={0} max={100} precision={1} style={{ width: '100%' }} />
               </Form.Item>
             </Col>
-            <Col span={8}>
+            <Col xs={12} sm={8}>
               <Form.Item label="回溯天数" name="days_back">
                 <InputNumber min={1} max={30} precision={0} style={{ width: '100%' }} />
               </Form.Item>
             </Col>
-            <Col span={8}>
+            <Col xs={12} sm={8}>
               <Form.Item label="每源最大候选数" name="max_results_per_source">
                 <InputNumber min={1} max={200} precision={0} style={{ width: '100%' }} />
               </Form.Item>
             </Col>
           </Row>
+        </div>
+        <div className="xp-config__group">
+          <span className="eyebrow">执行</span>
           <Row gutter={12}>
-            <Col span={12}>
+            <Col xs={24} sm={12}>
               <Form.Item label="任务执行模式" name="run_mode">
                 <Select
                   options={[
@@ -1206,16 +1052,14 @@ export default function ModelExplorer() {
                 />
               </Form.Item>
             </Col>
-            <Col span={12}>
-              <Form.Item label="启用自动监控" name="auto_monitor_enabled" valuePropName="checked">
+            <Col xs={10} sm={4}>
+              <Form.Item label="自动监控" name="auto_monitor_enabled" valuePropName="checked">
                 <Switch />
               </Form.Item>
             </Col>
-          </Row>
-          <Row gutter={12}>
-            <Col span={12}>
+            <Col xs={14} sm={8}>
               <Form.Item
-                label="自动监控间隔（小时）"
+                label="监控间隔（小时）"
                 name="auto_monitor_interval_hours"
                 tooltip="开启自动监控后，系统将按该间隔自动发起模型先知任务"
               >
@@ -1229,70 +1073,558 @@ export default function ModelExplorer() {
               </Form.Item>
             </Col>
           </Row>
-        </Form>
-      </Modal>
+        </div>
+      </Form>
+    </>
+  );
 
-      <Modal
-        title={null}
-        open={reportModalVisible}
-        onCancel={() => {
-          setReportModalVisible(false);
-          setSelectedReport(null);
-        }}
-        width={isMobile ? '100%' : 980}
-        style={isMobile ? { top: 0, maxWidth: '100vw', padding: 0, margin: 0 } : undefined}
-        footer={[
-          <Button
-            key="close"
-            onClick={() => {
-              setReportModalVisible(false);
-            }}
+  const reportBody = selectedReport ? (
+    <article className="reader xp-report">
+      <div className="reader__bar">
+        <div className="reader__bar-group">
+          <button
+            type="button"
+            className="icon-btn"
+            onClick={closeReport}
+            aria-label={isMobile ? '返回' : '关闭'}
           >
-            关闭
-          </Button>,
+            {isMobile ? <ArrowLeftOutlined /> : <CloseOutlined />}
+          </button>
+          <span className="chip chip--outline">模型先知报告</span>
+        </div>
+        <div className="reader__bar-group">
+          {isAuthenticated ? (
+            <Tooltip title="删除报告">
+              <button
+                type="button"
+                className="icon-btn"
+                onClick={handleDeleteReport}
+                disabled={deleteReportMutation.isPending}
+                aria-label="删除报告"
+              >
+                <DeleteOutlined />
+              </button>
+            </Tooltip>
+          ) : null}
           <Button
-            key="export"
             type="primary"
-            onClick={() => {
-              if (!selectedReport) return;
-              const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api/v1';
-              window.open(`${baseUrl}/exploration/reports/${selectedReport.report_id}/export`, '_blank');
-            }}
+            size="small"
+            icon={<DownloadOutlined />}
+            onClick={handleExportReport}
+            style={{ marginLeft: 6 }}
           >
             导出报告
-          </Button>,
-          isAuthenticated ? (
-            <Button
-              key="delete"
-              danger
-              loading={deleteReportMutation.isPending}
-              onClick={() => {
-                if (!selectedReport) return;
-                Modal.confirm({
-                  title: '删除报告',
-                  content: '确认删除该报告吗？删除后不可恢复。',
-                  okText: '删除',
-                  okType: 'danger',
-                  cancelText: '取消',
-                  onOk: async () => {
-                    await deleteReportMutation.mutateAsync(selectedReport.report_id);
-                  },
-                });
-              }}
-            >
-              删除报告
-            </Button>
-          ) : null,
-        ]}
-      >
-        {selectedReport && (
-          <div style={{ maxHeight: '70vh', overflow: 'auto' }}>
-            <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-              {buildFullReportMarkdown(selectedReport)}
-            </ReactMarkdown>
+          </Button>
+        </div>
+      </div>
+
+      <header>
+        <div className="reader__kicker">
+          {reportModel ? (
+            <>
+              <span className="chip chip--accent">{reportModel.model_name}</span>
+              <span className="chip">
+                {reportModel.source_platform === 'github' ? <GithubOutlined /> : null}
+                {sourceLabel(reportModel.source_platform)}
+              </span>
+              {typeof reportModel.final_score === 'number' ? (
+                <span className="chip mono">综合 {reportModel.final_score.toFixed(1)}</span>
+              ) : null}
+            </>
+          ) : null}
+        </div>
+        <h1 className="reader__title">{selectedReport.title || '模型先知报告'}</h1>
+        <div className="reader__meta">
+          <span className="reader__meta-item mono">{formatDate(selectedReport.generated_at, 'YYYY-MM-DD HH:mm')}</span>
+          {reportModel?.organization ? <span className="reader__meta-item">组织 · {reportModel.organization}</span> : null}
+          <span className="reader__meta-item mono" title={selectedReport.report_id}>
+            #{selectedReport.report_id.slice(0, 8)}
+          </span>
+        </div>
+      </header>
+
+      <Markdown>{stripLeadingHeading(buildFullReportMarkdown(selectedReport))}</Markdown>
+    </article>
+  ) : null;
+
+  const reportDrawer = (
+    <Drawer
+      open={reportModalVisible}
+      onClose={closeReport}
+      afterOpenChange={(open) => {
+        if (!open) setSelectedReport(null);
+      }}
+      placement="right"
+      width={isMobile ? '100%' : 'min(920px, calc(100vw - 120px))'}
+      closable={false}
+      className={isMobile ? 'm-reader' : 'xp-report-drawer'}
+      styles={{ header: { display: 'none' }, body: { padding: 0 } }}
+    >
+      {reportBody}
+    </Drawer>
+  );
+
+  const configContainer = isMobile ? (
+    <Drawer
+      title="模型先知配置"
+      placement="bottom"
+      height="auto"
+      open={configModalVisible}
+      onClose={() => setConfigModalVisible(false)}
+      className="m-sheet xp-config-sheet"
+      footer={
+        <div className="xp-sheet-footer">
+          <Button size="large" onClick={() => setConfigModalVisible(false)}>
+            取消
+          </Button>
+          <Button
+            size="large"
+            type="primary"
+            loading={updateConfigMutation.isPending}
+            disabled={!isAuthenticated}
+            onClick={() => {
+              void handleSaveConfig();
+            }}
+          >
+            保存配置
+          </Button>
+        </div>
+      }
+    >
+      {configFormNode}
+    </Drawer>
+  ) : (
+    <Modal
+      title="模型先知配置"
+      open={configModalVisible}
+      width={720}
+      onCancel={() => setConfigModalVisible(false)}
+      okText="保存配置"
+      cancelText="取消"
+      okButtonProps={{
+        loading: updateConfigMutation.isPending,
+        disabled: !isAuthenticated,
+      }}
+      onOk={() => {
+        void handleSaveConfig();
+      }}
+    >
+      {configFormNode}
+    </Modal>
+  );
+
+  if (isMobile) {
+    return (
+      <div className="mobile-list-page xp-m">
+        <div className="mobile-list-toolbar">
+          <span className="mobile-list-toolbar__meta">
+            <strong className="mono">{visibleModels.length}</strong> 个模型
+          </span>
+          <div className="xp-m__actions">
+            {isAuthenticated ? (
+              <>
+                <Button
+                  type="primary"
+                  size="small"
+                  icon={<RocketOutlined />}
+                  loading={startExplorationMutation.isPending}
+                  disabled={startExplorationMutation.isPending || isTaskActive}
+                  onClick={() => startExplorationMutation.mutate()}
+                >
+                  启动
+                </Button>
+                <button type="button" className="icon-btn" onClick={openConfig} aria-label="配置">
+                  <SettingOutlined />
+                </button>
+              </>
+            ) : null}
+            <Badge dot={activeFilterCount > 0} offset={[-6, 6]}>
+              <button
+                type="button"
+                className={`icon-btn${activeFilterCount ? ' icon-btn--active' : ''}`}
+                onClick={() => setFilterDrawerOpen(true)}
+                aria-label="筛选"
+              >
+                <FilterOutlined />
+              </button>
+            </Badge>
+          </div>
+        </div>
+
+        {!isAuthenticated ? (
+          <div className="xp-notice xp-notice--m">
+            <LockOutlined /> 只读模式，登录后可启动任务。
+          </div>
+        ) : null}
+
+        {taskAlert ? (
+          <div className="xp-m__task" title={taskAlert.inline}>
+            <span className={taskDotClass} />
+            <span className="xp-m__task-text">{taskAlert.inline}</span>
+          </div>
+        ) : null}
+
+        <div className="xp-m__stats">
+          <div className="xp-m__stat">
+            <span className="xp-m__stat-value">{stats.reported}</span>
+            <span className="xp-m__stat-label">已出报告</span>
+          </div>
+          <div className="xp-m__stat">
+            <span className="xp-m__stat-value">{stats.candidate}</span>
+            <span className="xp-m__stat-label">预警候选</span>
+          </div>
+          <div className="xp-m__stat">
+            <span className="xp-m__stat-value">{stats.highConfidence}</span>
+            <span className="xp-m__stat-label">高置信</span>
+          </div>
+        </div>
+
+        <div className="xp-m__seg">
+          <Segmented block value={viewMode} onChange={(value) => changeView(value as ViewMode)} options={viewOptions} />
+        </div>
+
+        {listLoading ? (
+          <div className="mobile-list xp-m__skeleton">
+            <Skeleton active title={false} paragraph={{ rows: 8 }} />
+          </div>
+        ) : pagedModels.length === 0 ? (
+          <div className="mobile-feed-loading">
+            <Empty description="暂无模型数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+          </div>
+        ) : (
+          <div className="mobile-list">
+            {pagedModels.map((record) => {
+              const reported = canViewReport(record);
+              const updatedAt = getExtraString(record, 'updated_at');
+              return (
+                <button
+                  key={record.id}
+                  type="button"
+                  className="xp-mrow"
+                  onClick={() => setExpandedModelId(record.id)}
+                >
+                  <span className="xp-mrow__marker">
+                    <span className={reported ? 'dot xp-dot--report' : 'dot dot--medium'} />
+                  </span>
+                  <span className="xp-mrow__body">
+                    <span className="xp-mrow__title">{record.model_name}</span>
+                    <span className="xp-mrow__meta">
+                      <span className="xp-mrow__org">{record.organization || 'Unknown'}</span>
+                      <span aria-hidden>·</span>
+                      <span>{sourceLabel(record.source_platform)}</span>
+                      <span aria-hidden>·</span>
+                      <span className="mono">{formatDate(updatedAt || record.release_date)}</span>
+                    </span>
+                  </span>
+                  <span className="xp-mrow__score">
+                    <ScoreCell value={record.final_score} tone={scoreTone(record.final_score)} empty="-" />
+                  </span>
+                </button>
+              );
+            })}
           </div>
         )}
-      </Modal>
+
+        {visibleModels.length > PAGE_SIZE ? (
+          <div className="mobile-feed-pagination">
+            <Pagination
+              simple
+              size="small"
+              current={page}
+              total={visibleModels.length}
+              pageSize={PAGE_SIZE}
+              onChange={(newPage) => setPage(newPage)}
+            />
+          </div>
+        ) : null}
+
+        <Drawer
+          title="筛选"
+          placement="bottom"
+          height="auto"
+          open={filterDrawerOpen}
+          onClose={() => setFilterDrawerOpen(false)}
+          className="m-sheet"
+          extra={
+            <Button type="link" onClick={() => setFilterDrawerOpen(false)}>
+              完成
+            </Button>
+          }
+        >
+          {renderFilters(true)}
+        </Drawer>
+
+        <Drawer
+          title={sheetModel?.model_name}
+          placement="bottom"
+          height="auto"
+          open={Boolean(sheetModel)}
+          onClose={() => setExpandedModelId(null)}
+          className="m-sheet xp-model-sheet"
+        >
+          {sheetModel ? (
+            <div className="xp-sheet">
+              <div className="xp-sheet__chips">
+                {renderStatusChip(sheetModel)}
+                <span className="chip">
+                  {sheetModel.source_platform === 'github' ? <GithubOutlined /> : null}
+                  {sourceLabel(sheetModel.source_platform)}
+                </span>
+                {renderUpdateType(sheetModel)}
+              </div>
+              <div className="xp-sheet__scores">
+                <div className="xp-sheet__score">
+                  <span className="eyebrow">综合评分</span>
+                  <ScoreCell value={sheetModel.final_score} tone={scoreTone(sheetModel.final_score)} />
+                </div>
+                <div className="xp-sheet__score">
+                  <span className="eyebrow">发布置信度</span>
+                  {(() => {
+                    const confidence = getExtraNumber(sheetModel, 'release_confidence') ?? 0;
+                    return <ScoreCell value={confidence} tone={confidenceTone(confidence)} />;
+                  })()}
+                </div>
+              </div>
+              {renderModelDetail(sheetModel)}
+              <div className="xp-sheet__actions">{renderModelAction(sheetModel, true)}</div>
+            </div>
+          ) : null}
+        </Drawer>
+
+        {configContainer}
+        {reportDrawer}
+      </div>
+    );
+  }
+
+  return (
+    <div className="xp">
+      {!isAuthenticated ? (
+        <div className="xp-notice">
+          <LockOutlined /> 当前为只读模式，登录后可启动模型先知任务。
+        </div>
+      ) : null}
+
+      <section className="panel xp-console" aria-label="任务控制台">
+        <div className="xp-console__main">
+          <div className="xp-console__status">
+            <span className={taskDotClass} />
+            <span className="eyebrow">{taskStageLabel}</span>
+            {taskAlert ? (
+              <span className="xp-console__line" title={taskAlert.inline}>
+                {taskAlert.inline}
+              </span>
+            ) : (
+              <span className="xp-console__line xp-console__line--muted">
+                配置监控范围后启动任务，系统将自动追踪预发布信号。
+              </span>
+            )}
+          </div>
+          {taskStatus ? (
+            <div className="xp-console__progress">
+              <ol className="xp-steps">
+                {PIPELINE.map((step, index) => {
+                  const state =
+                    index < pipelineIndex ? 'done' : index === pipelineIndex ? 'current' : 'todo';
+                  return (
+                    <li
+                      key={step.key}
+                      className={`xp-steps__item xp-steps__item--${state}${taskStatus.status === 'failed' && state === 'current' ? ' xp-steps__item--failed' : ''}`}
+                    >
+                      <span className="xp-steps__index mono">{String(index + 1).padStart(2, '0')}</span>
+                      {step.label}
+                    </li>
+                  );
+                })}
+              </ol>
+              <div className="xp-counters">
+                {taskCounters.map((item) => (
+                  <span key={item.label} className="xp-counters__item">
+                    {item.label}
+                    <strong>{item.value}</strong>
+                  </span>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          <div className="xp-console__meta">
+            <span className="xp-console__kv">
+              数据源 <strong>{monitorSourceSummary}</strong>
+            </span>
+            <span className="xp-console__kv">
+              组织 <strong className="mono">{explorationConfigState.watch_organizations.length}</strong>
+            </span>
+            <span className="xp-console__kv">
+              自动监控{' '}
+              {explorationConfigState.auto_monitor_enabled ? (
+                <strong className="u-accent">
+                  每 <span className="mono">{explorationConfigState.auto_monitor_interval_hours}</span> 小时
+                </strong>
+              ) : (
+                <strong>关闭</strong>
+              )}
+            </span>
+          </div>
+        </div>
+        {isAuthenticated ? (
+          <div className="xp-console__actions">
+            <Button icon={<SettingOutlined />} loading={configLoading} onClick={openConfig}>
+              配置
+            </Button>
+            <Button
+              type="primary"
+              icon={<RocketOutlined />}
+              onClick={() => {
+                startExplorationMutation.mutate();
+              }}
+              loading={startExplorationMutation.isPending}
+              disabled={startDisabled}
+            >
+              启动模型先知
+            </Button>
+          </div>
+        ) : null}
+      </section>
+
+      <div className="xp-metrics">
+        <div className="metric">
+          <span className="metric__label">追踪模型</span>
+          <span className="metric__value">{stats.total}</span>
+          <span className="metric__foot">
+            评分 ≥ <span className="mono">{minScore}</span>
+          </span>
+        </div>
+        <div className="metric">
+          <span className="metric__label">
+            <span className="dot xp-dot--report" /> 已出报告
+          </span>
+          <span className="metric__value">{stats.reported}</span>
+          <span className="metric__foot">可查看完整研判</span>
+        </div>
+        <div className="metric">
+          <span className="metric__label">
+            <span className="dot dot--medium" /> 预警候选
+          </span>
+          <span className="metric__value">{stats.candidate}</span>
+          <span className="metric__foot">发布置信度 ≥ 60</span>
+        </div>
+        <div className="metric">
+          <span className="metric__label">高置信信号</span>
+          <span className="metric__value">{stats.highConfidence}</span>
+          <span className="metric__foot">
+            平均综合分 <span className="mono">{stats.avgScore !== undefined ? stats.avgScore.toFixed(1) : '-'}</span>
+          </span>
+        </div>
+      </div>
+
+      <section className="panel xp-board" aria-label="模型先知列表">
+        <div className="xp-toolbar">
+          <Segmented size="small" value={viewMode} onChange={(value) => changeView(value as ViewMode)} options={viewOptions} />
+          {renderFilters(false)}
+        </div>
+
+        <div className="xp-table" role="table" aria-label="模型列表">
+          <div className="xp-row xp-row--head" role="row">
+            <span role="columnheader">模型</span>
+            <span role="columnheader">来源</span>
+            <span role="columnheader">更新信号</span>
+            <span role="columnheader">发布置信度</span>
+            <span role="columnheader">综合评分</span>
+            <span role="columnheader" className="xp-col-updated">最近更新</span>
+            <span role="columnheader" className="xp-col-action">操作</span>
+          </div>
+
+          {listLoading ? (
+            <div className="xp-table__state">
+              <Skeleton active title={false} paragraph={{ rows: 8 }} />
+            </div>
+          ) : pagedModels.length === 0 ? (
+            <div className="xp-table__state">
+              <Empty description="暂无模型先知数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+            </div>
+          ) : (
+            pagedModels.map((record) => {
+              const expanded = expandedModelId === record.id;
+              const reported = canViewReport(record);
+              const confidence = getExtraNumber(record, 'release_confidence') ?? 0;
+              const updateSummary = getExtraString(record, 'update_summary') || '暂无更新说明';
+              const updatedAt = getExtraString(record, 'updated_at');
+              const toggle = (): void => setExpandedModelId((prev) => (prev === record.id ? null : record.id));
+              return (
+                <div key={record.id} className={`xp-item${expanded ? ' xp-item--open' : ''}`} role="rowgroup">
+                  <div
+                    className="xp-row"
+                    role="row"
+                    tabIndex={0}
+                    aria-expanded={expanded}
+                    onClick={toggle}
+                    onKeyDown={(event: ReactKeyboardEvent<HTMLDivElement>) => {
+                      if (event.target !== event.currentTarget) return;
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        toggle();
+                      }
+                    }}
+                  >
+                    <span className="xp-cell xp-cell--model" role="cell">
+                      <span className={reported ? 'dot xp-dot--report' : 'dot dot--medium'} title={reported ? '已出报告' : '预警候选'} />
+                      <span className="xp-cell__stack">
+                        <span className="xp-name">{record.model_name}</span>
+                        <span className="xp-org">{record.organization || 'Unknown'}</span>
+                      </span>
+                    </span>
+                    <span className="xp-cell" role="cell">
+                      <span className="chip">
+                        {record.source_platform === 'github' ? <GithubOutlined /> : null}
+                        {sourceLabel(record.source_platform)}
+                      </span>
+                    </span>
+                    <span className="xp-cell xp-cell--signal" role="cell">
+                      {renderUpdateType(record)}
+                      <span className="xp-signal" title={updateSummary}>
+                        {updateSummary}
+                      </span>
+                    </span>
+                    <span className="xp-cell" role="cell">
+                      <ScoreCell value={confidence} tone={confidenceTone(confidence)} />
+                    </span>
+                    <span className="xp-cell" role="cell">
+                      <ScoreCell value={record.final_score} tone={scoreTone(record.final_score)} />
+                    </span>
+                    <span className="xp-cell xp-col-updated mono xp-date" role="cell">
+                      {formatDate(updatedAt || record.release_date)}
+                    </span>
+                    <span className="xp-cell xp-col-action" role="cell">
+                      {renderModelAction(record)}
+                      <DownOutlined className="xp-chevron" aria-hidden />
+                    </span>
+                  </div>
+                  {expanded ? <div className="xp-item__detail">{renderModelDetail(record)}</div> : null}
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        <div className="xp-board__foot">
+          <span className="xp-board__count">
+            共 <strong>{visibleModels.length}</strong> 条 · 已生成报告与预警候选合并展示
+          </span>
+          {visibleModels.length > PAGE_SIZE ? (
+            <Pagination
+              size="small"
+              current={page}
+              total={visibleModels.length}
+              pageSize={PAGE_SIZE}
+              showSizeChanger={false}
+              onChange={(newPage) => setPage(newPage)}
+            />
+          ) : null}
+        </div>
+      </section>
+
+      {configContainer}
+      {reportDrawer}
     </div>
   );
 }

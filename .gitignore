@@ -68,3 +68,5 @@ frontend/.vite/
 *.tmp
 *.temp
 .cache/
+
+.ui-shots/

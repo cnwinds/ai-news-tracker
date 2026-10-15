@@ -1,208 +1,164 @@
-import { useEffect, useMemo, useState, type CSSProperties } from 'react';
-import { Layout, Tabs, Drawer, Button, Space } from 'antd';
-import {
-  ApartmentOutlined,
-  BarChartOutlined,
-  FileTextOutlined,
-  LoginOutlined,
-  LogoutOutlined,
-  ReadOutlined,
-  RocketOutlined,
-  ShareAltOutlined,
-} from '@ant-design/icons';
-import { useNavigate } from 'react-router-dom';
+import { useCallback, useEffect, useState } from 'react';
+import { Drawer } from 'antd';
+import { useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 
 import ArticleList from '@/components/ArticleList';
 import DailySummary from '@/components/DailySummary';
 import Statistics from '@/components/Statistics';
 import SystemSettings from '@/components/SystemSettings';
-import GlobalNavigation from '@/components/GlobalNavigation';
 import AIConversationModal from '@/components/AIConversationModal';
 import SocialMediaReport from '@/components/SocialMediaReport';
 import ModelExplorer from '@/components/ModelExplorer';
 import TechnologyEvolutionPage from '@/features/industryGraph/TechnologyEvolutionPage';
+import AppSidebar from '@/components/layout/AppSidebar';
+import CommandSearch from '@/components/layout/CommandSearch';
+import { PAGES, PAGE_MAP, isPageKey, type PageKey } from '@/components/layout/navigation';
+import MobileHeader from '@/components/mobile/MobileHeader';
 import MobileBottomNav, { type MobileNavKey } from '@/components/mobile/MobileBottomNav';
 import MobileMoreSheet, { type MobileMoreTabKey } from '@/components/mobile/MobileMoreSheet';
-import { useTheme } from '@/contexts/ThemeContext';
-import { useAuth } from '@/contexts/AuthContext';
-import { useMessage } from '@/hooks/useMessage';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
-import { getThemeColor } from '@/utils/theme';
 
-const { Content } = Layout;
+const SIDEBAR_STORAGE_KEY = 'ai-news-sidebar-collapsed';
 
-type TabKey = 'articles' | 'summary' | 'industry-graph' | MobileMoreTabKey;
+/** 需要占满内容区高度、自行管理滚动的页面 */
+const FULL_BLEED_PAGES: PageKey[] = ['articles', 'summary'];
 
-const MOBILE_PAGE_TITLES: Record<TabKey, string> = {
-  articles: '最新资讯',
-  summary: '内容总结',
-  'industry-graph': '行业趋势',
-  exploration: '模型先知',
-  'social-media': '社交平台',
-  statistics: '数据统计',
-};
+function renderPage(page: PageKey) {
+  switch (page) {
+    case 'articles':
+      return <ArticleList />;
+    case 'summary':
+      return <DailySummary />;
+    case 'industry-graph':
+      return <TechnologyEvolutionPage />;
+    case 'exploration':
+      return <ModelExplorer />;
+    case 'social-media':
+      return <SocialMediaReport />;
+    case 'statistics':
+      return <Statistics />;
+    default:
+      return <ArticleList />;
+  }
+}
 
-const MOBILE_PAGE_EYEBROWS: Record<TabKey, string> = {
-  articles: '资讯',
-  summary: '总结',
-  'industry-graph': '趋势',
-  exploration: '探索',
-  'social-media': '社媒',
-  statistics: '统计',
-};
-
-function getMobileNavKey(tab: TabKey): MobileNavKey {
-  if (tab === 'articles' || tab === 'summary' || tab === 'industry-graph') {
-    return tab;
+function getMobileNavKey(page: PageKey): MobileNavKey {
+  if (page === 'articles' || page === 'summary' || page === 'industry-graph') {
+    return page;
   }
   return 'more';
 }
 
-function isMoreTab(tab: TabKey): tab is MobileMoreTabKey {
-  return tab === 'exploration' || tab === 'social-media' || tab === 'statistics';
+function isMoreTab(page: PageKey): page is MobileMoreTabKey {
+  return page === 'exploration' || page === 'social-media' || page === 'statistics';
+}
+
+function isTypingTarget(target: EventTarget | null): boolean {
+  const el = target as HTMLElement | null;
+  return !!el?.closest('input, textarea, select, [contenteditable="true"], .ant-select, .ant-modal, .ant-drawer');
 }
 
 export default function Dashboard() {
-  const [selectedTab, setSelectedTab] = useState<TabKey>('articles');
-  const [settingsDrawerOpen, setSettingsDrawerOpen] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabParam = searchParams.get('tab');
+  const page: PageKey = isPageKey(tabParam) ? tabParam : 'articles';
+
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [moreSheetOpen, setMoreSheetOpen] = useState(false);
-  const { theme } = useTheme();
-  const { isAuthenticated, username, logout } = useAuth();
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem(SIDEBAR_STORAGE_KEY) === '1');
   const { isMobile } = useBreakpoint();
-  const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const message = useMessage();
+
+  const navigateTo = useCallback(
+    (key: PageKey) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          if (key === 'articles') {
+            next.delete('tab');
+          } else {
+            next.set('tab', key);
+          }
+          return next;
+        },
+        { replace: false }
+      );
+    },
+    [setSearchParams]
+  );
+
+  const toggleCollapsed = useCallback(() => {
+    setCollapsed((prev) => {
+      localStorage.setItem(SIDEBAR_STORAGE_KEY, prev ? '0' : '1');
+      return !prev;
+    });
+  }, []);
 
   useEffect(() => {
-    if (!settingsDrawerOpen) {
-      return;
-    }
+    if (!settingsOpen) return;
     queryClient.invalidateQueries({ queryKey: ['llm-settings'] });
     queryClient.invalidateQueries({ queryKey: ['llm-providers'] });
     queryClient.invalidateQueries({ queryKey: ['notification-settings'] });
     queryClient.invalidateQueries({ queryKey: ['industry-graph-stats'] });
     queryClient.invalidateQueries({ queryKey: ['industry-graph-suggested-questions'] });
-  }, [queryClient, settingsDrawerOpen]);
+  }, [queryClient, settingsOpen]);
 
-  const tabContent = useMemo(() => {
-    switch (selectedTab) {
-      case 'articles':
-        return <ArticleList />;
-      case 'summary':
-        return <DailySummary />;
-      case 'industry-graph':
-        return <TechnologyEvolutionPage />;
-      case 'exploration':
-        return <ModelExplorer />;
-      case 'social-media':
-        return <SocialMediaReport />;
-      case 'statistics':
-        return <Statistics />;
-      default:
-        return <ArticleList />;
-    }
-  }, [selectedTab]);
-
-  const handleMobileNavChange = (key: MobileNavKey) => {
-    if (key === 'more') {
-      setMoreSheetOpen(true);
-      return;
-    }
-    setSelectedTab(key);
-  };
+  // 桌面快捷键：1-6 切换页面，[ 折叠侧栏
+  useEffect(() => {
+    if (isMobile) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey || isTypingTarget(e.target)) return;
+      const index = Number(e.key) - 1;
+      if (Number.isInteger(index) && index >= 0 && index < PAGES.length) {
+        navigateTo(PAGES[index].key);
+      } else if (e.key === '[') {
+        toggleCollapsed();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [isMobile, navigateTo, toggleCollapsed]);
 
   const settingsDrawer = (
     <Drawer
-      title={
-        <div className="mobile-settings-drawer__title">
-          <span>系统设置</span>
-          <Space wrap>
-            {isAuthenticated ? (
-              <>
-                <span>{username}</span>
-                <Button
-                  type="text"
-                  icon={<LogoutOutlined />}
-                  onClick={() => {
-                    logout();
-                    message.success('已退出登录');
-                    navigate('/');
-                  }}
-                >
-                  退出
-                </Button>
-              </>
-            ) : (
-              <Button
-                type="primary"
-                icon={<LoginOutlined />}
-                onClick={() => navigate('/login')}
-              >
-                登录
-              </Button>
-            )}
-          </Space>
-        </div>
-      }
+      title="系统设置"
       placement="right"
-      width={isMobile ? '100%' : 800}
-      open={settingsDrawerOpen}
-      onClose={() => setSettingsDrawerOpen(false)}
-      styles={{ body: { padding: 0 } }}
+      width={isMobile ? '100%' : 860}
+      open={settingsOpen}
+      onClose={() => setSettingsOpen(false)}
+      className="settings-drawer"
+      styles={{ body: { padding: isMobile ? 12 : 24 } }}
+      destroyOnHidden
     >
-      <div style={{ padding: isMobile ? '12px' : '24px' }}>
-        <SystemSettings />
-      </div>
+      <SystemSettings />
     </Drawer>
   );
 
-  if (isMobile) {
-    const showMoreBack = isMoreTab(selectedTab);
+  const current = PAGE_MAP[page];
 
+  if (isMobile) {
     return (
-      <div className={`mobile-app-shell ${theme === 'dark' ? 'dark-theme' : 'light-theme'}`}>
-        <GlobalNavigation onSettingsClick={() => setSettingsDrawerOpen(true)} />
-        <main className="mobile-app-main">
-          <div className="mobile-page-header">
-            <div className="mobile-page-header__channel">
-              <span className="mobile-page-header__eyebrow">
-                {MOBILE_PAGE_EYEBROWS[selectedTab]}
-              </span>
-              <h1
-                className="mobile-page-header__title"
-                style={{ color: getThemeColor(theme, 'text') }}
-              >
-                {MOBILE_PAGE_TITLES[selectedTab]}
-              </h1>
-            </div>
-            {showMoreBack && (
-              <button
-                type="button"
-                className="mobile-page-header__back"
-                onClick={() => setMoreSheetOpen(true)}
-                style={{
-                  color: getThemeColor(theme, 'text'),
-                  borderColor: getThemeColor(theme, 'borderSecondary'),
-                }}
-              >
-                更多
-              </button>
-            )}
-          </div>
-          <div className="mobile-page-content">{tabContent}</div>
+      <div className="m-shell">
+        <MobileHeader
+          title={current.label}
+          showMore={isMoreTab(page)}
+          onMore={() => setMoreSheetOpen(true)}
+          onOpenSettings={() => setSettingsOpen(true)}
+        />
+        <main className="m-main" key={page}>
+          {renderPage(page)}
         </main>
 
         <MobileBottomNav
-          activeKey={getMobileNavKey(selectedTab)}
-          onChange={handleMobileNavChange}
+          activeKey={getMobileNavKey(page)}
+          onChange={(key) => (key === 'more' ? setMoreSheetOpen(true) : navigateTo(key))}
         />
-
         <MobileMoreSheet
           open={moreSheetOpen}
-          activeTab={isMoreTab(selectedTab) ? selectedTab : null}
+          activeTab={isMoreTab(page) ? page : null}
           onClose={() => setMoreSheetOpen(false)}
-          onSelect={setSelectedTab}
+          onSelect={navigateTo}
         />
 
         <AIConversationModal />
@@ -211,91 +167,38 @@ export default function Dashboard() {
     );
   }
 
-  const desktopTabs = [
-    {
-      key: 'articles',
-      label: (
-        <span>
-          <FileTextOutlined />
-          {' '}文章列表
-        </span>
-      ),
-      children: <ArticleList />,
-    },
-    {
-      key: 'summary',
-      label: (
-        <span>
-          <ReadOutlined />
-          {' '}内容总结
-        </span>
-      ),
-      children: <DailySummary />,
-    },
-    {
-      key: 'industry-graph',
-      label: (
-        <span>
-          <ApartmentOutlined />
-          {' '}行业趋势图谱
-        </span>
-      ),
-      children: <TechnologyEvolutionPage />,
-    },
-    {
-      key: 'exploration',
-      label: (
-        <span>
-          <RocketOutlined />
-          {' '}模型先知
-        </span>
-      ),
-      children: <ModelExplorer />,
-    },
-    {
-      key: 'social-media',
-      label: (
-        <span>
-          <ShareAltOutlined />
-          {' '}社交平台
-        </span>
-      ),
-      children: <SocialMediaReport />,
-    },
-    {
-      key: 'statistics',
-      label: (
-        <span>
-          <BarChartOutlined />
-          {' '}数据统计
-        </span>
-      ),
-      children: <Statistics />,
-    },
-  ];
-
-  const contentStyle: CSSProperties = {
-    padding: '24px',
-    background: theme === 'dark' ? '#1a1a1a' : '#f0f2f5',
-    minHeight: 'calc(100vh - 64px)',
-  };
+  const fullBleed = FULL_BLEED_PAGES.includes(page);
 
   return (
-    <Layout style={{ minHeight: '100vh' }}>
-      <GlobalNavigation onSettingsClick={() => setSettingsDrawerOpen(true)} />
-      <Layout>
-        <Content style={contentStyle}>
-          <Tabs
-            activeKey={selectedTab}
-            onChange={(key) => setSelectedTab(key as TabKey)}
-            items={desktopTabs}
-            size="large"
-          />
-        </Content>
-      </Layout>
+    <div className={`app-shell${collapsed ? ' app-shell--collapsed' : ''}`}>
+      <AppSidebar
+        active={page}
+        collapsed={collapsed}
+        onNavigate={navigateTo}
+        onToggleCollapsed={toggleCollapsed}
+        onOpenSettings={() => setSettingsOpen(true)}
+      />
+
+      <div className="app-main">
+        <header className="app-topbar">
+          <div className="app-topbar__title">
+            <h1>{current.label}</h1>
+            <span className="app-topbar__desc">{current.description}</span>
+          </div>
+          <div className="app-topbar__search">
+            <CommandSearch />
+          </div>
+        </header>
+
+        <main className="app-content">
+          <div className={`app-page${fullBleed ? ' app-page--full' : ''}`} key={page}>
+            {renderPage(page)}
+          </div>
+        </main>
+      </div>
 
       <AIConversationModal />
       {settingsDrawer}
-    </Layout>
+    </div>
   );
 }
