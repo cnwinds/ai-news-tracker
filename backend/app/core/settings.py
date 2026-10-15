@@ -64,6 +64,16 @@ class Settings:
             "yes",
             "on",
         }
+        # 生成日报/周报后自动调用 LLM 绘制 SVG 配图
+        self.SUMMARY_ILLUSTRATION_ENABLED: bool = os.getenv("SUMMARY_ILLUSTRATION_ENABLED", "true").lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+        # 配图并发数（封面 + 每个趋势各一次调用）与单次调用超时（秒）；推理模型画一张图常需数分钟
+        self.SUMMARY_ILLUSTRATION_CONCURRENCY: int = int(os.getenv("SUMMARY_ILLUSTRATION_CONCURRENCY", "5"))
+        self.SUMMARY_ILLUSTRATION_TIMEOUT: float = float(os.getenv("SUMMARY_ILLUSTRATION_TIMEOUT", "900"))
 
         # 定时任务配置（从数据库加载，这里只设置默认值）
         self.COLLECTION_CRON: str = "0 */1 * * *"
@@ -116,6 +126,9 @@ class Settings:
         self.SELECTED_EXPLORATION_MODELS: List[str] = []
         self.SELECTED_FALLBACK_LLM_PROVIDER_ID: Optional[int] = None
         self.SELECTED_FALLBACK_LLM_MODELS: List[str] = []
+        # 总结配图（SVG）专用模型；未配置时沿用总结所用的大模型
+        self.SELECTED_ILLUSTRATION_PROVIDER_ID: Optional[int] = None
+        self.SELECTED_ILLUSTRATION_MODELS: List[str] = []
         
         # 图片生成提供商选择配置（从数据库加载）
         self.SELECTED_IMAGE_PROVIDER_ID: Optional[int] = None
@@ -665,6 +678,12 @@ class Settings:
                 selected_fallback_llm_models_str = AppSettingsRepository.get_setting(
                     session, "selected_fallback_llm_models", ""
                 )
+                self.SELECTED_ILLUSTRATION_PROVIDER_ID = (
+                    AppSettingsRepository.get_setting(session, "selected_illustration_provider_id", None) or None
+                )
+                self.SELECTED_ILLUSTRATION_MODELS = self._parse_models(
+                    AppSettingsRepository.get_setting(session, "selected_illustration_models", "")
+                )
                 self.SELECTED_LLM_MODELS = self._parse_models(selected_llm_models_str)
                 self.SELECTED_EMBEDDING_MODELS = self._parse_models(selected_embedding_models_str)
                 self.SELECTED_EXPLORATION_MODELS = self._parse_models(selected_exploration_models_str)
@@ -749,8 +768,13 @@ class Settings:
         selected_exploration_models: Optional[List[str]] = None,
         selected_fallback_llm_provider_id: Optional[int] = None,
         selected_fallback_llm_models: Optional[List[str]] = None,
+        selected_illustration_provider_id: Optional[int] = None,
+        selected_illustration_models: Optional[List[str]] = None,
     ):
-        """保存LLM配置到数据库（支持探索 Agent 独立模型）"""
+        """保存LLM配置到数据库（支持探索 Agent 独立模型）
+
+        配图模型以 selected_illustration_models 是否传入判断是否更新；传空列表表示清除。
+        """
         try:
             from backend.app.db import get_db
             from backend.app.db.repositories import AppSettingsRepository
@@ -869,6 +893,27 @@ class Settings:
                     )
                     self.SELECTED_FALLBACK_LLM_MODELS = selected_fallback_llm_models
 
+                if selected_illustration_models is not None:
+                    illustration_provider_id = (
+                        selected_illustration_provider_id if selected_illustration_models else None
+                    )
+                    AppSettingsRepository.set_setting(
+                        session,
+                        "selected_illustration_provider_id",
+                        illustration_provider_id or 0,
+                        "int",
+                        "总结配图模型提供商ID（0 表示沿用总结模型）",
+                    )
+                    AppSettingsRepository.set_setting(
+                        session,
+                        "selected_illustration_models",
+                        ",".join(selected_illustration_models),
+                        "string",
+                        "总结配图模型列表（逗号分隔）",
+                    )
+                    self.SELECTED_ILLUSTRATION_PROVIDER_ID = illustration_provider_id or None
+                    self.SELECTED_ILLUSTRATION_MODELS = list(selected_illustration_models)
+
             self.load_llm_settings()
             return True
         except Exception as e:
@@ -914,6 +959,44 @@ class Settings:
                 }
         except Exception as e:
             logger.error(f"获取备用LLM提供商配置失败: {e}")
+            return None
+
+    def get_illustration_provider_config(self) -> Optional[dict]:
+        """获取总结配图专用模型配置；未配置或提供商不可用时返回 None（沿用总结模型）"""
+        if not self._llm_settings_loaded:
+            self._load_llm_settings()
+        if not self.SELECTED_ILLUSTRATION_PROVIDER_ID:
+            return None
+
+        try:
+            from backend.app.db import get_db
+            from backend.app.db.repositories import LLMProviderRepository
+
+            db = get_db()
+            if not hasattr(db, "engine"):
+                return None
+
+            with db.get_session() as session:
+                provider = LLMProviderRepository.get_by_id(session, self.SELECTED_ILLUSTRATION_PROVIDER_ID)
+                if not provider or not provider.enabled:
+                    logger.warning(f"配图模型提供商 {self.SELECTED_ILLUSTRATION_PROVIDER_ID} 不存在或未启用，沿用总结模型")
+                    return None
+                llm_models = self._parse_models(provider.llm_model)
+                selected_model = (
+                    self.SELECTED_ILLUSTRATION_MODELS[0]
+                    if self.SELECTED_ILLUSTRATION_MODELS
+                    else (llm_models[0] if llm_models else provider.llm_model)
+                )
+                return {
+                    "id": provider.id,
+                    "name": provider.name,
+                    "protocol": self._resolve_llm_protocol(provider.provider_type),
+                    "api_key": provider.api_key,
+                    "api_base": provider.api_base,
+                    "selected_model": selected_model,
+                }
+        except Exception as e:
+            logger.error(f"获取配图模型提供商配置失败: {e}")
             return None
 
     def get_llm_provider_config(self) -> Optional[dict]:

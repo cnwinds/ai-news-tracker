@@ -18,6 +18,7 @@ export interface LLMFormValues {
   exploration_use_independent_provider?: boolean;
   selected_exploration_provider_id?: string | null;
   selected_fallback_llm_provider_id?: string | null;
+  selected_illustration_provider_id?: string | null;
 }
 
 export interface ImageFormValues {

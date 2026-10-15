@@ -207,3 +207,25 @@ def create_ai_analyzer(
         _CACHED_ANALYZER = analyzer
         _CACHED_KEY = cache_key
     return analyzer
+
+
+def resolve_illustration_analyzer(default_analyzer):
+    """总结配图所用的分析器：配置了专用配图模型时新建客户端，否则沿用 default_analyzer。
+
+    配图只走 OpenAI 兼容协议；专用模型失败不回退到总结模型，以免产出低质量配图。
+    """
+    config = settings.get_illustration_provider_config()
+    if not config:
+        return default_analyzer
+    if config["protocol"] != "openai_compatible":
+        logger.warning(f"配图模型 {config['name']} 不是 OpenAI 兼容协议，沿用总结模型")
+        return default_analyzer
+    if not config.get("api_key"):
+        logger.warning(f"配图模型 {config['name']} 未配置 API Key，沿用总结模型")
+        return default_analyzer
+    logger.info(f"总结配图使用专用模型: {config['selected_model']} (提供商ID={config['id']})")
+    return AIAnalyzer(
+        api_key=config["api_key"],
+        base_url=config["api_base"],
+        model=config["selected_model"],
+    )

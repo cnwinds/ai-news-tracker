@@ -12,6 +12,7 @@ from backend.app.services.collector.summary_prompts import (
     DEFAULT_DAILY_SUMMARY_PROMPT_TEMPLATE,
     DEFAULT_WEEKLY_SUMMARY_PROMPT_TEMPLATE,
 )
+from backend.app.services.collector.summary_illustrator import start_illustration
 import logging
 
 logger = logging.getLogger(__name__)
@@ -22,6 +23,13 @@ class SummaryGenerator:
 
     def __init__(self, ai_analyzer: AIAnalyzer):
         self.ai_analyzer = ai_analyzer
+
+    def _illustrate(self, db: DatabaseManager, summary_id: int) -> None:
+        """在后台生成报告配图；不阻塞总结返回，失败不影响总结本身"""
+        if not settings.SUMMARY_ILLUSTRATION_ENABLED:
+            return
+        if start_illustration(db, summary_id, self.ai_analyzer):
+            logger.info(f"🎨 已启动总结配图任务 (ID: {summary_id})")
 
     def generate_daily_summary(self, db: DatabaseManager, date: datetime = None) -> DailySummary:
         """
@@ -250,6 +258,7 @@ class SummaryGenerator:
                 existing_summary.medium_importance_count = medium_count
                 existing_summary.summary_content = summary_text
                 existing_summary.key_topics = key_topics
+                existing_summary.illustrations = None
                 existing_summary.model_used = self.ai_analyzer.model
                 existing_summary.generation_time = generation_time
                 existing_summary.updated_at = datetime.now()
@@ -275,7 +284,9 @@ class SummaryGenerator:
                 session.flush()
                 summary_id = summary.id
                 logger.info(f"✅ 总结已保存 (ID: {summary_id})")
-            
+
+        self._illustrate(db, summary_id)
+
         # 在session外创建一个新的对象返回，避免detached instance问题
         return DailySummary(
             id=summary_id,

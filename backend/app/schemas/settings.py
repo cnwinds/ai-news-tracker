@@ -104,6 +104,14 @@ class LLMSettings(BaseModel):
         default=None,
         description="备用LLM模型列表",
     )
+    selected_illustration_provider_id: Optional[int] = Field(
+        default=None,
+        description="总结配图专用模型提供商ID（空表示沿用总结模型）",
+    )
+    selected_illustration_models: Optional[List[str]] = Field(
+        default=None,
+        description="总结配图专用模型列表；传空列表表示清除",
+    )
 
 
 class CollectorSettings(BaseModel):

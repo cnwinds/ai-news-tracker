@@ -51,6 +51,9 @@ dayjs.extend(isoWeek);
 
 const { TextArea } = Input;
 
+const ART_POLL_INTERVAL_MS = 5000;
+const ART_POLL_TIMEOUT_MS = 30 * 60 * 1000;
+
 const TYPE_FILTERS: { value: SummaryTypeFilter; label: string }[] = [
   { value: 'all', label: '全部' },
   { value: 'daily', label: '日报' },
@@ -101,6 +104,7 @@ function SummaryRow({ summary, active, onSelect }: SummaryRowProps) {
   const ref = useRef<HTMLButtonElement>(null);
   const weekTag = summaryWeekTag(summary);
   const isWeekly = summary.summary_type === 'weekly';
+  const highlights = summary.highlights ?? [];
 
   useEffect(() => {
     if (active) {
@@ -120,29 +124,31 @@ function SummaryRow({ summary, active, onSelect }: SummaryRowProps) {
         <span className={`dot dot--${summaryLevel(summary)}`} />
       </span>
       <span className="feed-row__body">
-        <span className="feed-row__title">
+        <span className="summary-row__meta">
           <span className="summary-row__range">{summaryRangeLabel(summary)}</span>
           {weekTag && <span className="summary-row__week">{weekTag}</span>}
-        </span>
-        <span className="feed-row__meta">
           <span className={`summary-row__type${isWeekly ? ' summary-row__type--weekly' : ''}`}>
             {TYPE_LABEL[summary.summary_type] || summary.summary_type}
           </span>
-          <span aria-hidden>·</span>
-          <span className="summary-row__stat">{summary.total_articles} 篇</span>
-          {summary.high_importance_count > 0 && (
-            <span className="summary-row__stat summary-row__stat--high" title="高重要">
-              <span className="dot dot--high" />
-              {summary.high_importance_count}
-            </span>
-          )}
-          {summary.medium_importance_count > 0 && (
-            <span className="summary-row__stat summary-row__stat--medium" title="中重要">
-              <span className="dot dot--medium" />
-              {summary.medium_importance_count}
-            </span>
-          )}
+          <span className="summary-row__stats">
+            <span className="summary-row__stat">{summary.total_articles} 篇</span>
+            {summary.high_importance_count > 0 && (
+              <span className="summary-row__stat summary-row__stat--high" title="高重要">
+                <span className="dot dot--high" />
+                {summary.high_importance_count}
+              </span>
+            )}
+          </span>
         </span>
+        <span className="feed-row__title summary-row__headline">
+          {summary.headline || `${summaryRangeLabel(summary)} ${TYPE_LABEL[summary.summary_type] || ''}`}
+        </span>
+        {highlights.length > 1 && (
+          <span className="summary-row__more">
+            <span className="summary-row__more-count">+{highlights.length - 1}</span>
+            {highlights[1]}
+          </span>
+        )}
       </span>
       <span className="feed-row__trail" />
     </button>
@@ -405,6 +411,56 @@ export default function DailySummary() {
     }),
   });
 
+  const artMutation = useMutation({
+    mutationFn: async (id: number) => {
+      let status = await apiService.generateSummaryIllustrations(id);
+      const deadline = Date.now() + ART_POLL_TIMEOUT_MS;
+      while (status.running) {
+        if (Date.now() > deadline) throw new Error('配图仍在后台生成，请稍后刷新查看');
+        await new Promise((resolve) => setTimeout(resolve, ART_POLL_INTERVAL_MS));
+        status = await apiService.getSummaryIllustrationStatus(id);
+      }
+      if (status.error) throw new Error(status.error);
+      return apiService.getSummaryFields(id, 'illustrations');
+    },
+    onSuccess: ({ illustrations }, id) => {
+      showSuccess('配图已生成');
+      setLoadedDetails((prev) => {
+        const current = prev.get(id);
+        if (!current) return prev;
+        const next = new Map(prev);
+        next.set(id, { ...current, illustrations });
+        return next;
+      });
+      queryClient.invalidateQueries({ queryKey: ['summaries'] });
+    },
+    onError: createErrorHandler({
+      operationName: '生成配图',
+      customMessages: {
+        auth: '需要登录才能生成配图',
+      },
+    }),
+  });
+
+  // 自动生成的总结会在后台补画配图：打开无封面的总结时轮询任务，结束后刷新详情
+  const selectedHasCover = selectedId !== null && !!loadedDetails.get(selectedId)?.illustrations?.cover;
+  const artStatusQuery = useQuery({
+    queryKey: ['summary-art-status', selectedId],
+    queryFn: () => apiService.getSummaryIllustrationStatus(selectedId as number),
+    enabled: selectedId !== null && loadedDetails.has(selectedId) && !selectedHasCover && !artMutation.isPending,
+    refetchInterval: (query) => (query.state.data?.running ? ART_POLL_INTERVAL_MS : false),
+  });
+  const backgroundDrawing = !!artStatusQuery.data?.running;
+  const wasDrawingRef = useRef(false);
+  useEffect(() => {
+    if (wasDrawingRef.current && !backgroundDrawing && selectedId !== null) {
+      void loadSummaryDetails(selectedId, true);
+      queryClient.invalidateQueries({ queryKey: ['summaries'] });
+    }
+    wasDrawingRef.current = backgroundDrawing;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [backgroundDrawing, selectedId]);
+
   const handleRegenerate = (summary: DailySummaryListItem) => {
     const requestData: SummaryGenerateRequest = {
       summary_type: summary.summary_type as 'daily' | 'weekly',
@@ -559,7 +615,7 @@ export default function DailySummary() {
       {generateMutation.isPending && (
         <Alert
           message="正在生成摘要"
-          description="摘要生成可能需要一些时间，请耐心等待。生成完成后会自动刷新列表。"
+          description="摘要生成后，AI 会在后台继续绘制封面与趋势配图（约需数分钟），绘制完成后自动显示。"
           type="info"
           showIcon
           style={{ marginBottom: 16 }}
@@ -790,6 +846,11 @@ export default function DailySummary() {
       canEdit={isAuthenticated}
       regenerating={regenerateMutation.isPending && regeneratingSummaryIdRef.current === summary.id}
       deleting={deleteMutation.isPending}
+      generatingArt={
+        (artMutation.isPending && artMutation.variables === summary.id) ||
+        (backgroundDrawing && selectedId === summary.id)
+      }
+      onGenerateArt={() => artMutation.mutate(summary.id)}
       onShare={() => handleShareLink(summary.id)}
       onRegenerate={() => handleRegenerate(summary)}
       onDelete={() => handleDelete(summary.id)}

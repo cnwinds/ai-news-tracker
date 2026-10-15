@@ -92,6 +92,25 @@ export interface DailySummaryListItem {
   medium_importance_count: number;
   created_at: string;
   updated_at: string;
+  /** 从正文提炼的主标题（旧后端无此字段） */
+  headline?: string | null;
+  highlights?: string[];
+  has_illustrations?: boolean;
+}
+
+export interface SummaryIllustrations {
+  version?: number;
+  /** LLM 生成并经后端清洗的 SVG，颜色通过 f-* / s-* class 跟随主题 */
+  cover?: string | null;
+  trends?: { title: string; svg?: string | null }[];
+  model?: string | null;
+  generated_at?: string | null;
+}
+
+export interface SummaryIllustrationStatus {
+  running: boolean;
+  /** 最近一次后台配图失败原因 */
+  error?: string | null;
 }
 
 export interface DailySummary {
@@ -105,6 +124,7 @@ export interface DailySummary {
   high_importance_count: number;
   medium_importance_count: number;
   key_topics?: string[];
+  illustrations?: SummaryIllustrations | null;
   model_used?: string;
   generation_time?: number;
   created_at: string;
@@ -114,6 +134,7 @@ export interface DailySummary {
 export interface SummaryFieldsResponse {
   summary_content?: string;
   key_topics?: string[];
+  illustrations?: SummaryIllustrations | null;
 }
 
 export interface RSSSource {
@@ -221,6 +242,9 @@ export interface LLMSettings {
   selected_exploration_models?: string[] | null;
   selected_fallback_llm_provider_id?: number | null;
   selected_fallback_llm_models?: string[] | null;
+  /** 总结配图专用模型；为空时沿用总结所用的大模型 */
+  selected_illustration_provider_id?: number | null;
+  selected_illustration_models?: string[] | null;
 }
 
 export interface ImageProvider {

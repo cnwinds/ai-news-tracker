@@ -238,6 +238,14 @@ WEB_PORT=8000
 # 日志配置（可选）
 LOG_LEVEL=INFO
 LOG_FILE=logs/app.log
+
+# 总结报告 SVG 配图（可选，详见 docs/功能需求说明书.md 5.3）
+SUMMARY_ILLUSTRATION_ENABLED=true
+SUMMARY_ILLUSTRATION_CONCURRENCY=5
+SUMMARY_ILLUSTRATION_TIMEOUT=900
+
+# 本地调试时关闭定时任务（可选）
+SCHEDULER_ENABLED=true
 ```
 
 **注意**：LLM API 配置（API地址、密钥、模型等）和通知配置（飞书/钉钉Webhook）现在通过 Web 界面的"系统设置"页面进行配置，存储在数据库中。启动服务后，访问系统设置页面进行配置。

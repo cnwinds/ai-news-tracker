@@ -9,6 +9,7 @@ import type {
   DailySummaryListItem,
   SummaryFieldsResponse,
   SummaryGenerateRequest,
+  SummaryIllustrationStatus,
   RSSSource,
   RSSSourceCreate,
   RSSSourceUpdate,
@@ -436,6 +437,19 @@ class ApiService {
   async deleteSummary(id: number): Promise<void> {
     await this.handleRequest(
       this.client.delete(`/summary/${id}`)
+    );
+  }
+
+  /** 启动后台配图任务，用 getSummaryIllustrationStatus 轮询进度 */
+  async generateSummaryIllustrations(id: number): Promise<SummaryIllustrationStatus> {
+    return this.handleRequest(
+      this.client.post<SummaryIllustrationStatus>(`/summary/${id}/illustrations`)
+    );
+  }
+
+  async getSummaryIllustrationStatus(id: number): Promise<SummaryIllustrationStatus> {
+    return this.handleRequest(
+      this.client.get<SummaryIllustrationStatus>(`/summary/${id}/illustrations/status`)
     );
   }
 

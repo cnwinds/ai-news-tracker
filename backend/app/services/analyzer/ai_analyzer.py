@@ -106,14 +106,27 @@ class AIAnalyzer:
         temperature: float = 0.3,
         max_tokens: int = 200,
         purpose: str = "llm",
+        timeout: Optional[float] = None,
+        max_retries: Optional[int] = None,
     ) -> str:
-        """调用 LLM 并在可恢复错误时自动切换备用模型"""
+        """调用 LLM 并在可恢复错误时自动切换备用模型
+
+        timeout / max_retries 用于覆盖客户端默认值（长输出、推理模型等慢调用）。
+        """
         clients: List[tuple] = [("primary", self.client, self.model)]
         if self.fallback_client and self.fallback_model:
             clients.append(("fallback", self.fallback_client, self.fallback_model))
 
+        overrides: Dict[str, Any] = {}
+        if timeout is not None:
+            overrides["timeout"] = timeout
+        if max_retries is not None:
+            overrides["max_retries"] = max_retries
+
         errors: List[str] = []
         for index, (label, client, model) in enumerate(clients):
+            if overrides:
+                client = client.with_options(**overrides)
             try:
                 response = client.chat.completions.create(
                     model=model,

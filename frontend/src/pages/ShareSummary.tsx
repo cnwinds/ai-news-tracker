@@ -2,14 +2,17 @@
  * 摘要分享页
  * 外部用户可直接访问，独立展示摘要内容
  */
+import { useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Button, Skeleton } from 'antd';
 import { ArrowLeftOutlined, FileSearchOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { apiService } from '@/services/api';
-import { Markdown } from '@/utils/markdown';
 import ShareShell from '@/components/share/ShareShell';
+import SummaryDigest from '@/components/summary/SummaryDigest';
+import { digestHeadline, parseSummary } from '@/components/summary/parse';
+import '@/styles/pages/summary.css';
 
 export default function ShareSummary() {
   const { id } = useParams();
@@ -26,10 +29,15 @@ export default function ShareSummary() {
 
   const isDaily = summary?.summary_type === 'daily';
 
+  const headline = useMemo(
+    () => (summary?.summary_content ? digestHeadline(parseSummary(summary.summary_content)) : null),
+    [summary?.summary_content]
+  );
   const summaryTitle = summary
-    ? isDaily
-      ? `每日摘要 - ${dayjs(summary.summary_date).format('YYYY-MM-DD')}`
-      : `每周摘要 - ${dayjs(summary.start_date).format('YYYY-MM-DD')} 至 ${dayjs(summary.end_date).format('YYYY-MM-DD')}`
+    ? headline ||
+      (isDaily
+        ? `每日摘要 - ${dayjs(summary.summary_date).format('YYYY-MM-DD')}`
+        : `每周摘要 - ${dayjs(summary.start_date).format('YYYY-MM-DD')} 至 ${dayjs(summary.end_date).format('YYYY-MM-DD')}`)
     : '';
 
   const summaryRange = summary
@@ -77,30 +85,17 @@ export default function ShareSummary() {
           </div>
         </header>
 
-        <div className="share-stats">
-          <div className="share-stats__cell">
-            <span className="share-stats__label">文章数</span>
-            <span className="share-stats__value">{summary.total_articles}</span>
-          </div>
-          <div className="share-stats__cell">
-            <span className="share-stats__label">
-              <span className="dot dot--high" style={{ boxShadow: 'none' }} />
-              高重要性
-            </span>
-            <span className="share-stats__value">{summary.high_importance_count}</span>
-          </div>
-          <div className="share-stats__cell">
-            <span className="share-stats__label">
-              <span className="dot dot--medium" />
-              中重要性
-            </span>
-            <span className="share-stats__value">{summary.medium_importance_count}</span>
-          </div>
-        </div>
-
         <section className="reader__section">
           {summary.summary_content ? (
-            <Markdown>{summary.summary_content}</Markdown>
+            <SummaryDigest
+              content={summary.summary_content}
+              stats={{
+                total: summary.total_articles,
+                high: summary.high_importance_count,
+                medium: summary.medium_importance_count,
+              }}
+              illustrations={summary.illustrations}
+            />
           ) : (
             <p className="u-muted" style={{ fontSize: 13 }}>
               摘要内容为空

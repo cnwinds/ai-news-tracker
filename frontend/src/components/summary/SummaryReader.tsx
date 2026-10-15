@@ -1,6 +1,7 @@
 /**
  * 内容总结阅读器：PC 分栏右侧、手机全屏页共用
  */
+import { useMemo, useState } from 'react';
 import { Button, Popconfirm, Skeleton, Tooltip } from 'antd';
 import {
   ArrowLeftOutlined,
@@ -10,8 +11,10 @@ import {
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import type { DailySummaryListItem, SummaryFieldsResponse } from '@/types';
-import { Markdown } from '@/utils/markdown';
-import { summaryFullRange, summaryHeading, summaryWeekTag, TYPE_LABEL } from './format';
+import ArticleDetailModal from '@/components/ArticleDetailModal';
+import SummaryDigest from './SummaryDigest';
+import { digestHeadline, parseSummary } from './parse';
+import { summaryFullRange, summaryWeekTag, TYPE_LABEL } from './format';
 
 interface SummaryReaderProps {
   summary: DailySummaryListItem;
@@ -20,9 +23,11 @@ interface SummaryReaderProps {
   canEdit: boolean;
   regenerating: boolean;
   deleting: boolean;
+  generatingArt: boolean;
   onShare: () => void;
   onRegenerate: () => void;
   onDelete: () => void;
+  onGenerateArt: () => void;
   onRetry?: () => void;
   /** 手机端显示返回箭头 */
   onBack?: () => void;
@@ -35,14 +40,21 @@ export default function SummaryReader({
   canEdit,
   regenerating,
   deleting,
+  generatingArt,
   onShare,
   onRegenerate,
   onDelete,
+  onGenerateArt,
   onRetry,
   onBack,
 }: SummaryReaderProps) {
+  const [articleId, setArticleId] = useState<number | null>(null);
   const weekTag = summaryWeekTag(summary);
-  const topics = details?.key_topics ?? [];
+  const content = details?.summary_content ?? '';
+  const headline = useMemo(
+    () => summary.headline || (content ? digestHeadline(parseSummary(content)) : null),
+    [summary.headline, content]
+  );
 
   return (
     <article className="reader summary-reader">
@@ -67,7 +79,7 @@ export default function SummaryReader({
           {canEdit && (
             <Popconfirm
               title="重新生成这份摘要？"
-              description="将基于最新文章覆盖当前内容。"
+              description="将基于最新文章覆盖当前内容，并重新绘制配图。"
               okText="重新生成"
               cancelText="取消"
               onConfirm={onRegenerate}
@@ -98,44 +110,29 @@ export default function SummaryReader({
         </div>
       </div>
 
-      <header>
-        <div className="reader__kicker">
-          <span className="eyebrow">{summaryHeading(summary)}</span>
+      <header className="summary-reader__header">
+        <div className="summary-reader__eyebrow">
+          <span className="mono">{summaryFullRange(summary)}</span>
+          <span aria-hidden>·</span>
+          <span>{summary.summary_type === 'weekly' ? '每周情报' : '每日情报'}</span>
+          {regenerating && (
+            <span className="u-accent">
+              <span className="dot dot--live" /> 正在重新生成…
+            </span>
+          )}
         </div>
-        <h1 className="reader__title mono summary-reader__title">{summaryFullRange(summary)}</h1>
+        <h1 className="reader__title summary-reader__title">{headline || summaryFullRange(summary)}</h1>
         <div className="reader__meta">
           <span className="reader__meta-item">
-            生成于 <span className="mono">{dayjs(summary.updated_at || summary.created_at).format('YYYY-MM-DD HH:mm')}</span>
+            生成于 <span className="mono">{dayjs(summary.updated_at || summary.created_at).format('MM-DD HH:mm')}</span>
           </span>
-          {regenerating && (
-            <span className="reader__meta-item u-accent">
-              <span className="dot dot--live" />
-              正在重新生成…
+          {details?.illustrations?.model && (
+            <span className="reader__meta-item">
+              配图 <span className="mono">{details.illustrations.model}</span>
             </span>
           )}
         </div>
       </header>
-
-      <div className="summary-stats" role="list">
-        <div className="summary-stats__cell" role="listitem">
-          <span className="summary-stats__label">文章</span>
-          <span className="summary-stats__value">{summary.total_articles}</span>
-        </div>
-        <div className="summary-stats__cell" role="listitem">
-          <span className="summary-stats__label">
-            <span className="dot dot--high" />
-            高重要
-          </span>
-          <span className="summary-stats__value summary-stats__value--high">{summary.high_importance_count}</span>
-        </div>
-        <div className="summary-stats__cell" role="listitem">
-          <span className="summary-stats__label">
-            <span className="dot dot--medium" />
-            中重要
-          </span>
-          <span className="summary-stats__value summary-stats__value--medium">{summary.medium_importance_count}</span>
-        </div>
-      </div>
 
       {!details ? (
         loading ? (
@@ -150,38 +147,25 @@ export default function SummaryReader({
             )}
           </div>
         )
+      ) : content ? (
+        <SummaryDigest
+          content={content}
+          stats={{
+            total: summary.total_articles,
+            high: summary.high_importance_count,
+            medium: summary.medium_importance_count,
+          }}
+          illustrations={details.illustrations}
+          art={{ canGenerate: canEdit, generating: generatingArt, onGenerate: onGenerateArt }}
+          onOpenArticle={setArticleId}
+        />
       ) : (
-        <>
-          {topics.length > 0 && (
-            <section className="reader__section">
-              <div className="reader__section-head">
-                <span className="eyebrow">关键主题</span>
-                <span className="eyebrow">{topics.length}</span>
-              </div>
-              <div className="reader__tags">
-                {topics.map((topic, index) => (
-                  <span key={`${topic}-${index}`} className="chip">
-                    # {topic}
-                  </span>
-                ))}
-              </div>
-            </section>
-          )}
-
-          <section className="reader__section">
-            <div className="reader__section-head">
-              <span className="eyebrow">摘要正文</span>
-            </div>
-            {details.summary_content ? (
-              <Markdown>{details.summary_content}</Markdown>
-            ) : (
-              <p className="u-muted" style={{ fontSize: 13 }}>
-                暂无摘要内容
-              </p>
-            )}
-          </section>
-        </>
+        <p className="u-muted" style={{ fontSize: 13 }}>
+          暂无摘要内容
+        </p>
       )}
+
+      <ArticleDetailModal articleId={articleId} open={articleId !== null} onClose={() => setArticleId(null)} />
     </article>
   );
 }

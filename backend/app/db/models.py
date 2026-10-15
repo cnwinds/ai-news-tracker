@@ -171,6 +171,7 @@ class DailySummary(Base):
     # 总结内容
     summary_content = Column(Text, nullable=False)  # LLM生成的总结
     key_topics = Column(JSON, nullable=True)  # ["topic1", "topic2"]
+    illustrations = Column(JSON, nullable=True)  # {"cover": svg, "trends": [{"title", "svg"}], ...}
 
     # 元数据
     model_used = Column(String(100), nullable=True)  # 使用的LLM模型

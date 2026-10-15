@@ -21,12 +21,28 @@ from backend.app.schemas.summary import (
     DailySummaryListItem,
     SummaryFieldsResponse,
     SummaryGenerateRequest,
+    SummaryIllustrationStatus,
 )
 from backend.app.services.collector import CollectionService
+from backend.app.services.collector.summary_illustrator import (
+    extract_headline,
+    extract_trend_titles,
+    illustration_status,
+    start_illustration,
+)
 from backend.app.utils import create_ai_analyzer
 from backend.app.db import get_db
 
 router = APIRouter()
+
+
+def _to_list_item(summary: DailySummary) -> DailySummaryListItem:
+    item = DailySummaryListItem.model_validate(summary)
+    content = summary.summary_content or ""
+    item.headline = extract_headline(content)
+    item.highlights = extract_trend_titles(content)
+    item.has_illustrations = bool((summary.illustrations or {}).get("cover"))
+    return item
 
 
 @router.get("", response_model=List[DailySummaryListItem])
@@ -41,7 +57,7 @@ async def get_summaries(
         .limit(limit)
         .all()
     )
-    return [DailySummaryListItem.model_validate(s) for s in summaries]
+    return [_to_list_item(s) for s in summaries]
 
 
 @router.get("/{summary_id}", response_model=DailySummarySchema)
@@ -75,7 +91,7 @@ async def get_summary_fields(
     
     # 解析字段列表
     if fields == "all":
-        field_list = ["summary_content", "key_topics"]
+        field_list = ["summary_content", "key_topics", "illustrations"]
     else:
         field_list = [f.strip() for f in fields.split(",")]
     
@@ -85,8 +101,32 @@ async def get_summary_fields(
         response_data["summary_content"] = summary.summary_content
     if "key_topics" in field_list:
         response_data["key_topics"] = summary.key_topics
+    if "illustrations" in field_list:
+        response_data["illustrations"] = summary.illustrations
     
     return SummaryFieldsResponse(**response_data)
+
+
+@router.post("/{summary_id}/illustrations", response_model=SummaryIllustrationStatus, status_code=202)
+async def generate_summary_illustrations(
+    summary_id: int,
+    current_user: str = Depends(require_auth),
+    db: Session = Depends(get_database),
+):
+    """在后台用 LLM 为摘要生成（或重新生成）封面图与趋势插图，进度通过 status 接口轮询"""
+    if not db.query(DailySummary.id).filter(DailySummary.id == summary_id).first():
+        raise HTTPException(status_code=404, detail="摘要不存在")
+    ai_analyzer = create_ai_analyzer()
+    if not ai_analyzer:
+        raise HTTPException(status_code=400, detail="未配置AI分析器")
+    start_illustration(get_db(), summary_id, ai_analyzer)
+    return illustration_status(summary_id)
+
+
+@router.get("/{summary_id}/illustrations/status", response_model=SummaryIllustrationStatus)
+async def get_summary_illustration_status(summary_id: int):
+    """配图任务状态：running 为是否进行中，error 为最近一次失败原因"""
+    return illustration_status(summary_id)
 
 
 @router.delete("/{summary_id}")

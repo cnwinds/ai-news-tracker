@@ -185,6 +185,10 @@ export default function LLMSettingsTab() {
           llmSettings.selected_fallback_llm_provider_id,
           llmSettings.selected_fallback_llm_models,
         ),
+        selected_illustration_provider_id: toProviderAndModel(
+          llmSettings.selected_illustration_provider_id,
+          llmSettings.selected_illustration_models,
+        ),
         exploration_execution_mode: llmSettings.exploration_execution_mode || 'auto',
         exploration_use_independent_provider: llmSettings.exploration_use_independent_provider || false,
       });
@@ -204,6 +208,9 @@ export default function LLMSettingsTab() {
     const { providerId: selected_fallback_llm_provider_id, models: selected_fallback_llm_models } = parseProviderAndModel(
       values.selected_fallback_llm_provider_id,
     );
+    const { providerId: selected_illustration_provider_id, models: selected_illustration_models } = parseProviderAndModel(
+      values.selected_illustration_provider_id,
+    );
     
     updateLLMMutation.mutate({
       selected_llm_provider_id,
@@ -216,6 +223,8 @@ export default function LLMSettingsTab() {
       selected_exploration_models,
       selected_fallback_llm_provider_id,
       selected_fallback_llm_models,
+      selected_illustration_provider_id,
+      selected_illustration_models,
     });
   };
 
@@ -249,6 +258,10 @@ export default function LLMSettingsTab() {
   const explorationUseIndependentProvider = Form.useWatch('exploration_use_independent_provider', llmForm) || false;
   const llmProviderOptions = buildProviderOptions(enabledProviders, 'llm_model');
   const embeddingProviderOptions = buildProviderOptions(embeddingProviders, 'embedding_model');
+  const illustrationProviderOptions = buildProviderOptions(
+    enabledProviders.filter((p) => !/anthropic|claude/i.test(p.provider_type || '')),
+    'llm_model',
+  );
 
   return (
     <Spin spinning={llmLoading || providersLoading}>
@@ -405,6 +418,20 @@ export default function LLMSettingsTab() {
               />
             </Form.Item>
 
+            <Form.Item
+              name="selected_illustration_provider_id"
+              label="总结配图模型（可选）"
+              tooltip="日报/周报的封面与趋势 SVG 配图专用模型，建议选择擅长代码与绘图的推理模型；不选则沿用大模型提供商。仅支持 OpenAI 兼容接口"
+            >
+              <Select
+                placeholder="沿用大模型提供商"
+                style={{ width: '100%' }}
+                disabled={!isAuthenticated}
+                allowClear
+                options={illustrationProviderOptions}
+              />
+            </Form.Item>
+
             <SettingsSubhead>自主探索 Agent</SettingsSubhead>
             <Form.Item
               name="exploration_execution_mode"
@@ -469,6 +496,10 @@ export default function LLMSettingsTab() {
                       selected_fallback_llm_provider_id: toProviderAndModel(
                         llmSettings.selected_fallback_llm_provider_id,
                         llmSettings.selected_fallback_llm_models,
+                      ),
+                      selected_illustration_provider_id: toProviderAndModel(
+                        llmSettings.selected_illustration_provider_id,
+                        llmSettings.selected_illustration_models,
                       ),
                       exploration_execution_mode: llmSettings.exploration_execution_mode || 'auto',
                       exploration_use_independent_provider: llmSettings.exploration_use_independent_provider || false,

@@ -1,6 +1,7 @@
 """
 FastAPI 应用入口
 """
+import os
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -110,10 +111,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"⚠️  从数据库加载配置失败: {e}")
     
-    try:
-        scheduler = _start_scheduler()
-    except Exception as e:
-        logger.error(f"❌ 启动定时任务调度器失败: {e}", exc_info=True)
+    if os.getenv("SCHEDULER_ENABLED", "true").lower() in {"0", "false", "no", "off"}:
+        logger.info("⏸️  SCHEDULER_ENABLED=false，跳过定时任务调度器")
+    else:
+        try:
+            scheduler = _start_scheduler()
+        except Exception as e:
+            logger.error(f"❌ 启动定时任务调度器失败: {e}", exc_info=True)
     
     yield
     

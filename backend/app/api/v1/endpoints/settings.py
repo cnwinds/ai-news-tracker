@@ -285,6 +285,8 @@ async def get_llm_settings():
         selected_exploration_models=settings.SELECTED_EXPLORATION_MODELS,
         selected_fallback_llm_provider_id=settings.SELECTED_FALLBACK_LLM_PROVIDER_ID,
         selected_fallback_llm_models=settings.SELECTED_FALLBACK_LLM_MODELS,
+        selected_illustration_provider_id=settings.SELECTED_ILLUSTRATION_PROVIDER_ID,
+        selected_illustration_models=settings.SELECTED_ILLUSTRATION_MODELS,
     )
 
 
@@ -305,6 +307,8 @@ async def update_llm_settings(
         selected_exploration_models=new_settings.selected_exploration_models,
         selected_fallback_llm_provider_id=new_settings.selected_fallback_llm_provider_id,
         selected_fallback_llm_models=new_settings.selected_fallback_llm_models,
+        selected_illustration_provider_id=new_settings.selected_illustration_provider_id,
+        selected_illustration_models=new_settings.selected_illustration_models,
     )
     if not success:
         raise HTTPException(status_code=500, detail="保存LLM配置失败")
@@ -331,6 +335,8 @@ async def update_llm_settings(
         selected_exploration_models=settings.SELECTED_EXPLORATION_MODELS,
         selected_fallback_llm_provider_id=settings.SELECTED_FALLBACK_LLM_PROVIDER_ID,
         selected_fallback_llm_models=settings.SELECTED_FALLBACK_LLM_MODELS,
+        selected_illustration_provider_id=settings.SELECTED_ILLUSTRATION_PROVIDER_ID,
+        selected_illustration_models=settings.SELECTED_ILLUSTRATION_MODELS,
     )
 
 

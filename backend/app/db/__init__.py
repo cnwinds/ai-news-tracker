@@ -215,6 +215,9 @@ class DatabaseManager:
 
             # 迁移：补齐 access_logs 新增字段（兼容旧库）
             self._migrate_add_access_log_fields()
+
+            # 迁移：总结报告配图字段（兼容旧库）
+            self._migrate_add_summary_illustrations()
              
             logger.info("✅ 数据库基础表初始化成功")
         except Exception as e:
@@ -488,6 +491,19 @@ class DatabaseManager:
             },
         }
         return defaults.get(table_name, {})
+
+    def _migrate_add_summary_illustrations(self):
+        try:
+            from sqlalchemy import inspect, text
+            inspector = inspect(self.engine)
+            columns = [col['name'] for col in inspector.get_columns('daily_summaries')]
+            if 'illustrations' not in columns:
+                with self.engine.connect() as conn:
+                    conn.execute(text("ALTER TABLE daily_summaries ADD COLUMN illustrations JSON"))
+                    conn.commit()
+                logger.info("✅ 已添加 daily_summaries.illustrations 字段")
+        except Exception as e:
+            logger.warning(f"⚠️  添加 illustrations 字段失败: {e}")
 
     def _migrate_add_is_favorited(self):
         """迁移：为 articles 表添加 is_favorited 字段（如果不存在）"""
