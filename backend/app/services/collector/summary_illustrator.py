@@ -2,10 +2,12 @@
 总结报告配图：解析报告结构，并用 LLM 生成可随主题换色的 SVG 信息图
 """
 import logging
+import math
 import re
 import threading
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -16,12 +18,57 @@ XLINK_NS = "http://www.w3.org/1999/xlink"
 ET.register_namespace("", SVG_NS)
 ET.register_namespace("xlink", XLINK_NS)
 
-ILLUSTRATION_VERSION = 1
+ILLUSTRATION_VERSION = 2
 MAX_TRENDS = 4
 MAX_SVG_BYTES = 80_000
 MAX_COMPLETION_TOKENS = 32_000
-COVER_VIEWBOX = "0 0 1200 420"
-TREND_VIEWBOX = "0 0 640 360"
+
+
+@dataclass(frozen=True)
+class ArtCanvas:
+    """配图画布：比例与前端展示位一致，字号按展示时的缩放换算，保证缩小后仍可读"""
+
+    width: int
+    height: int
+    # 阅读器中该展示位的典型宽度区间（px）：窄屏约 440，宽屏约 880
+    display_min: int
+    display_max: int
+
+    @property
+    def viewbox(self) -> str:
+        return f"0 0 {self.width} {self.height}"
+
+    def font_px(self, screen_px: float) -> int:
+        """在最窄展示宽度下渲染为 screen_px 所需的画布字号"""
+        return math.ceil(screen_px * self.width / self.display_min)
+
+    def prompt_params(self) -> Dict[str, Any]:
+        gcd = math.gcd(self.width, self.height)
+        return {
+            "viewbox": self.viewbox,
+            "width": self.width,
+            "height": self.height,
+            "ratio": f"{self.width // gcd}:{self.height // gcd}",
+            "display_min": self.display_min,
+            "display_max": self.display_max,
+            "scale_min": round(100 * self.display_min / self.width),
+            "scale_max": round(100 * self.display_max / self.width),
+            "font_min": self.font_px(12),
+            "font_max": self.font_px(16),
+            "gap": self.font_px(8),
+            "stroke_min": self.font_px(1.2),
+            "stroke_max": self.font_px(2),
+            "dot": self.font_px(2.5),
+            "pad_min": self.font_px(12),
+            "pad_max": self.font_px(20),
+        }
+
+
+# 与前端 .sd-cover / .sd-trend__art 的占满整行展示位保持同一比例（见 SvgArt.tsx ART_CANVAS）
+COVER_CANVAS = ArtCanvas(width=960, height=360, display_min=440, display_max=880)
+TREND_CANVAS = ArtCanvas(width=960, height=400, display_min=440, display_max=880)
+COVER_VIEWBOX = COVER_CANVAS.viewbox
+TREND_VIEWBOX = TREND_CANVAS.viewbox
 
 # ---------------------------------------------------------------------------
 # 报告结构解析（与前端 components/summary/parse.ts 的规则保持一致）
@@ -209,23 +256,28 @@ _STYLE_GUIDE = """你是一名顶级信息设计师（风格参考 The Economist
 
 ## 硬性规则
 1. 只输出一个完整的 <svg> 元素，不要 Markdown 代码块，不要解释，不要注释。
-2. 根元素写 xmlns="http://www.w3.org/2000/svg" 和 viewBox="{viewbox}"，不要写 width/height。
+2. 根元素写 xmlns="http://www.w3.org/2000/svg" 和 viewBox="{viewbox}"（画布 {width}×{height}），不要写 width/height，坐标不要超出画布。
 3. 背景透明：禁止画铺满画布或占画布一半以上面积的背景矩形。
 4. 颜色只能通过 class 指定（页面按明暗主题自动换色）；禁止 fill/stroke 颜色值，禁止 style 属性和 <style>：
    - 填充：f-ink f-muted f-panel(浅灰块) f-accent(青绿主色) f-accent-soft(主色浅底) f-cool(蓝) f-violet(紫) f-warn(琥珀) f-hot(玫红) f-on-accent(放在 f-accent 色块上的文字) f-none
    - 描边：s-ink s-muted s-line(细线) s-accent s-cool s-violet s-warn s-hot
    - 渐变色标 <stop class="st-accent|st-cool|st-violet|st-warn|st-hot|st-ink" offset=".." stop-opacity=".."/>，渐变用 fill="url(#id)" 引用
 5. 禁止：<script> <foreignObject> <image> <style>、外部链接、事件属性、动画。
-6. 文字：只用于短标签，中文不超过 6 个字，font-size 18–26，font-weight 600；按「每个汉字宽 ≈ font-size」估算宽度，文字之间、文字与图形边缘至少留 16px，绝不重叠、绝不超出画布；文字放在色块外侧，或放在足够大的色块内部（f-accent 色块里的文字用 f-on-accent）。
+6. 文字：只用于短标签，中文不超过 6 个字，font-size {font_min}–{font_max}，font-weight 600；按「每个汉字宽 ≈ font-size」估算宽度，文字之间、文字与图形边缘至少留 {gap}px，绝不重叠、绝不超出画布；文字放在色块外侧，或放在足够大的色块内部（f-accent 色块里的文字用 f-on-accent）。
+
+## 尺寸（按展示位设计）
+- 这张图在页面上横向占满一整行，实际显示宽度约 {display_min}–{display_max}px，即画布会被缩小到 {scale_min}%–{scale_max}%。
+- 所以字号不小于 {font_min}（缩小后约 12px），线宽 {stroke_min}–{stroke_max}，小圆点半径不小于 {dot}，焦点图形的最小尺寸不小于画布高度的 1/3。
+- 画布是 {ratio} 的宽幅：主体要沿水平方向展开、填满左右两侧，不要只在中间画一个方形构图而两边留空。
 
 ## 构图质量
-- 主体图形占画布面积 70% 以上，四周留 24–40px 边距，不要把小图形缩在角落。
+- 主体图形占画布面积 70% 以上，四周留 {pad_min}–{pad_max}px 边距，不要把小图形缩在角落。
 - 至少 10 个图形元素，形成清晰的主次层级：1 个视觉焦点（最大、用主色）＋若干配角（cool/violet/warn）＋细线与小圆点等细节。
 - 用图形隐喻表达机制：汇聚/分流、阶梯上升、曲线拐点、轨道与卫星、天平对比、漏斗、分层堆叠、网络节点、前后对照。
-- 几何、扁平、网格对齐；圆角统一（rx 8–14）；线宽统一（2 或 3）；可用 1–2 个线性渐变增加质感。
+- 几何、扁平、网格对齐；圆角统一；线宽统一；可用 1–2 个线性渐变增加质感。
 - 禁止卡通人物、表情、写实物体、剪贴画、段落文字。
 
-## 质量示例（仅示范风格与密度，不要照抄构图）
+## 质量示例（仅示范风格与密度，不要照抄构图；示例画布是 640×360，坐标、字号、线宽请按你的画布 {width}×{height} 与上面的尺寸规则重新设计）
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360"><defs><linearGradient id="core" x1="0" y1="0" x2="1" y2="1"><stop offset="0" class="st-accent"/><stop offset="1" class="st-cool"/></linearGradient></defs><circle cx="320" cy="180" r="150" class="f-none s-line" stroke-width="2" stroke-dasharray="4 8"/><circle cx="320" cy="180" r="100" class="f-none s-line" stroke-width="2"/><path d="M320 180 L176 96 M320 180 L470 110 M320 180 L452 278 M320 180 L190 270" class="f-none s-accent" stroke-width="2" stroke-dasharray="6 6"/><circle cx="320" cy="180" r="56" fill="url(#core)"/><text x="320" y="188" text-anchor="middle" font-size="22" font-weight="700" class="f-on-accent">Agent</text><circle cx="176" cy="96" r="26" class="f-cool"/><circle cx="470" cy="110" r="26" class="f-violet"/><circle cx="452" cy="278" r="26" class="f-warn"/><circle cx="190" cy="270" r="20" class="f-panel s-line" stroke-width="2"/><rect x="164" y="86" width="24" height="20" rx="4" class="f-none s-ink" stroke-width="2"/><path d="M460 110 h20 M470 100 v20" class="f-none s-ink" stroke-width="3"/><path d="M442 278 l8 8 l14 -16" class="f-none s-ink" stroke-width="3"/><text x="120" y="60" font-size="20" font-weight="600" class="f-ink">办公</text><text x="506" y="96" font-size="20" font-weight="600" class="f-ink">开发</text><text x="490" y="324" font-size="20" font-weight="600" class="f-ink">硬件</text><text x="120" y="320" font-size="18" class="f-muted">个人</text><circle cx="250" cy="70" r="4" class="f-accent"/><circle cx="560" cy="200" r="4" class="f-accent"/><circle cx="96" cy="190" r="4" class="f-muted"/></svg>"""
 
 _COVER_TASK = """为这期{kind}（{period}）绘制「封面主视觉」横幅，viewBox 为 {viewbox}。页面会在图片上方用 HTML 显示标题和数据，所以图里不要写标题、日期、数字和句子。
@@ -269,9 +321,9 @@ class SummaryIllustrator:
         self.max_workers = max_workers
         self.timeout = timeout
 
-    def _draw(self, task: str, viewbox: str, purpose: str) -> Optional[str]:
+    def _draw(self, task: str, canvas: ArtCanvas, purpose: str) -> Optional[str]:
         messages = [
-            {"role": "system", "content": _STYLE_GUIDE.format(viewbox=viewbox)},
+            {"role": "system", "content": _STYLE_GUIDE.format(**canvas.prompt_params())},
             {"role": "user", "content": task},
         ]
         try:
@@ -287,7 +339,7 @@ class SummaryIllustrator:
         except Exception as exc:
             logger.warning(f"配图生成失败 [{purpose}]: {exc}")
             return None
-        svg = sanitize_svg(raw, viewbox)
+        svg = sanitize_svg(raw, canvas.viewbox)
         if not svg:
             logger.warning(f"配图输出无效 [{purpose}]，长度 {len(raw or '')}")
         return svg
@@ -313,10 +365,10 @@ class SummaryIllustrator:
             trends="\n".join(f"{i + 1}. {t}" for i, t in enumerate(trends)) or "（未识别到趋势，请从正文提炼）",
             content=content[:5000],
         )
-        jobs = [(cover_task, COVER_VIEWBOX, "summary_illustration_cover")]
+        jobs = [(cover_task, COVER_CANVAS, "summary_illustration_cover")]
         for i, title in enumerate(trends):
             task = _TREND_TASK.format(viewbox=TREND_VIEWBOX, title=title, context=_trend_context(content, title))
-            jobs.append((task, TREND_VIEWBOX, f"summary_illustration_trend_{i + 1}"))
+            jobs.append((task, TREND_CANVAS, f"summary_illustration_trend_{i + 1}"))
 
         with ThreadPoolExecutor(max_workers=min(self.max_workers, len(jobs))) as pool:
             results = list(pool.map(lambda job: self._draw(*job), jobs))

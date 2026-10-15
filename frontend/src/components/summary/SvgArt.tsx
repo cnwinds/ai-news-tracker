@@ -63,14 +63,23 @@ function hash(text: string): number {
   return h >>> 0;
 }
 
+/**
+ * 配图画布尺寸，与后端 summary_illustrator.COVER_CANVAS / TREND_CANVAS 一致；
+ * 比例对应 .sd-cover、.sd-trend__art 占满整行的展示位
+ */
+export const ART_CANVAS = {
+  cover: { width: 960, height: 360 },
+  trend: { width: 960, height: 400 },
+} as const;
+
 /** 无配图时的确定性抽象图形（同一标题总是同一张） */
 export function PatternArt({ seed, variant = 'trend' }: { seed: string; variant?: 'cover' | 'trend' }) {
   const h = hash(seed);
-  const w = variant === 'cover' ? 1200 : 640;
-  const ht = variant === 'cover' ? 420 : 360;
-  const cols = variant === 'cover' ? 24 : 16;
-  const rows = variant === 'cover' ? 10 : 9;
+  const { width: w, height: ht } = ART_CANVAS[variant];
+  const cols = 24;
   const gap = w / cols;
+  const rows = Math.round(ht / gap);
+  const dot = w / 480;
   const tones = ['f-accent', 'f-cool', 'f-violet', 'f-warn'];
   const tone = tones[h % tones.length];
   const cx = (0.55 + ((h >> 3) % 30) / 100) * w;
@@ -83,7 +92,7 @@ export function PatternArt({ seed, variant = 'trend' }: { seed: string; variant?
       const y = r * (ht / rows) + ht / rows / 2;
       const d = Math.hypot(x - cx, y - cy) / w;
       const lit = ((h >> ((r * cols + c) % 24)) & 3) === 0 && d < 0.32;
-      dots.push(<circle key={`${r}-${c}`} cx={x} cy={y} r={lit ? 3.2 : 1.6} className={lit ? tone : 'f-muted'} opacity={lit ? 0.9 : 0.35} />);
+      dots.push(<circle key={`${r}-${c}`} cx={x} cy={y} r={lit ? dot * 2 : dot} className={lit ? tone : 'f-muted'} opacity={lit ? 0.9 : 0.35} />);
     }
   }
 
@@ -92,7 +101,7 @@ export function PatternArt({ seed, variant = 'trend' }: { seed: string; variant?
       <svg viewBox={`0 0 ${w} ${ht}`} xmlns="http://www.w3.org/2000/svg">
         {dots}
         {[0.12, 0.2, 0.3].map((k, i) => (
-          <circle key={k} cx={cx} cy={cy} r={k * w} className={`f-none ${i === 0 ? tone.replace('f-', 's-') : 's-line'}`} strokeWidth={i === 0 ? 2 : 1} />
+          <circle key={k} cx={cx} cy={cy} r={k * w} className={`f-none ${i === 0 ? tone.replace('f-', 's-') : 's-line'}`} strokeWidth={i === 0 ? dot * 1.4 : dot * 0.8} />
         ))}
       </svg>
     </div>

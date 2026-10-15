@@ -2,7 +2,7 @@
  * 结构化简报：封面图 → 数据条 → 导语 → 趋势卡片 → 重点文章 → 展望
  * 应用内与分享页共用
  */
-import { Fragment, useMemo, type ReactNode } from 'react';
+import { Fragment, useMemo, type MouseEvent, type ReactNode } from 'react';
 import { Button, Tooltip } from 'antd';
 import {
   AimOutlined,
@@ -72,15 +72,14 @@ function ArticleLink({
   onOpenArticle?: (id: number) => void;
   children: ReactNode;
 }) {
-  if (onOpenArticle) {
-    return (
-      <button type="button" className={className} onClick={() => onOpenArticle(id)}>
-        {children}
-      </button>
-    );
-  }
+  // 始终渲染为 <a>：button 是 inline-block，长链接会在段落里独占一行并居中
+  const handleClick = (e: MouseEvent<HTMLAnchorElement>) => {
+    if (!onOpenArticle || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+    onOpenArticle(id);
+  };
   return (
-    <a className={className} href={`/share/${id}`} target="_blank" rel="noreferrer">
+    <a className={className} href={`/share/${id}`} target="_blank" rel="noreferrer" onClick={handleClick}>
       {children}
     </a>
   );

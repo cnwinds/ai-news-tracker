@@ -142,10 +142,25 @@ def test_draw_passes_long_timeout_and_reasoning_budget():
         return '<svg viewBox="0 0 1 1"><rect/></svg>'
 
     analyzer = SimpleNamespace(model="m", _chat_completion_text=fake_completion)
-    SummaryIllustrator(analyzer, timeout=123)._draw("task", "0 0 1 1", "p")
+    SummaryIllustrator(analyzer, timeout=123)._draw("task", si.TREND_CANVAS, "p")
 
     assert seen["timeout"] == 123
     assert seen["max_tokens"] >= 16000
+
+
+def test_canvas_matches_display_slot_and_scales_fonts():
+    canvas = si.ArtCanvas(width=960, height=400, display_min=480, display_max=960)
+    params = canvas.prompt_params()
+
+    assert params["viewbox"] == "0 0 960 400"
+    assert params["ratio"] == "12:5"
+    # 最窄展示时缩小一半，12px 的屏幕字号需要 24 的画布字号
+    assert params["font_min"] == 24
+    assert params["scale_min"] == 50 and params["scale_max"] == 100
+
+    prompt = si._STYLE_GUIDE.format(**si.TREND_CANVAS.prompt_params())
+    assert 'viewBox="0 0 960 400"' in prompt
+    assert f"font-size {si.TREND_CANVAS.font_px(12)}" in prompt
 
 
 def test_illustration_analyzer_falls_back_to_summary_model(monkeypatch):

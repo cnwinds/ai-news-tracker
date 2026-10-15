@@ -424,8 +424,9 @@
   background: var(--c-bg-subtle);
 }
 
+/* 画布比例与展示位一致（960×400），按宽度铺满；max-height 只约束旧版 640×360 配图 */
 .sd-trend__art .svg-art svg {
-  max-height: 260px;
+  max-height: 440px;
 }
 
 .sd-trend__body {
@@ -705,19 +706,6 @@
 
 .sd-raw[open] summary {
   margin-bottom: 12px;
-}
-
-@container (min-width: 700px) {
-  .sd-trend {
-    grid-template-columns: 280px minmax(0, 1fr);
-  }
-
-  .sd-trend__art {
-    display: flex;
-    align-items: center;
-    border-right: 1px solid var(--c-border);
-    border-bottom: 0;
-  }
 }
 
 @container (max-width: 640px) {
