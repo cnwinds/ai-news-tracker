@@ -17,10 +17,25 @@ REASONING_TIMEOUT = 600.0
 # 部分模型输出上限较低（如 8192），传入更大的 max_tokens 会直接 400
 PROVIDER_SAFE_MAX_TOKENS = 8_192
 _MAX_TOKENS_ERROR = re.compile(r"max_tokens|max_completion_tokens|max_output|maximum.*tokens", re.IGNORECASE)
+# 强制思考模型拒绝 disabled（智谱 glm-5.3 等）
+_THINKING_FORCED_ERROR = re.compile(
+    r"(thinking.*(disabled|disable).*(not\s*support|unsupported|forbidden|invalid|error|不允许|不支持|报错))"
+    r"|(不支持关闭.*思考)|(强制思考)|(thinking\.type.*disabled)",
+    re.IGNORECASE,
+)
+# 严格 OpenAI 兼容端不认识 thinking 字段
+_THINKING_UNKNOWN_PARAM = re.compile(
+    r"(unknown|unexpected|invalid|extra).{0,40}thinking|thinking.{0,40}(unknown|unexpected|not\s*a\s*valid)",
+    re.IGNORECASE,
+)
 
 
 class EmptyCompletionError(ValueError):
     """模型调用成功但正文为空（常见于推理模型 max_tokens 不足）"""
+
+
+class ThinkingNotSupportedError(ValueError):
+    """当前模型不支持关闭深度思考（如 glm-5.3）"""
 
 
 class AIAnalyzer:
@@ -35,6 +50,7 @@ class AIAnalyzer:
         # 支持分别配置大模型和向量模型的提供商
         embedding_api_key: Optional[str] = None,
         embedding_api_base: Optional[str] = None,
+        disable_thinking: bool = False,
     ):
         try:
             # 初始化大模型客户端
@@ -45,6 +61,7 @@ class AIAnalyzer:
                 max_retries=2,
             )
             self.model = model
+            self.disable_thinking = bool(disable_thinking)
             
             # 如果提供了独立的向量模型配置，使用独立的客户端
             if embedding_api_key and embedding_api_base:
@@ -63,6 +80,8 @@ class AIAnalyzer:
             self.embedding_model = embedding_model
             self.fallback_client: Optional[OpenAI] = None
             self.fallback_model: Optional[str] = None
+            if self.disable_thinking:
+                logger.info(f"🧠 已启用关闭深度思考 (model={model})")
         except Exception as e:
             logger.error(f"❌ AI分析器初始化失败: {e}")
             raise
@@ -110,11 +129,75 @@ class AIAnalyzer:
             "rate limit",
             "too many requests",
             "返回空内容",
+            "不支持关闭深度思考",
         )
         return any(signal in text for signal in signals)
 
-    @staticmethod
+    def _completion_kwargs(
+        self,
+        model: str,
+        messages: List[Dict[str, str]],
+        temperature: float,
+        max_tokens: int,
+        *,
+        with_thinking_disable: Optional[bool] = None,
+    ) -> Dict[str, Any]:
+        kwargs: Dict[str, Any] = {
+            "model": model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        disable = self.disable_thinking if with_thinking_disable is None else with_thinking_disable
+        if disable:
+            # 智谱 OpenAI 兼容：thinking.type=disabled；其它代理若透传该字段同理
+            kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
+        return kwargs
+
+    def _request_completion(
+        self,
+        client: OpenAI,
+        model: str,
+        messages: List[Dict[str, str]],
+        temperature: float,
+        budget: int,
+        purpose: str,
+        disable_thinking: bool,
+    ):
+        """发起一次 create；处理 thinking / max_tokens 类 400，返回 (response, budget, disable_thinking)。"""
+        for _ in range(3):
+            kwargs = self._completion_kwargs(
+                model, messages, temperature, budget, with_thinking_disable=disable_thinking
+            )
+            try:
+                return client.chat.completions.create(**kwargs), budget, disable_thinking
+            except BadRequestError as exc:
+                err = str(exc)
+                if disable_thinking and _THINKING_FORCED_ERROR.search(err):
+                    raise ThinkingNotSupportedError(
+                        f"模型 {model} 不支持关闭深度思考（如 glm-5.3 / glm-5.3-flash）。"
+                        f"请换用 glm-5.2 / glm-5 / glm-4-plus，或在设置中关闭「关闭深度思考」。原始错误: {exc}"
+                    ) from exc
+                if disable_thinking and (
+                    _THINKING_UNKNOWN_PARAM.search(err) or "thinking" in err.lower()
+                ):
+                    # 严格 OpenAI 兼容端不认识 thinking 字段：去掉后同模型再试一次
+                    logger.warning(
+                        f"⚠️ {model} 拒绝 thinking 参数，改为不传关闭思考 ({purpose}): {exc}"
+                    )
+                    disable_thinking = False
+                    continue
+                if budget > PROVIDER_SAFE_MAX_TOKENS and _MAX_TOKENS_ERROR.search(err):
+                    logger.warning(
+                        f"⚠️ {model} 不接受 max_tokens={budget}，降到 {PROVIDER_SAFE_MAX_TOKENS} ({purpose}): {exc}"
+                    )
+                    budget = PROVIDER_SAFE_MAX_TOKENS
+                    continue
+                raise
+        raise RuntimeError(f"LLM 请求重试耗尽 (model={model}, purpose={purpose})")
+
     def _create_completion(
+        self,
         client: OpenAI,
         model: str,
         messages: List[Dict[str, str]],
@@ -128,27 +211,11 @@ class AIAnalyzer:
         但 finish_reason=length，正文为空或只写了一半，都不能当成功结果。
         """
         budget = max_tokens
+        disable_thinking = self.disable_thinking
         for attempt in range(2):
-            try:
-                response = client.chat.completions.create(
-                    model=model,
-                    messages=messages,
-                    temperature=temperature,
-                    max_tokens=budget,
-                )
-            except BadRequestError as exc:
-                if budget <= PROVIDER_SAFE_MAX_TOKENS or not _MAX_TOKENS_ERROR.search(str(exc)):
-                    raise
-                logger.warning(
-                    f"⚠️ {model} 不接受 max_tokens={budget}，降到 {PROVIDER_SAFE_MAX_TOKENS} ({purpose}): {exc}"
-                )
-                budget = PROVIDER_SAFE_MAX_TOKENS
-                response = client.chat.completions.create(
-                    model=model,
-                    messages=messages,
-                    temperature=temperature,
-                    max_tokens=budget,
-                )
+            response, budget, disable_thinking = self._request_completion(
+                client, model, messages, temperature, budget, purpose, disable_thinking
+            )
             choice = response.choices[0]
             content = (choice.message.content or "").strip()
             truncated = choice.finish_reason == "length"

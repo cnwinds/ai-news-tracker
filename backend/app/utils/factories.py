@@ -57,6 +57,7 @@ def _create_analyzer_with_separate_providers(
         embedding_model=embedding_model,
         embedding_api_key=embedding_config["api_key"],
         embedding_api_base=embedding_config["api_base"],
+        disable_thinking=bool(settings.LLM_DISABLE_THINKING),
     )
 
 
@@ -82,6 +83,7 @@ def _create_analyzer_with_same_provider(
         base_url=provider_config["api_base"],
         model=llm_model,
         embedding_model=embedding_model,
+        disable_thinking=bool(settings.LLM_DISABLE_THINKING),
     )
 
 
@@ -91,6 +93,7 @@ def _analyzer_cache_key(
     llm_api_key: str,
     fallback_provider_id: Optional[int],
     fallback_models: Tuple[str, ...],
+    disable_thinking: bool = False,
 ) -> Tuple:
     return (
         llm_config.get("id"),
@@ -103,6 +106,7 @@ def _analyzer_cache_key(
         (embedding_config.get("api_key") or "")[-6:],
         fallback_provider_id,
         fallback_models,
+        bool(disable_thinking),
     )
 
 
@@ -155,6 +159,7 @@ def create_ai_analyzer(
         llm_api_key,
         settings.SELECTED_FALLBACK_LLM_PROVIDER_ID,
         fallback_models,
+        bool(settings.LLM_DISABLE_THINKING),
     )
 
     with _ANALYZER_LOCK:
@@ -228,4 +233,5 @@ def resolve_illustration_analyzer(default_analyzer):
         api_key=config["api_key"],
         base_url=config["api_base"],
         model=config["selected_model"],
+        disable_thinking=bool(settings.LLM_DISABLE_THINKING),
     )

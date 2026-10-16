@@ -5,7 +5,11 @@ import httpx
 import pytest
 from openai import BadRequestError
 
-from backend.app.services.analyzer.ai_analyzer import AIAnalyzer, EmptyCompletionError
+from backend.app.services.analyzer.ai_analyzer import (
+    AIAnalyzer,
+    EmptyCompletionError,
+    ThinkingNotSupportedError,
+)
 
 
 def _response(content, finish_reason="stop", reasoning_tokens=0):
@@ -31,8 +35,13 @@ class FakeClient:
         return self
 
 
-def _analyzer(client, fallback=None):
-    analyzer = AIAnalyzer(api_key="test", base_url="http://localhost/v1", model="m")
+def _analyzer(client, fallback=None, disable_thinking=False):
+    analyzer = AIAnalyzer(
+        api_key="test",
+        base_url="http://localhost/v1",
+        model="m",
+        disable_thinking=disable_thinking,
+    )
     analyzer.client = client
     if fallback is not None:
         analyzer.fallback_client = fallback
@@ -117,3 +126,48 @@ def test_empty_content_switches_to_fallback_model():
     fallback = FakeClient([_response("from fallback")])
     assert _call(_analyzer(primary, fallback)) == "from fallback"
     assert fallback.calls[0]["model"] == "fb"
+
+
+def test_disable_thinking_sends_extra_body():
+    client = FakeClient([_response("ok")])
+    assert _call(_analyzer(client, disable_thinking=True)) == "ok"
+    assert client.calls[0]["extra_body"] == {"thinking": {"type": "disabled"}}
+
+
+def test_disable_thinking_not_sent_when_off():
+    client = FakeClient([_response("ok")])
+    _call(_analyzer(client, disable_thinking=False))
+    assert "extra_body" not in client.calls[0]
+
+
+def test_forced_thinking_model_raises_clear_error():
+    class ForcedThinking(FakeClient):
+        def _create(self, **kwargs):
+            self.calls.append(kwargs)
+            raise _bad_request("thinking.type disabled is not supported for this model")
+
+    with pytest.raises(ThinkingNotSupportedError, match="不支持关闭深度思考"):
+        _call(_analyzer(ForcedThinking([]), disable_thinking=True))
+
+
+def test_unknown_thinking_param_retries_without_extra_body():
+    class StrictOpenAI(FakeClient):
+        def _create(self, **kwargs):
+            self.calls.append(kwargs)
+            if "extra_body" in kwargs:
+                raise _bad_request("Unknown parameter: 'thinking'")
+            return self.responses.pop(0)
+
+    client = StrictOpenAI([_response("ok without thinking")])
+    assert _call(_analyzer(client, disable_thinking=True)) == "ok without thinking"
+    assert "extra_body" not in client.calls[-1]
+
+
+def test_thinking_not_supported_switches_to_fallback():
+    class ForcedThinking(FakeClient):
+        def _create(self, **kwargs):
+            self.calls.append(kwargs)
+            raise _bad_request("thinking.type disabled is not supported for this model")
+
+    fallback = FakeClient([_response("from fallback")])
+    assert _call(_analyzer(ForcedThinking([]), fallback, disable_thinking=True)) == "from fallback"

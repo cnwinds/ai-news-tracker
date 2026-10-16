@@ -112,6 +112,10 @@ class LLMSettings(BaseModel):
         default=None,
         description="总结配图专用模型列表；传空列表表示清除",
     )
+    llm_disable_thinking: Optional[bool] = Field(
+        default=False,
+        description="关闭深度思考：请求传 thinking.type=disabled（智谱 GLM-5/5.2/4.6 等；glm-5.3 不可关）",
+    )
 
 
 class CollectorSettings(BaseModel):

@@ -189,6 +189,7 @@ class SummaryGenerator:
             logger.debug(f"   提示词长度: {len(prompt)} 字符")
             logger.debug(f"   系统提示词长度: {len(system_prompt)} 字符")
             
+            # 单次长超时、不重试：默认 60s×3 次≈3 分钟才报错，长日报容易空等
             summary_text = self.ai_analyzer._chat_completion_text(
                 [
                     {
@@ -203,6 +204,8 @@ class SummaryGenerator:
                 temperature=temperature,
                 max_tokens=max_tokens,
                 purpose=f"summary_{summary_type}",
+                timeout=300.0,
+                max_retries=0,
             )
             logger.info(f"✅ LLM生成成功，响应长度: {len(summary_text)} 字符")
         except Exception as e:

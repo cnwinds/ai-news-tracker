@@ -129,6 +129,8 @@ class Settings:
         # 总结配图（SVG）专用模型；未配置时沿用总结所用的大模型
         self.SELECTED_ILLUSTRATION_PROVIDER_ID: Optional[int] = None
         self.SELECTED_ILLUSTRATION_MODELS: List[str] = []
+        # 请求时传 thinking.type=disabled（智谱 GLM-5 / 5.2 / 4.6 等）；glm-5.3 强制思考不可关
+        self.LLM_DISABLE_THINKING: bool = False
         
         # 图片生成提供商选择配置（从数据库加载）
         self.SELECTED_IMAGE_PROVIDER_ID: Optional[int] = None
@@ -684,6 +686,11 @@ class Settings:
                 self.SELECTED_ILLUSTRATION_MODELS = self._parse_models(
                     AppSettingsRepository.get_setting(session, "selected_illustration_models", "")
                 )
+                self.LLM_DISABLE_THINKING = bool(
+                    AppSettingsRepository.get_setting(
+                        session, "llm_disable_thinking", self.LLM_DISABLE_THINKING
+                    )
+                )
                 self.SELECTED_LLM_MODELS = self._parse_models(selected_llm_models_str)
                 self.SELECTED_EMBEDDING_MODELS = self._parse_models(selected_embedding_models_str)
                 self.SELECTED_EXPLORATION_MODELS = self._parse_models(selected_exploration_models_str)
@@ -770,6 +777,7 @@ class Settings:
         selected_fallback_llm_models: Optional[List[str]] = None,
         selected_illustration_provider_id: Optional[int] = None,
         selected_illustration_models: Optional[List[str]] = None,
+        llm_disable_thinking: Optional[bool] = None,
     ):
         """保存LLM配置到数据库（支持探索 Agent 独立模型）
 
@@ -913,6 +921,16 @@ class Settings:
                     )
                     self.SELECTED_ILLUSTRATION_PROVIDER_ID = illustration_provider_id or None
                     self.SELECTED_ILLUSTRATION_MODELS = list(selected_illustration_models)
+
+                if llm_disable_thinking is not None:
+                    AppSettingsRepository.set_setting(
+                        session,
+                        "llm_disable_thinking",
+                        bool(llm_disable_thinking),
+                        "bool",
+                        "关闭深度思考（请求传 thinking.type=disabled）",
+                    )
+                    self.LLM_DISABLE_THINKING = bool(llm_disable_thinking)
 
             self.load_llm_settings()
             return True

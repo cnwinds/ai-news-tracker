@@ -245,6 +245,8 @@ export interface LLMSettings {
   /** 总结配图专用模型；为空时沿用总结所用的大模型 */
   selected_illustration_provider_id?: number | null;
   selected_illustration_models?: string[] | null;
+  /** 关闭深度思考（thinking.type=disabled）；glm-5.3 等强制思考模型不可用 */
+  llm_disable_thinking?: boolean;
 }
 
 export interface ImageProvider {

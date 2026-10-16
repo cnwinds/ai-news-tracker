@@ -191,6 +191,7 @@ export default function LLMSettingsTab() {
         ),
         exploration_execution_mode: llmSettings.exploration_execution_mode || 'auto',
         exploration_use_independent_provider: llmSettings.exploration_use_independent_provider || false,
+        llm_disable_thinking: llmSettings.llm_disable_thinking || false,
       });
     }
   }, [llmSettings, llmForm]);
@@ -225,6 +226,7 @@ export default function LLMSettingsTab() {
       selected_fallback_llm_models,
       selected_illustration_provider_id,
       selected_illustration_models,
+      llm_disable_thinking: values.llm_disable_thinking || false,
     });
   };
 
@@ -391,6 +393,15 @@ export default function LLMSettingsTab() {
             </Form.Item>
 
             <Form.Item
+              name="llm_disable_thinking"
+              label="关闭深度思考"
+              valuePropName="checked"
+              tooltip="请求时传 thinking.type=disabled。适用于智谱 GLM-5 / GLM-5.2 / GLM-4.6 等可关思考的模型；glm-5.3 / glm-5.3-flash 强制思考，开启会报错。无思考老模型（如 glm-4-plus）可忽略此开关。"
+            >
+              <Switch disabled={!isAuthenticated} />
+            </Form.Item>
+
+            <Form.Item
               name="selected_embedding_provider_id"
               label="向量模型提供商"
               tooltip="选择用于生成向量嵌入的提供商和模型"
@@ -503,6 +514,7 @@ export default function LLMSettingsTab() {
                       ),
                       exploration_execution_mode: llmSettings.exploration_execution_mode || 'auto',
                       exploration_use_independent_provider: llmSettings.exploration_use_independent_provider || false,
+                      llm_disable_thinking: llmSettings.llm_disable_thinking || false,
                     });
                   }
                 }}

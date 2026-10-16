@@ -287,6 +287,7 @@ async def get_llm_settings():
         selected_fallback_llm_models=settings.SELECTED_FALLBACK_LLM_MODELS,
         selected_illustration_provider_id=settings.SELECTED_ILLUSTRATION_PROVIDER_ID,
         selected_illustration_models=settings.SELECTED_ILLUSTRATION_MODELS,
+        llm_disable_thinking=settings.LLM_DISABLE_THINKING,
     )
 
 
@@ -309,10 +310,11 @@ async def update_llm_settings(
         selected_fallback_llm_models=new_settings.selected_fallback_llm_models,
         selected_illustration_provider_id=new_settings.selected_illustration_provider_id,
         selected_illustration_models=new_settings.selected_illustration_models,
+        llm_disable_thinking=new_settings.llm_disable_thinking,
     )
     if not success:
         raise HTTPException(status_code=500, detail="保存LLM配置失败")
-    
+
     # 重新加载配置，丢弃进程内 AI 客户端，再热重载调度器持有的分析器
     settings.load_settings_from_db()
     from backend.app.utils.factories import invalidate_ai_analyzer_cache
@@ -337,6 +339,7 @@ async def update_llm_settings(
         selected_fallback_llm_models=settings.SELECTED_FALLBACK_LLM_MODELS,
         selected_illustration_provider_id=settings.SELECTED_ILLUSTRATION_PROVIDER_ID,
         selected_illustration_models=settings.SELECTED_ILLUSTRATION_MODELS,
+        llm_disable_thinking=settings.LLM_DISABLE_THINKING,
     )
 
 
