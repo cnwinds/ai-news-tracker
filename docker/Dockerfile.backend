@@ -25,8 +25,8 @@ RUN sed -i 's|http://deb.debian.org|https://mirrors.aliyun.com|g' /etc/apt/sourc
 # 复制依赖文件
 COPY backend/app/requirements.txt /app/requirements.txt
 
-# 安装Python依赖 - 使用中国镜像源加速（清华大学镜像）
-RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
+# 安装Python依赖 - 使用中国镜像源加速（阿里云镜像）
+RUN pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple -r requirements.txt
 
 # 复制后端代码
 COPY backend/ /app/backend/
